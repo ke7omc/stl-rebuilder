@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import trimesh
+from scipy.spatial import cKDTree
 
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
@@ -62,6 +63,80 @@ def volume_com_inertia(mesh_a: trimesh.Trimesh, mesh_b: trimesh.Trimesh) -> Dict
     }
 
 
+#: Upper bound on triangle-candidate pairs materialised at once by `point_mesh_distance`.
+#: 2e5 pairs -> ~14 MB for the (n,3,3) triangle array and a few multiples of that in the
+#: temporaries inside trimesh.triangles.closest_point, so peak extra RSS stays well under 1 GB.
+_MAX_CANDIDATE_PAIRS = 200_000
+#: Surface samples used to build the search-radius cloud (on top of the mesh's own vertices).
+_RADIUS_CLOUD_POINTS = 100_000
+
+
+def point_mesh_distance(mesh: trimesh.Trimesh, points: np.ndarray, seed: int = 0) -> np.ndarray:
+    """Exact distance from each point to the closest point on `mesh`'s surface, with bounded peak
+    memory. Drop-in replacement for `trimesh.proximity.ProximityQuery(mesh).on_surface(points)[1]`.
+
+    Why not use trimesh's own: `nearby_faces` sizes each point's r-tree query box by the distance
+    to the nearest mesh *vertex*. OCCT's `BRepMesh` tessellates a ruled/cylindrical face as a few
+    strip triangles that span the whole face, so on the M2 truth mesh triangles are up to 9953 mm
+    long and the nearest vertex is 2000-4500 mm away. That inflates the query box until it selects
+    ~2240 candidate faces per point; trimesh then materialises one (n_pairs, 3, 3) triangle array
+    for *all* points at once, which at 130 k query points is ~291 M pairs -> tens of GB. The M0
+    selftest was SIGKILLed by the OS there on every run after iteration 10.
+
+    The radius bound is the fix: query the distance to a dense cloud of points that lie *on* the
+    surface (the vertices plus `_RADIUS_CLOUD_POINTS` surface samples) instead of the vertices
+    alone. Any on-surface point is an upper bound for the distance to the surface, so the box is
+    still conservative and the result stays exact, but it shrinks from ~2000 mm to ~13 mm and the
+    candidate count drops from ~2240 to ~5 per point. Candidates are then consumed in chunks of at
+    most `_MAX_CANDIDATE_PAIRS`, so peak memory is bounded no matter how bad the tessellation is.
+    """
+    points = np.asarray(points, dtype=np.float64)
+    if len(points) == 0:
+        return np.empty(0, dtype=np.float64)
+
+    cloud = np.vstack([np.asarray(mesh.vertices, dtype=np.float64),
+                       trimesh.sample.sample_surface(mesh, _RADIUS_CLOUD_POINTS, seed=seed)[0]])
+    kdtree = cKDTree(cloud)
+    rtree = mesh.triangles_tree
+    triangles = mesh.triangles.view(np.ndarray)
+
+    out = np.empty(len(points), dtype=np.float64)
+    # Radii come from the cloud in one shot (cheap, ~O(n log n)); the candidate lists are what
+    # must be chunked, so walk the points in modest blocks and split each block further by the
+    # candidate budget.
+    block = 4096
+    for start in range(0, len(points), block):
+        pts = points[start:start + block]
+        radii = kdtree.query(pts, workers=-1)[0] + 1e-9
+        boxes = np.column_stack([pts - radii[:, None], pts + radii[:, None]])
+        cand = [np.fromiter(rtree.intersection(b), dtype=np.int64) for b in boxes]
+        counts = np.array([len(c) for c in cand], dtype=np.int64)
+        # A box always contains the cloud point that set its radius, and that point lies inside
+        # its own triangle's bounding box, so every list is non-empty. Belt and braces:
+        if (counts == 0).any():
+            raise RuntimeError("point_mesh_distance: empty candidate set (corrupt triangle r-tree)")
+
+        edges = np.searchsorted(np.cumsum(counts), np.arange(0, counts.sum(), _MAX_CANDIDATE_PAIRS))
+        edges = np.unique(np.concatenate([edges, [len(pts)]]))
+        lo = 0
+        for hi in edges:
+            hi = int(max(hi, lo + 1))
+            sub, sub_counts = cand[lo:hi], counts[lo:hi]
+            flat = np.concatenate(sub)
+            owner = np.repeat(np.arange(hi - lo), sub_counts)
+            query = pts[lo:hi][owner]
+            closest = trimesh.triangles.closest_point(triangles[flat], query)
+            d = np.linalg.norm(closest - query, axis=1)
+            # `owner` is non-decreasing and every group is non-empty, so reduceat gives the
+            # per-point minimum directly.
+            offsets = np.concatenate([[0], np.cumsum(sub_counts)[:-1]])
+            out[start + lo:start + hi] = np.minimum.reduceat(d, offsets)
+            lo = hi
+            if lo >= len(pts):
+                break
+    return out
+
+
 def surface_deviation(
     mesh_a: trimesh.Trimesh,
     mesh_b: trimesh.Trimesh,
@@ -88,11 +163,11 @@ def surface_deviation(
     pts_a = np.vstack([sampled_a, mesh_a.vertices])
     pts_b = np.vstack([sampled_b, mesh_b.vertices])
 
-    _, d_a_to_b, _ = trimesh.proximity.ProximityQuery(mesh_b).on_surface(pts_a)
-    _, d_b_to_a, _ = trimesh.proximity.ProximityQuery(mesh_a).on_surface(pts_b)
+    d_a_to_b = point_mesh_distance(mesh_b, pts_a, seed=seed)
+    d_b_to_a = point_mesh_distance(mesh_a, pts_b, seed=seed)
 
     all_pts = np.vstack([pts_a, pts_b])
-    all_d = np.concatenate([np.asarray(d_a_to_b), np.asarray(d_b_to_a)])
+    all_d = np.concatenate([d_a_to_b, d_b_to_a])
 
     argmax_idx = int(np.argmax(all_d))
     argmax_xyz = all_pts[argmax_idx].tolist()
