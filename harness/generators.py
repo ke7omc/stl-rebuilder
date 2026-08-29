@@ -9,14 +9,14 @@ from pathlib import Path
 from typing import Tuple
 
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder, BRepPrimAPI_MakeRevol, BRepPrimAPI_MakePrism
-from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.StlAPI import StlAPI_Writer
 from OCP.STEPControl import STEPControl_Writer, STEPControl_StepModelType
 from OCP.TopoDS import TopoDS_Shape, TopoDS
-from OCP.GC import GC_MakeArcOfEllipse
+from OCP.GC import GC_MakeArcOfEllipse, GC_MakeArcOfCircle
 from OCP.gp import gp_Elips, gp_Ax2, gp_Ax1, gp_Pnt, gp_Dir, gp_Trsf, gp_Vec
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeVertex,
@@ -287,17 +287,137 @@ def _make_m3() -> Truth:
     )
 
 
-# ---------------------------------------------------------------------------
-# M4–M5: not yet implemented (built in later M0 iterations)
-# ---------------------------------------------------------------------------
+def _fin_slot_prism(fin_w: float, r_inner: float, r_outer: float, tip_r: float,
+                    z0: float, z1: float, angle: float) -> TopoDS_Shape:
+    """One fin-slot cutter: a prism over z in [z0, z1] whose cross-section is a radial slot of
+    width `fin_w` along the ray at `angle`, rounded at its outer end with radius `tip_r`.
 
+    `tip_r == fin_w/2` (the milestone params), so the outer cap is an exact semicircle centred at
+    r_outer - tip_r and the slot's radial extent is exactly r_outer. The inner end is pulled
+    *inside* the bore (r_inner - 50) so fusing it onto the bore cylinder is transversal rather
+    than tangent (MISSION §10.6); the extra material sits where the bore already removes
+    everything, so it cannot change the resulting solid.
+    """
+    hw = fin_w / 2.0
+    if abs(tip_r - hw) > 1e-9:
+        raise ValueError(f"fin tip radius {tip_r} must equal half-width {hw} for a semicircular cap")
+    r_cap = r_outer - tip_r
+    r_start = r_inner - 50.0
+    if r_start <= hw:
+        raise ValueError("fin slot start radius collapses onto the axis")
+
+    p_a = gp_Pnt(r_start,  hw, 0.0)
+    p_b = gp_Pnt(r_start, -hw, 0.0)
+    p_c = gp_Pnt(r_cap,   -hw, 0.0)
+    p_m = gp_Pnt(r_outer,  0.0, 0.0)
+    p_d = gp_Pnt(r_cap,    hw, 0.0)
+    arc = GC_MakeArcOfCircle(p_c, p_m, p_d).Value()
+
+    mkwire = BRepBuilderAPI_MakeWire()
+    for e in (
+        BRepBuilderAPI_MakeEdge(p_a, p_b).Edge(),
+        BRepBuilderAPI_MakeEdge(p_b, p_c).Edge(),
+        BRepBuilderAPI_MakeEdge(arc).Edge(),
+        BRepBuilderAPI_MakeEdge(p_d, p_a).Edge(),
+    ):
+        mkwire.Add(e)
+    if not mkwire.IsDone():
+        raise RuntimeError("fin slot profile wire construction failed")
+    face = BRepBuilderAPI_MakeFace(mkwire.Wire(), True).Face()
+
+    prism = BRepPrimAPI_MakePrism(face, gp_Vec(0.0, 0.0, z1 - z0)).Shape()
+    place = gp_Trsf()
+    place.SetTranslation(gp_Pnt(0.0, 0.0, 0.0), gp_Pnt(0.0, 0.0, z0))
+    prism = BRepBuilderAPI_Transform(prism, place, True).Shape()
+    if angle:
+        rot = gp_Trsf()
+        rot.SetRotation(gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0)), angle)
+        prism = BRepBuilderAPI_Transform(prism, rot, True).Shape()
+    return prism
+
+
+def _finocyl_cutter(params: dict, L: float, fin_z_end: float) -> TopoDS_Shape:
+    """Full-length straight bore fused with `n_fins` fin slots spanning z in
+    [fin_z_start, fin_z_end]. The fins' fore face at fin_z_start is the flat wall that makes the
+    milestone's topology event; `fin_z_end` is where they stop (past the aft end for M4, at the
+    aft dome shoulder for M5)."""
+    n_fins = params["n_fins"]
+    hw = params["fin_w"] / 2.0
+    r_start = params["fin_r_inner"] - 50.0
+    if hw >= r_start * math.sin(math.pi / n_fins):
+        raise ValueError("fin slots overlap each other at their inner ends")
+
+    cutter = _straight_bore(params["R_bore"], L)
+    for k in range(n_fins):
+        fin = _fin_slot_prism(
+            params["fin_w"], params["fin_r_inner"], params["fin_r_outer"],
+            params["fin_tip_r"], params["fin_z_start"], fin_z_end,
+            2.0 * math.pi * k / n_fins,
+        )
+        fuse = BRepAlgoAPI_Fuse(cutter, fin)
+        fuse.Build()
+        if not fuse.IsDone():
+            raise RuntimeError(f"finocyl cutter fuse failed on fin {k}")
+        cutter = fuse.Shape()
+    return cutter
+
+
+def _finish(milestone: str, shape: TopoDS_Shape) -> Truth:
+    V, A = _volume_area(shape)
+    bbox = _bbox(shape)
+    step_path = TRUTH_DIR / f"{milestone}.step"
+    stl_path = TRUTH_DIR / f"{milestone}.stl"
+    _write_step(shape, step_path)
+    _write_stl(shape, stl_path)
+    return Truth(
+        milestone=milestone,
+        shape=shape,
+        V_truth=V,
+        A_truth=A,
+        bbox=bbox,
+        step_path=step_path,
+        stl_path=stl_path,
+    )
+
+
+# ---------------------------------------------------------------------------
+# M4: finocyl — straight cylinder, circular bore, 8 fin slots aft of fin_z_start
+# ---------------------------------------------------------------------------
 
 def _make_m4() -> Truth:
-    raise NotImplementedError("M4 generator not yet built (M0 iteration 2+)")
+    spec = ms.get("M4")
+    L = spec.params["L"]
+    outer = BRepPrimAPI_MakeCylinder(spec.params["R_o"], L).Shape()
+    # Fins run past the aft end so the z=L face is a clean planar cut, not a tangency.
+    cutter = _finocyl_cutter(spec.params, L, L + 10.0)
 
+    cut = BRepAlgoAPI_Cut(outer, cutter)
+    cut.Build()
+    if not cut.IsDone():
+        raise RuntimeError("M4 boolean cut failed")
+    return _finish("M4", cut.Shape())
+
+
+# ---------------------------------------------------------------------------
+# M5: M2's domed capsule + M4's bore and fin slots
+# ---------------------------------------------------------------------------
 
 def _make_m5() -> Truth:
-    raise NotImplementedError("M5 generator not yet built (M0 iteration 2+)")
+    spec = ms.get("M5")
+    L = spec.params["L"]
+    dome_h = spec.params["dome_semi_axial"]
+
+    outer = _capsule_outer_shape(L, spec.params["R_o"], dome_h)
+    # Fins stop at the aft dome shoulder (z = L - dome_h), matching the `fin_zone` region band in
+    # milestones._m5. Running them to z=L as in M4 would punch the slots straight through the
+    # dome wall (the dome's radius drops below fin_r_outer at z≈9857), which is not a finocyl.
+    cutter = _finocyl_cutter(spec.params, L, L - dome_h)
+
+    cut = BRepAlgoAPI_Cut(outer, cutter)
+    cut.Build()
+    if not cut.IsDone():
+        raise RuntimeError("M5 boolean cut failed")
+    return _finish("M5", cut.Shape())
 
 
 _MAKERS = {

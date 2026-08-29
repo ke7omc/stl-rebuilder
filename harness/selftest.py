@@ -122,8 +122,41 @@ def _make_bore_filled_m3(spec, work_dir: Path) -> Path:
     return path
 
 
+def _make_bore_filled_m4(spec, work_dir: Path) -> Path:
+    """M4 with neither bore nor fin slots: a solid cylinder at R_o — should badly fail
+    volume_err_pct against the finocyl truth."""
+    L, R_o = spec.params["L"], spec.params["R_o"]
+    shape = BRepPrimAPI_MakeCylinder(R_o, L).Shape()
+    path = work_dir / "M4_bore_filled.step"
+    generators._write_step(shape, path)
+    return path
+
+
+def _make_bore_filled_m5(spec, work_dir: Path) -> Path:
+    """M5 with neither bore nor fin slots: the solid domed capsule.
+
+    Fused with the bore rather than left bare, for the same reason as `_make_bore_filled_m2`:
+    the raw revolve's on-axis meridian edge survives in memory but not a STEP round-trip, so the
+    bare capsule would fail `brep_valid` before the scorer ever reached `volume_err_pct`.
+    """
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+
+    L, R_o = spec.params["L"], spec.params["R_o"]
+    dome_h = spec.params["dome_semi_axial"]
+    outer = generators._capsule_outer_shape(L, R_o, dome_h)
+    bore = generators._straight_bore(spec.params["R_bore"], L)
+    fuse = BRepAlgoAPI_Fuse(outer, bore)
+    fuse.Build()
+    if not fuse.IsDone():
+        raise RuntimeError("M5 bore-filler fuse failed")
+    path = work_dir / "M5_bore_filled.step"
+    generators._write_step(fuse.Shape(), path)
+    return path
+
+
 _BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2,
-                  "M3": _make_bore_filled_m3}
+                  "M3": _make_bore_filled_m3, "M4": _make_bore_filled_m4,
+                  "M5": _make_bore_filled_m5}
 
 
 def check_milestone(name: str, work_dir: Path) -> None:
