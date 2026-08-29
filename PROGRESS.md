@@ -58,6 +58,10 @@
 - Do not lower `DEVIATION_DEFLECTION` below `CHORD_TOL/5` chasing a cleaner metric floor. The
   remaining ~0.05 mm of chordal noise is 12 % of M1's p99 budget, and halving it roughly triples
   the scorer's dominant cost against a hard 1500 s `SCORE_TIMEOUT_S`.
+- Do not measure the `uniform_stations_needed` baseline as radial error |Δr(z)|. A dome apex has
+  a vertical tangent in r(z), so radial error diverges there while true surface deviation stays
+  small; the bisection pins to `max_n` and the adaptive_efficiency gate silently becomes
+  unfireable. Perpendicular distance in the (z, r) plane only.
 - Known residual gaming hole, accepted: `_truth_hidden()` stops a pipeline from *reading* the
   truth STEP, but a pipeline could still `import harness.generators` and regenerate it. Closing
   that would mean sandboxing imports, which is out of proportion to the risk — the pipeline is
@@ -105,6 +109,18 @@
   5. **Contract — check ordering.** The three report checks are a JSON parse plus arithmetic, so
      they were placed *before* the 100k-sample deviation in the cheap→expensive ladder. This also
      keeps the new selftest perturbations fast, since they fail before deviation ever runs.
+- **Follow-up found by actually running the new gate (this is why (5) mattered):** the first
+  `uniform_stations_needed` measured *radial* error |Δr(z)|. At a dome apex the meridian has a
+  vertical tangent, so |Δr| diverges where the true surface deviation is small — the bisection
+  ran into its own `max_n` cap and handed `adaptive_efficiency` a budget of 2048 stations, i.e. a
+  gate that could never fire. Now measures **perpendicular** distance from the truth meridian to
+  the station polyline in the (z, r) plane (`_polyline_max_dist`), with the reference profile
+  (8192 bins) kept finer than the densest candidate station grid (`max_n` 2048) so err(n) is not
+  measured against a curve coarser than the grid under test. M1 → 3 stations, M2/M5 → 2048
+  (still the cap: resolving a 90° meridian turn to 0.4 mm with *uniform* spacing is genuinely
+  expensive, which is exactly the asymmetry the gate is meant to reward). Budget 1024 vs. the
+  ~10² an adaptive pass should need, so it still discriminates by an order of magnitude. 1.1 s,
+  cached per milestone.
 - Verification: `selftest.py` grew a perturbation block that mutates the report of an otherwise
   perfect submission three ways (truncated dome stations / no topology event / 100 000 stations)
   and asserts each fails on *its own* check — a gate that is never exercised is a gate that does

@@ -156,8 +156,32 @@ def radius_profile(mesh: trimesh.Trimesh, z_min: float, z_max: float, n_bins: in
     return z_centers, prof
 
 
+def _polyline_max_dist(pts: np.ndarray, poly: np.ndarray, block: int = 128) -> float:
+    """Max over `pts` of the perpendicular distance to the polyline `poly`, both (N,2) in the
+    meridian (z, r) plane.
+
+    Perpendicular — not radial — distance is the whole point. At a dome apex the meridian has a
+    vertical tangent in r(z), so |Δr| diverges there while the actual surface deviation stays
+    small; measuring radially would demand thousands of stations to resolve a feature the
+    deviation gate does not care about. Blocked over points to bound peak memory.
+    """
+    a, b = poly[:-1], poly[1:]
+    ab = b - a
+    denom = np.einsum("ij,ij->i", ab, ab)
+    denom = np.where(denom == 0.0, 1e-30, denom)
+    worst = 0.0
+    for i in range(0, len(pts), block):
+        chunk = pts[i:i + block]
+        ap = chunk[:, None, :] - a[None, :, :]
+        t = np.clip(np.einsum("nmj,mj->nm", ap, ab) / denom, 0.0, 1.0)
+        proj = a[None, :, :] + t[:, :, None] * ab[None, :, :]
+        d = np.linalg.norm(chunk[:, None, :] - proj, axis=2).min(axis=1)
+        worst = max(worst, float(d.max()))
+    return worst
+
+
 def uniform_stations_needed(mesh: trimesh.Trimesh, z_min: float, z_max: float, tol: float,
-                            max_n: int = 4096) -> int:
+                            max_n: int = 2048, n_bins: int = 8192) -> int:
     """Smallest number of *uniformly spaced* stations whose piecewise-linear interpolation of the
     silhouette profile r(z) stays within `tol` mm of the true profile.
 
@@ -168,12 +192,15 @@ def uniform_stations_needed(mesh: trimesh.Trimesh, z_min: float, z_max: float, t
     stall the loop — whereas a pipeline-driven bisection would add several minutes and a failure
     mode with no legal fix once harness/ is frozen.
     """
-    z_centers, prof = radius_profile(mesh, z_min, z_max)
+    # The reference profile must stay finer than the densest candidate station grid, or err(n)
+    # is measured against a curve coarser than the thing being tested and reads too low.
+    z_centers, prof = radius_profile(mesh, z_min, z_max, n_bins=n_bins)
+    truth_pts = np.column_stack([z_centers, prof])
 
     def err(n: int) -> float:
         zs = np.linspace(z_min, z_max, n)
-        rs = np.interp(zs, z_centers, prof)
-        return float(np.max(np.abs(np.interp(z_centers, zs, rs) - prof)))
+        poly = np.column_stack([zs, np.interp(zs, z_centers, prof)])
+        return _polyline_max_dist(truth_pts, poly)
 
     n = 4
     while n <= max_n and err(n) >= tol:
