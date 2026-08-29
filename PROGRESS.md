@@ -15,64 +15,58 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
-- Milestone: M0. All five generators are built and every *check* in the harness is believed
-  correct (iter 9 saw `selftest.py` exit 0 with 22/22). **The one thing blocking the freeze is
-  RUNTIME, not correctness.**
-- 🔴 **THE ACTUAL CAUSE OF THE 5-ITERATION STALL (diagnosed iter 11).** The driver's M0 gate is
-  `loop.py::run_selftest`, which runs `harness/selftest.py` under `SCORE_TIMEOUT_S = 1500 s`.
-  Iter 10's changes pushed the selftest past 1500 s, so it is **killed mid-run every time**;
-  `run_selftest` returns False, `evaluate()` knocks `m0_phase` back `review → build`, and
-  `update_stall(built=0.6)` can never beat `best_progress=0.95` → a stall is logged. That has
-  now happened five times and will repeat forever until the selftest fits the budget. Evidence:
-  `logs/iter-0010.selftest.log` ends mid-M2 with no PASS/FAIL or summary line, and
-  `git show-ref` has **no `harness-frozen` tag** — the harness has never actually been frozen.
-  The exit-137 SIGKILLs iter 10 saw in its *own* shell were the same overrun, not a flaky
-  environment; that misreading is what cost the five iterations.
-- **The dominant cost is `metrics.surface_deviation`, and it scales with mesh FACE COUNT**, not
-  with the sample count (trimesh's `ProximityQuery.on_surface` does an r-tree lookup per query
-  point). Measured this iteration with `_mesh_from_step` at three deflections:
-  | mesh | 0.5 mm | 0.25 mm | 0.1 mm |
-  |---|---|---|---|
-  | M1 faces | 872 | 1 232 | 1 952 |
-  | M2 faces | 29 286 | 58 472 | 153 636 |
-  M1 is small enough to mislead — a *full* M1 score at 0.5 mm is 76 s — but M2's single
-  deviation call at 0.1 mm did not finish in 8 min of direct probing. Iter 10 set
-  `DEVIATION_DEFLECTION = CHORD_TOL/5` after benchmarking **M1 only** (30 s → 77 s, "acceptable"),
-  and that extrapolation is what broke the budget on M2–M5.
-- Fix applied this iteration: `DEVIATION_DEFLECTION = CHORD_TOL/2` (0.25 mm). This is a pure
-  cost/noise trade and cannot change any selftest verdict — the selftest's stand-in pipeline
-  re-exports the truth shape, so both sides tessellate identically and deviation is ~3e-7 mm at
-  any deflection. It only sets the noise floor for a *real* pipeline output: ~0.125 mm, i.e.
-  31 % of M1's 0.4 mm p99 budget (62 % at CHORD_TOL, 12 % at /5).
-- `selftest.py` now prints per-check and cumulative elapsed time (flushed) and a final
-  `total …s (driver SCORE_TIMEOUT_S = 1500 s)` line, so the next overrun is readable directly
-  from the driver's truncated 3000-char log tail instead of looking like a random kill.
-- ⚠️ **Still DO NOT tag `harness-frozen` until a full `selftest.py` run is seen to exit 0 with a
-  total comfortably under 1500 s.** Run `.venv/bin/python -u harness/selftest.py` (unbuffered) as
-  the first action of the next iteration and read the new `total` line. If it is still over
-  budget, the next lever is *not* another deflection tweak — see `## Do not retry` and the
-  ranked options in the iter 11 log block.
-- **`rebuild.py` must write a `--report` JSON.** The scorer now always passes
+- Milestone: M0. **The harness is ready to freeze.** Iter 12's full `selftest.py` run: exit 0,
+  `SELFTEST PASSED`, **31/31 checks in 85.7 s** (vs the driver's 1500 s cap and its 24 GB memory
+  cap; iter 11's driver run peaked at 0.77 GB). `score.py --milestone M1` → exit 1 with
+  contract-valid JSON, 15 checks, 13 skipped, `first_failure.check == pipeline_exit`,
+  `progress 0.0667`. `pytest tests/ --ignore=tests/test_selftest.py` → 15 passed. Both M0 gate
+  conditions in MISSION §6 now hold on a *completed* run, which is what the freeze was waiting on.
+- The runtime/memory crisis that consumed iterations 10 and 11 is over. Iter 11's rewrite of the
+  deviation query (`metrics.point_mesh_distance`) was the structural fix; iter 12 **verified it is
+  exact** (below), so the deflection no longer has to be traded against cost.
+- ⚠️ **Dome regions carry a real tessellation-noise floor and M2/M5 have less deviation headroom
+  than the global numbers suggest.** Measured on a geometrically *perfect* result (truth STEP
+  scored against itself through the full stack): the cylinder bands sit at p99 ≈ 5e-8 mm, but
+  `fore_dome`/`aft_dome` sit at **p99 ≈ 0.148 mm, max ≈ 0.267 mm** — 37 % of the 0.4 mm per-region
+  p99 gate and 44 % of the 0.6 mm max gate, consumed before the pipeline does anything. A curved
+  surface tessellated at `DEVIATION_DEFLECTION` has genuine chordal error and the two sides sample
+  it differently. Budget for it when working M2/M5: the dome allowance is ~0.25 mm, not ~0.4 mm.
+- **What iterations 10-11 cost, kept short so it is not repeated:** the driver's M0 gate is
+  `loop.py::run_selftest` under `SCORE_TIMEOUT_S`, and a selftest that overruns it is killed
+  mid-run, which the driver records as a stall with nothing in `out/score.json` to explain it.
+  Five iterations were lost to that. The cause was `metrics.surface_deviation`: trimesh's
+  `ProximityQuery.on_surface` sizes its search box by the nearest *vertex*, which on OCC's strip
+  tessellations (M2 truth has triangles up to 9953 mm long) selects ~2240 candidate faces per
+  point and materialises them all at once — tens of GB. Iter 11 replaced it with
+  `metrics.point_mesh_distance`. When M0 stalls, read `logs/iter-NNNN.selftest.log` for the
+  `total ...s` line before trusting the M1 verdict.
+- **`metrics.point_mesh_distance` is verified exact** (iter 12, and now a permanent selftest
+  check). It bounds the search radius with a cloud of points that lie *on* the target surface
+  (vertices + 100 k samples) instead of vertices alone, then consumes candidates in chunks. Any
+  on-surface point is an upper bound on the distance to the surface, so the box stays conservative
+  and the answer stays exact while shrinking from ~2000 mm to ~13 mm. Checked against trimesh's
+  reference on M1 (872 faces) and M2 (58 k faces) across four regimes — on-surface, near-surface,
+  far-field (up to 2119 mm), and along the motor axis: **max |diff| 4.6e-13 mm, and it never
+  under-reports**. Under-reporting was the dangerous failure mode: it would have made a wrong
+  solid score as a good one, silently, with nothing else in the harness to notice.
+- `DEVIATION_DEFLECTION = CHORD_TOL/2` (0.25 mm). Both sides of the comparison are re-tessellated
+  at it; the pipeline's *input* STL still ships at CHORD_TOL as MISSION §6 requires.
+- **`rebuild.py` must write a `--report` JSON.** The scorer always passes
   `--report <cwd>/report.json` and three gates are graded from it. Keys: `n_stations` (int),
-  `stations_z_mm` (list[float], input-STL coordinates), `paths_used` (list[str]),
+  `stations_z_mm` (list[float], input-STL coordinates), `paths_used` (dict[str,str]),
   `topology_events_z_mm` (list[float]). Missing file or key = that gate fails. M1 has none of
   these gates, so M1 can ignore it; M2 onward cannot.
-- The two gate conditions, verified this iteration:
-  1. `.venv/bin/python harness/selftest.py` → exit 0, `SELFTEST PASSED`.
-  2. `.venv/bin/python harness/score.py --milestone M1` → exit 1 with contract-valid JSON
-     (14 checks, 12 skipped, `first_failure.check == "pipeline_exit"`, `progress 0.0714`) —
-     a *failing* score against the stub pipeline, which is exactly what M0 asks for.
 - Truth geometry now generated for all five milestones (all deterministic, all gitignored):
   M1 V=2.858849e10 · M2 V=2.754776e10 · M3 V=2.807700e10 · M4 V=2.758419e10 (36 faces) ·
   M5 V=2.666899e10 (44 faces). Every truth STEP passes all of its own gates and meshes in gmsh.
 - **After the freeze, `harness/` is restored from the tag every iteration — it can no longer be
   edited.** If a later milestone reveals a harness bug, it must be raised to Brady, not patched.
 - Unit tests: `tests/test_metrics.py` (6) + `test_meshcheck.py` (3) + `test_score.py` (6) +
-  `test_selftest.py` (1) — 16 total, all pass. Run them as **two commands**: the selftest
-  wrapper now takes ~11 min on its own (five milestones × truth gen + 3 full scores + gmsh),
-  so `pytest tests/` in one shot approaches MISSION's 15-min per-command cap. Use
-  `pytest tests/ --ignore=tests/test_selftest.py` (~35 s warm) plus a direct
-  `harness/selftest.py` run.
+  `test_selftest.py` (1) — 16 total, all pass. `tests/` is agent-owned and NOT frozen, so a check
+  added to `harness/` needs its hardcoded counterpart in `test_score.py` updated too (the check
+  plan is asserted there by name). Two commands is still the habit —
+  `pytest tests/ --ignore=tests/test_selftest.py` (~8 s warm) plus a direct `harness/selftest.py`
+  run — but the selftest wrapper is now 86 s, not 11 min, so one shot is also fine.
 - Next milestone is **M1**: `rebuild.py` is still the exit-3 stub, so the first M1 iteration
   starts `pipeline/` from nothing. M1 truth is the annular cylinder — MISSION §5.2.6's
   "all circles centred on the axis → revolve an exact meridian" fast path should fire and give
@@ -83,6 +77,16 @@
   resets it; if the driver still reports stalls on M1, that is a *real* signal.
 
 ## Do not retry
+- Do not try to provoke `surface_deviation_p99_by_region` with a perturbed *shape*. To survive the
+  global p99 the bad band must hold under 1 % of the pooled sample points, and no region band of
+  M1–M5 is that small (the domes are ~20 % of ~200 k points). Any shape error big enough to move a
+  region's p99 either trips `surface_deviation_max_mm` first or moves the global p99 too. The
+  selftest proves the gate is wired by injecting a `by_z_bin` table instead — that is deliberate,
+  not a shortcut.
+- Do not assume `metrics.point_mesh_distance` needs re-verifying or replacing. Iteration 12
+  measured it against trimesh's reference across four regimes on two meshes: max |diff| 4.6e-13 mm
+  with zero under-reporting. The selftest now re-proves it in 1.5 s on every run. It is exact,
+  it is fast, and it is frozen.
 - `BRepAlgoAPI_Cut.HasErrors()` does not exist in OCP 7.9.3. Use `IsDone()` only.
 - Do not make `selftest.py` skip (rather than fail) an unimplemented milestone generator. It
   reads like a convenience, but it is the exact hole that lets an incomplete harness certify
@@ -125,6 +129,66 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 12 — M0 — opus/high — review-harness — 2026-08-29T12:13
+- Score before: driver's iter-11 evaluation PASSED — 27/27 selftest checks in 1 min, peak RSS
+  0.77 GB. So this was the pre-freeze audit proper, not a repair: `harness/` becomes the immutable
+  fitness function for every remaining iteration the moment this run is accepted.
+- Iteration 10 already audited the harness once. The thing it could not have audited is the code
+  written *after* it: iteration 11 replaced `trimesh.proximity.ProximityQuery.on_surface` — a
+  reference implementation used by thousands of projects — with ~40 lines of hand-written
+  candidate-culling and chunked point-triangle distance, and nothing anywhere proved the
+  replacement returns the same numbers. **Every deviation gate in the scorer rests on that
+  function, and its dangerous failure mode is silent:** a search radius that is even slightly too
+  small under-reports the distance, so a wrong solid scores as a good one and the loop optimises
+  toward nothing. That was the first thing I checked.
+  - The argument that it is exact: the search radius is the distance to the nearest point of a
+    cloud that lies *on* the target surface, so it is an upper bound on the true distance; any
+    triangle within that distance must have a bounding box meeting the query cube; so the closest
+    triangle is always in the candidate set. Sound — but worth measuring, because the chunked
+    `np.minimum.reduceat` reduction is easy to get subtly wrong.
+  - Measured against trimesh on M1 (872 faces) and M2 fine (58 472 faces), four regimes:
+    on-surface, near-surface (σ=0.3 mm), far-field (uniform over the padded bbox, distances to
+    2119 mm) and along the motor axis. **max |diff| = 4.6e-13 mm; minimum signed diff = -4.6e-13,
+    i.e. it never under-reports.** Clean.
+  - Made it permanent: `selftest.check_distance_kernel` runs that comparison on M1 every run
+    (1.5 s). The freeze is only as good as the evidence behind it, and there was none for this.
+- **Change (the one gate fix): MISSION §6's M2 row says "the deviation gate must hold per z-bin
+  including dome bins" and no such check existed.** `by_z_bin` was computed and reported but only
+  the *global* max/p99 were gated. The global p99 is dominated by the cylinder, which carries
+  ~90 % of the surface area, so an error concentrated in a band can sit below the global 99th
+  percentile and pass. Added `surface_deviation_p99_by_region`: the same p99 threshold applied
+  inside every labelled region with >= `_MIN_BIN_POINTS` (200) pooled points, placed right after
+  the global p99 in the ladder. It is enabled by the same gate key, so it covers M1/M2/M5 — the
+  milestones §6 gives a p99 to — and leaves M3/M4 (max-only) alone. The global max already implies
+  the per-region max, so only p99 needed its own check. Also attached the region label to the
+  `surface_deviation_max_mm` failure location, which MISSION §7's example JSON shows and the code
+  was omitting.
+- Proving the new gate bites: it cannot be provoked with a perturbed shape (see `## Do not retry`
+  — the bad band would have to be under 1 % of the pooled points and no region is that small), so
+  the selftest injects a `by_z_bin` table with one region over the gate while the global max and
+  p99 stay clean, and asserts `first_failure.check == "surface_deviation_p99_by_region"`. Fires on
+  M1, M2 and M5.
+- **Finding worth carrying into M2/M5, from actually reading the new per-region numbers:** on a
+  geometrically *perfect* result the dome bands sit at p99 ≈ 0.148 mm / max ≈ 0.267 mm while the
+  cylinder bands sit at ~5e-8 mm. That is pure tessellation noise on a curved surface, and it eats
+  37 % of the per-region p99 budget and 44 % of the max budget before the pipeline does anything.
+  The real dome allowance is ~0.25 mm, not ~0.4 mm. Recorded in `## Current state`.
+- Also audited and found correct, so nothing was changed: cwd isolation + `_truth_hidden()` +
+  the byte hash (a pipeline cannot read, copy or re-export the answer); `n_solids` + `face_count_max`
+  together reject a sewn tessellated shell posing as a BRep; `bbox_err_pct` via `AddOptimal_s`
+  catches unit and scale errors; `step_roundtrip` is a genuine write→read cycle; NaN propagates to
+  a *failed* comparison everywhere and `_sanitize` keeps the JSON valid; `progress` is deterministic
+  and its `_partial` term is direction-aware; the fail-fast plan denominator is the full plan.
+- Score after (local): `selftest.py` exit 0, **`SELFTEST PASSED`, 31/31 checks, total 85.7 s**
+  (was 27/27 in ~72 s; +4 checks, +14 s). `score.py --milestone M1` exit 1, contract-valid,
+  15 checks / 13 skipped, `first_failure.check == pipeline_exit`, `progress 0.0667` (was 0.0714 —
+  the denominator grew by one check, which is the intended arithmetic).
+  `pytest tests/ --ignore=tests/test_selftest.py` → 15 passed after updating the hardcoded check
+  plan in `test_score.py` (`tests/` is not frozen).
+- Next: freeze `harness/` and start M1. `rebuild.py` is still the exit-3 stub, so the first M1
+  iteration builds `pipeline/` from nothing; go straight at MISSION §5.2.6's "all circles centred
+  on the axis → revolve an exact meridian" fast path rather than the general loft.
 
 ### iter 11 — M0 — opus/high — escalated — 2026-08-29T10:54
 - Score before: driver verdict `M1 progress=0.0714, first failure pipeline_exit` — but that is

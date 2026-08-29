@@ -37,7 +37,8 @@ def test_full_chain_passes_when_pipeline_emits_truth_step(monkeypatch):
     assert names == [
         "input_watertight", "pipeline_exit", "output_step_exists", "not_truth_copy",
         "step_readable", "n_solids", "brep_valid", "volume_err_pct", "bbox_err_pct",
-        "surface_deviation_max_mm", "surface_deviation_p99_mm", "face_count_max",
+        "surface_deviation_max_mm", "surface_deviation_p99_mm",
+        "surface_deviation_p99_by_region", "face_count_max",
         "step_roundtrip", "gmsh_tet",
     ]
     assert all(c["pass"] for c in result["checks"])
