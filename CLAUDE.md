@@ -1,13 +1,22 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
-- 2026-08-29: Loop infrastructure built (MISSION.md spec, PROMPT.md, loop.py driver, driver/
-  mode prompts + Bash guard hook, .claude/settings.json allowlist, docs/research/ reference
-  dumps, .venv verified on Python 3.14). Milestone M0 (harness) not yet started by the loop.
-- Next: run `./loop.sh --once` under supervision to prove the plumbing, then `./loop.sh` to run
-  unattended until HANDOFF.md exists. Monitor with `tail -f logs/loop.log` and
-  `python3 loop.py --status`.
-- After the loop finishes: Brady opens the STEP files listed in HANDOFF.md in SpaceClaim.
+- 2026-08-29: Loop infrastructure built and **plumbing proven with 2 supervised iterations**
+  (`./loop.sh --once` ×2): agent invoked headless, committed its own work, PROGRESS.md kept,
+  driver scored/recorded cost, M0 progress proxy moved 0.0 → 0.3. Cost so far ≈ $2.9 (plus
+  ~$0.5 of preflight smoke tests). Harness state: `milestones.py`, `generators.py` (M1 only),
+  `metrics.py` (+6 tests) exist; `meshcheck.py`, `score.py`, `selftest.py`, M2–M5 generators
+  still to come — all inside M0.
+- Driver facts learned: CLI 2.1.152's `sonnet` alias resolves to Sonnet **4.6**, so the driver
+  uses full IDs (`claude-sonnet-5`, `claude-opus-5`) — both verified served correctly.
+  `--max-turns` does not exist on this CLI; per-iteration bounds are `--max-budget-usd` + timeout.
+- **Next (Brady):** start the unattended run — `cd ~/Projects/stl-rebuilder && ./loop.sh` —
+  and leave it. Monitor with `tail -f logs/loop.log` / `python3 loop.py --status`. Expect several
+  more M0 iterations, then an Opus review pass, then the `harness-frozen` tag and M1.
+- After the first `USAGE GATE` or `RATE/USAGE LIMIT` line appears, set `LOOP_WINDOW_BUDGET_USD`
+  to roughly what had been spent in that window (default 40 is a placeholder).
+- The driver never pushes; push manually from an interactive session to sync GitHub.
+- After HANDOFF.md exists: Brady opens the listed STEP files in SpaceClaim (Notion Phase 4).
 
 ## What this is
 An autonomous, self-correcting coding loop that builds `rebuild.py`: an STL (solid-rocket-motor
