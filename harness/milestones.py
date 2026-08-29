@@ -26,6 +26,9 @@ class MilestoneSpec:
     gates: Dict                # check_name -> threshold (numeric) or True (boolean)
     runtime_cap_s: float
     closed_form_volume: Optional[float] = None  # mm³; None when no exact formula
+    # gmsh gets its own budget: meshing is the scorer's cost, not the pipeline's, and M5's
+    # runtime_cap_s is a *product* requirement (< 120 s) that must not throttle the check.
+    mesh_timeout_s: float = 300.0
 
 
 def _m1() -> MilestoneSpec:
@@ -43,6 +46,7 @@ def _m1() -> MilestoneSpec:
             surface_deviation_p99_mm=0.8 * CHORD_TOL,   # < 0.4 mm
             surface_deviation_max_mm=1.2 * CHORD_TOL,   # < 0.6 mm
             face_count_max=8,
+            bbox_err_pct=0.1,               # universal gate, MISSION §6
             step_roundtrip_vol_err=1e-6,
             gmsh_min_sicn=0.1,
         ),
@@ -72,6 +76,10 @@ def _m2() -> MilestoneSpec:
             surface_deviation_p99_mm=0.8 * CHORD_TOL,
             surface_deviation_max_mm=1.2 * CHORD_TOL,
             dome_stations_min=8,
+            # Generous cap: an exact M2 needs ~6 faces. Its job is to reject a *tessellated*
+            # shell masquerading as a BRep solid (thousands of planar faces), not to grade style.
+            face_count_max=40,
+            bbox_err_pct=0.1,
             step_roundtrip_vol_err=1e-6,
             gmsh_min_sicn=0.1,
         ),
@@ -102,6 +110,7 @@ def _m3() -> MilestoneSpec:
             volume_err_pct=0.1,
             surface_deviation_max_mm=2.0 * CHORD_TOL,
             face_count_max=100,
+            bbox_err_pct=0.1,
             step_roundtrip_vol_err=1e-6,
             gmsh_min_sicn=0.1,
         ),
@@ -142,6 +151,8 @@ def _m4() -> MilestoneSpec:
             brep_valid=True,
             volume_err_pct=0.2,
             topo_event_z_tolerance_mm=topo_tol,
+            face_count_max=300,             # anti-tessellation guard (exact M4 needs ~50)
+            bbox_err_pct=0.1,
             step_roundtrip_vol_err=1e-6,
             gmsh_min_sicn=0.1,
         ),
@@ -184,6 +195,8 @@ def _m5() -> MilestoneSpec:
             surface_deviation_max_mm=1.2 * CHORD_TOL,
             topo_event_z_tolerance_mm=topo_tol,
             adaptive_efficiency=0.5,   # stations_used <= 0.5 * uniform_count_needed
+            face_count_max=400,        # anti-tessellation guard
+            bbox_err_pct=0.1,
             step_roundtrip_vol_err=1e-6,
             gmsh_min_sicn=0.1,
         ),

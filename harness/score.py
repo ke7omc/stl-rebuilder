@@ -7,7 +7,9 @@ Checks run cheap -> expensive, fail-fast: the first failing check stops evaluati
 later check is recorded with pass=null, skipped="prior failure".
 """
 import argparse
+import hashlib
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -37,6 +39,88 @@ def _n_shapes_of_type(shape, shape_type) -> int:
     return m.Size()
 
 
+# Checks that are *always* run, in evaluation order, followed by the gate-conditional ones.
+# `progress` is (index of first failure + partial) / len(plan), so the denominator must be the
+# full plan — not the number of checks that happened to run before fail-fast stopped, which
+# would make failing check 2 of 2 score 0.5 and failing check 12 of 12 score 0.92.
+_ALWAYS = ["input_watertight", "pipeline_exit", "output_step_exists", "not_truth_copy",
+           "step_readable"]
+_GATED = [  # (check name, gate key that enables it) — order = evaluation order, cheap→expensive
+    ("n_solids", "n_solids"),
+    ("brep_valid", "brep_valid"),
+    ("volume_err_pct", "volume_err_pct"),
+    ("bbox_err_pct", "bbox_err_pct"),
+    ("surface_deviation_max_mm", "surface_deviation_max_mm"),
+    ("surface_deviation_p99_mm", "surface_deviation_p99_mm"),
+    ("face_count_max", "face_count_max"),
+    ("step_roundtrip", "step_roundtrip_vol_err"),
+    ("gmsh_tet", "gmsh_min_sicn"),
+]
+
+# Direction matters for the partial credit term. For a lower-is-better check, being closer to
+# the threshold means threshold/value → 1; for a higher-is-better one (gmsh SICN) that formula
+# is inverted and saturates at 1, so a *failing* gmsh check scored the same as a passing one.
+_LOWER_IS_BETTER = {"volume_err_pct", "bbox_err_pct", "surface_deviation_max_mm",
+                    "surface_deviation_p99_mm", "face_count_max", "step_roundtrip"}
+_HIGHER_IS_BETTER = {"gmsh_tet"}
+
+
+def check_plan(spec) -> list:
+    return _ALWAYS + [name for name, gate in _GATED if gate in spec.gates]
+
+
+def _partial(check_name, value, threshold) -> float:
+    """Partial credit in [0, 0.999) for a failing numeric check. Capped strictly below 1 so a
+    failing check can never score identically to passing it."""
+    if not (isinstance(value, (int, float)) and isinstance(threshold, (int, float))):
+        return 0.0
+    if isinstance(value, bool) or isinstance(threshold, bool):
+        return 0.0
+    if not (math.isfinite(value) and math.isfinite(threshold)):
+        return 0.0
+    if check_name in _LOWER_IS_BETTER:
+        ratio = abs(threshold) / abs(value) if value else 0.0
+    elif check_name in _HIGHER_IS_BETTER:
+        ratio = abs(value) / abs(threshold) if threshold else 0.0
+    else:
+        return 0.0   # equality/boolean checks earn no partial credit
+    return max(0.0, min(0.999, ratio))
+
+
+def _sanitize(obj):
+    """Replace non-finite floats with None so out/score.json is always *valid* JSON (NaN/Infinity
+    are not) — the driver parses this file and must never choke on a metric that went bad."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize(v) for v in obj]
+    return obj
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _bbox_err_pct(shape, truth_bbox) -> float:
+    """Max, over the 6 bounding-box faces, of |result - truth| as a percentage of the truth's
+    extent along that axis. Catches unit errors (1000x), uniform scaling and bulk translation."""
+    b = generators._bbox(shape)
+    worst = 0.0
+    for axis in range(3):
+        extent = truth_bbox[axis + 3] - truth_bbox[axis]
+        if extent <= 0:
+            continue
+        for side in (0, 3):
+            worst = max(worst, abs(b[axis + side] - truth_bbox[axis + side]) / extent * 100.0)
+    return worst
+
+
 def _mesh_from_step(step_path: Path, work_dir: Path, spec):
     """Tessellate a STEP-read shape at the milestone's chord_tol and load it as a trimesh, so
     surface_deviation can compare it against the truth STL on equal footing."""
@@ -60,11 +144,14 @@ def _run_pipeline(stl_path: Path, out_step: Path, spec, cwd: Path) -> dict:
 
     cmd = [sys.executable, str(REPO_ROOT / "rebuild.py"), str(input_stl)] + spec.rebuild_args \
         + ["-o", str(out_step)]
+    log_path = cwd / "pipeline.log"
     t0 = time.monotonic()
     try:
         proc = subprocess.run(
             cmd, cwd=str(cwd), capture_output=True, text=True, timeout=spec.runtime_cap_s,
         )
+        log_path.write_text(f"$ {' '.join(cmd)}\n\n--- stdout ---\n{proc.stdout}"
+                            f"\n--- stderr ---\n{proc.stderr}")
         return {
             "returncode": proc.returncode,
             "stderr_tail": "\n".join(proc.stderr.strip().splitlines()[-20:]),
@@ -72,6 +159,7 @@ def _run_pipeline(stl_path: Path, out_step: Path, spec, cwd: Path) -> dict:
             "runtime_s": time.monotonic() - t0,
         }
     except subprocess.TimeoutExpired:
+        log_path.write_text(f"$ {' '.join(cmd)}\n\nTIMEOUT after {spec.runtime_cap_s}s\n")
         return {
             "returncode": None,
             "stderr_tail": f"pipeline exceeded {spec.runtime_cap_s}s timeout",
@@ -140,6 +228,16 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
             fail_here("output_step_exists", value=step_exists, threshold=True,
                       hint=f"rebuild.py exited 0 but did not write {out_step.name}")
 
+        # --- check: not_truth_copy ---------------------------------------------
+        # rebuild.py lives in the repo, so cwd isolation cannot stop it from reading
+        # harness/truth/. It can at least never pass by *copying* the answer.
+        is_copy = _sha256(out_step) == _sha256(truth.step_path)
+        add("not_truth_copy", not is_copy, value=is_copy)
+        if is_copy:
+            fail_here("not_truth_copy", value=is_copy, threshold=False,
+                      hint="output STEP is byte-identical to harness/truth/: the pipeline must "
+                           "rebuild the solid from the STL, not copy the ground truth")
+
         # --- stage: validate --------------------------------------------------
         stage_reached = "validate"
         try:
@@ -176,6 +274,19 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
                 fail_here("volume_err_pct", value=volume_err_pct, threshold=threshold,
                           hint=f"result volume differs from truth by {volume_err_pct:.4f}% "
                                f"(gate < {threshold}%)")
+
+        # --- check: bbox_err_pct ----------------------------------------------------
+        if "bbox_err_pct" in spec.gates:
+            bbox_err = _bbox_err_pct(result_shape, truth.bbox)
+            metrics_out["bbox_err_pct"] = bbox_err
+            threshold = spec.gates["bbox_err_pct"]
+            ok = bbox_err < threshold
+            add("bbox_err_pct", ok, value=bbox_err, threshold=threshold)
+            if not ok:
+                fail_here("bbox_err_pct", value=bbox_err, threshold=threshold,
+                          hint=f"result bounding box differs from truth by {bbox_err:.3f}% "
+                               f"(gate < {threshold}%); check units (mm end to end) and that the "
+                               "axis transform was undone before export")
 
         # --- checks: surface deviation ----------------------------------------------------
         needs_deviation = any(k in spec.gates for k in
@@ -221,7 +332,12 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
 
         # --- check: step_roundtrip ----------------------------------------------------
         if "step_roundtrip_vol_err" in spec.gates:
-            rt = metrics.step_roundtrip_check(out_step, result_step_volume)
+            # Re-*export* the shape we read and read it back. Comparing the output file against
+            # a volume that was itself read from that same file is a tautology that can never
+            # fail; a write→read cycle actually exercises STEP fidelity of the geometry.
+            reexport = work_dir / f"{milestone}.roundtrip.step"
+            generators._write_step(result_shape, reexport)
+            rt = metrics.step_roundtrip_check(reexport, result_step_volume)
             threshold = spec.gates["step_roundtrip_vol_err"]
             ok = rt["ok"] and rt["rel_vol_err"] is not None and rt["rel_vol_err"] < threshold
             add("step_roundtrip", ok, value=rt.get("rel_vol_err"), threshold=threshold,
@@ -234,7 +350,7 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
         # --- check: gmsh_min_sicn ----------------------------------------------------
         if "gmsh_min_sicn" in spec.gates:
             hmax = spec.params.get("R_o", 1000.0) / 10.0
-            mesh_res = mc.check_meshability(str(out_step), hmax, timeout_s=spec.runtime_cap_s)
+            mesh_res = mc.check_meshability(str(out_step), hmax, timeout_s=spec.mesh_timeout_s)
             threshold = spec.gates["gmsh_min_sicn"]
             ok = bool(mesh_res.get("ok")) and (mesh_res.get("min_quality") or 0.0) > threshold
             add("gmsh_tet", ok, value=mesh_res.get("min_quality"), threshold=threshold,
@@ -254,29 +370,42 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
         first_failure = {"check": "exception", "hint": str(e)}
     finally:
         artifacts = {"step": None, "report": None, "pipeline_log": None}
-        if keep_dir is not None and out_step is not None and out_step.is_file():
+        if keep_dir is not None:
             keep_dir.mkdir(parents=True, exist_ok=True)
-            dest = keep_dir / f"{milestone}.step"
-            shutil.copyfile(out_step, dest)
-            artifacts["step"] = str(dest)
+            for key, src in (("step", out_step),
+                             ("report", work_dir / "report.json"),
+                             ("pipeline_log", work_dir / "pipeline.log")):
+                if src is not None and Path(src).is_file():
+                    dest = keep_dir / f"{milestone}{Path(src).suffix}" if key == "step" \
+                        else keep_dir / f"{milestone}.{Path(src).name}"
+                    shutil.copyfile(src, dest)
+                    artifacts[key] = str(dest)
         shutil.rmtree(work_dir, ignore_errors=True)
 
+    # MISSION §7: every planned-but-unreached check is recorded with pass=null.
+    plan = check_plan(spec)
+    recorded = {c["name"] for c in checks}
+    for name in plan:
+        if name not in recorded:
+            checks.append({"name": name, "pass": None, "skipped": "prior failure"})
+
     passed = first_failure is None
-    n_checks = len(checks)
     if passed:
         progress = 1.0
-    elif n_checks == 0:
-        progress = 0.0
+    elif first_failure["check"] in plan:
+        idx = plan.index(first_failure["check"])
+        progress = (idx + _partial(first_failure["check"],
+                                   first_failure.get("value"),
+                                   first_failure.get("threshold"))) / len(plan)
     else:
-        idx = next(i for i, c in enumerate(checks) if c["name"] == first_failure["check"])
-        value = first_failure.get("value")
-        threshold = first_failure.get("threshold")
-        partial = 0.0
-        if isinstance(value, (int, float)) and isinstance(threshold, (int, float)) and value:
-            partial = max(0.0, min(1.0, threshold / value))
-        progress = (idx + partial) / n_checks
+        # An exception (or a harness-side failure) outside the plan: credit only the checks
+        # that actually passed, so progress stays monotone in "closer to passing".
+        progress = sum(1 for c in checks if c["pass"] is True) / len(plan)
 
-    return {
+    if not math.isfinite(progress):
+        progress = 0.0
+
+    return _sanitize({
         "milestone": milestone,
         "pass": passed,
         "progress": round(progress, 4),
@@ -285,7 +414,7 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
         "checks": checks,
         "metrics": metrics_out,
         "artifacts": artifacts,
-    }
+    })
 
 
 def main(argv=None) -> int:

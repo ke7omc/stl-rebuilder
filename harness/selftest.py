@@ -28,7 +28,7 @@ from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
 from OCP.gp import gp_Pnt, gp_Trsf
 
-from harness import generators, meshcheck as mc
+from harness import generators, metrics, meshcheck as mc
 from harness import milestones as ms
 from harness import score as score_mod
 
@@ -43,12 +43,19 @@ def _report(ok: bool, label: str, detail: str = "") -> None:
 
 
 def _score_with_step(milestone: str, step_src: Path):
-    """Score `milestone` with `_run_pipeline` monkeypatched to copy `step_src` as the pipeline
-    output, so the metric stack runs on a known STEP without needing a real rebuild.py."""
+    """Score `milestone` with `_run_pipeline` monkeypatched to emit `step_src` as the pipeline
+    output, so the metric stack runs on a known STEP without needing a real rebuild.py.
+
+    The stand-in *re-exports* the shape rather than copying the file: a byte-for-byte copy of the
+    truth would (correctly) trip the scorer's `not_truth_copy` anti-gaming check. Re-exporting
+    also proves that check has no false positives on a geometrically perfect result.
+    """
     orig = score_mod._run_pipeline
 
     def fake_run_pipeline(stl_path, out_step, spec, cwd):
-        shutil.copyfile(step_src, out_step)
+        shape, _ = metrics.read_step(step_src)
+        generators._write_step(shape, out_step)
+        (cwd / "pipeline.log").write_text("selftest stand-in pipeline\n")
         return {"returncode": 0, "stderr_tail": "", "timed_out": False, "runtime_s": 0.0}
 
     score_mod._run_pipeline = fake_run_pipeline
@@ -84,8 +91,13 @@ def check_milestone(name: str, work_dir: Path) -> None:
     spec = ms.get(name)
     try:
         truth = generators.make(name)
-    except NotImplementedError:
-        print(f"[SKIP] {name} — generator not yet implemented")
+    except NotImplementedError as e:
+        # NOT a skip. The driver freezes harness/ the moment this selftest passes, and a frozen
+        # harness with a missing generator makes that milestone permanently unscoreable — the
+        # loop would stall at it forever with no legal way to fix the harness. An incomplete
+        # harness must never certify itself as trustworthy.
+        _report(False, f"{name}: generator implemented",
+                f"{e} — harness cannot be frozen until every milestone can be generated")
         return
 
     # 1. closed-form volume
@@ -115,7 +127,9 @@ def check_milestone(name: str, work_dir: Path) -> None:
         _report(ok, f"{name}: bore-filled copy fails on volume_err_pct",
                 f"first_failure={result['first_failure']}")
     else:
-        print(f"[SKIP] {name}: bore-filled copy — no filler builder registered")
+        _report(False, f"{name}: bore-filled copy fails on volume_err_pct",
+                "no filler builder registered in _BORE_FILLERS — MISSION §7 requires a "
+                "bore-filled perturbation per milestone")
 
     # 5. gmsh can mesh the truth STEP
     hmax = spec.params.get("R_o", 1000.0) / 10.0
@@ -125,7 +139,12 @@ def check_milestone(name: str, work_dir: Path) -> None:
 
 
 def check_determinism() -> None:
-    """Score the same (stub-pipeline) inputs twice; results must be identical modulo timing."""
+    """Score identical inputs twice; results must be identical modulo timing.
+
+    This runs the *full* metric stack (via the truth STEP), not the stub pipeline that fails at
+    `pipeline_exit` after two checks — the real nondeterminism risks are the seeded surface
+    sampling in `surface_deviation` and gmsh's tet count, and neither is exercised otherwise.
+    """
     def strip_timing(d):
         d = copy.deepcopy(d)
         d.get("metrics", {}).pop("runtime_s", None)
@@ -133,9 +152,20 @@ def check_determinism() -> None:
             c.pop("runtime_s", None)
         return d
 
-    r1 = strip_timing(score_mod.score("M1", keep_dir=None))
-    r2 = strip_timing(score_mod.score("M1", keep_dir=None))
-    _report(r1 == r2, "determinism: scoring identical inputs twice yields identical results")
+    try:
+        truth = generators.make("M1")
+    except NotImplementedError:
+        _report(False, "determinism: M1 generator required")
+        return
+
+    r1 = strip_timing(_score_with_step("M1", truth.step_path))
+    r2 = strip_timing(_score_with_step("M1", truth.step_path))
+    detail = ""
+    if r1 != r2:
+        diffs = [k for k in r1 if r1[k] != r2.get(k)]
+        detail = f"differing keys: {diffs}"
+    _report(r1 == r2, "determinism: scoring identical inputs twice yields identical results",
+            detail)
 
 
 def main() -> int:

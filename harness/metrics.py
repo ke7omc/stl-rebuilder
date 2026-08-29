@@ -23,6 +23,12 @@ def load_mesh(path) -> trimesh.Trimesh:
     merge_vertices). Caller is responsible for gating on `.is_volume` before trusting mass
     properties (see MISSION.md §7)."""
     mesh = trimesh.load_mesh(str(path), process=True)
+    if isinstance(mesh, trimesh.Scene):
+        # A multi-body file loads as a Scene, whose .volume/.is_volume do not mean what the
+        # gates assume. Concatenate so downstream `is_volume` correctly reports False.
+        mesh = mesh.dump(concatenate=True)
+    if not isinstance(mesh, trimesh.Trimesh):
+        raise RuntimeError(f"{path}: loaded as {type(mesh).__name__}, not a triangle mesh")
     return mesh
 
 

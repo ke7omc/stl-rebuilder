@@ -1,34 +1,97 @@
 # PROGRESS — lab notebook of the loop (agent-maintained)
 
 ## Current state
-- Milestone: M0 — both M0 gate conditions now hold. `harness/milestones.py` (all 5 specs),
-  `harness/generators.py` (M1 only), `harness/metrics.py`, `harness/meshcheck.py`,
-  `harness/score.py` (full CLI contract), and now `harness/selftest.py` are done.
-  `.venv/bin/python harness/selftest.py` exits 0 (prints a PASS/FAIL line per check + summary).
-  `harness/score.py --milestone M1 --out out/score.json` against the stub `rebuild.py` exits 1
-  with contract-valid JSON, `first_failure.check == "pipeline_exit"` — exactly MISSION §6's M0
-  gate. Only M2-M5 generators remain before harness-freeze (still inside M0).
-- `harness/selftest.py` iterates `ms.MILESTONES`, skipping any whose generator raises
-  `NotImplementedError` (currently M2-M5) so it needs no edits as those land. For each
-  implemented milestone (M1) it checks: closed-form volume match, truth STEP passes every gate
-  (via `score.score()` with `_run_pipeline` monkeypatched to copy a given STEP — same pattern
-  `tests/test_score.py` already used), a 1.01x-scaled copy fails on `volume_err_pct`, a
-  bore-filled copy fails on `volume_err_pct` (filler builders registered per-milestone in
-  `_BORE_FILLERS`, only M1 so far), and gmsh can mesh the truth STEP. Plus one
-  milestone-independent determinism check: score the same stub-pipeline inputs twice, diff
-  after stripping `runtime_s` (the only nondeterministic field).
+- Milestone: M0, phase **build** (the review pass ran at iter 6 and deliberately pushed the
+  phase back — see below). `harness/` modules all exist; `harness/selftest.py` now **exits 1**
+  by design because the M2–M5 generators are still `NotImplementedError`.
+- **The one thing that matters right now: build the M2–M5 generators.** The driver tags
+  `harness-frozen` the instant `selftest.py` exits 0 and the M1 scorer emits contract-valid
+  JSON (`loop.py::evaluate`, ~line 529). Until iter 6, `selftest.py` *skipped* unimplemented
+  generators, so it would have exited 0 and frozen a harness that can only score 1 of 5
+  milestones — the loop would then have reached M2 and stalled forever with no legal way to
+  fix `harness/`. The selftest now FAILS on any unimplemented generator, which is what keeps
+  the phase in `build` until the harness is genuinely complete.
+- Order to build them in (one per iteration, MISSION §2.1): M2 (2:1 ellipsoidal domes both
+  ends + straight bore) → M3 (6-point star bore) → M4 (finocyl, 8 fin slots aft of z=6000
+  with a flat fore wall) → M5 (M2 domes + M4 fins). Each needs, in `generators.py`, a
+  `_make_mK()` returning a `Truth` (mirror `_make_m1`), and in `selftest.py` a bore-filled
+  perturbation registered in `_BORE_FILLERS` — a missing filler is now also a selftest FAILURE
+  (MISSION §7 requires the perturbation test per milestone). `milestones.py` already has all
+  five specs, so no spec work is needed.
+- `harness/score.py` runs 14 checks for M1 (`score_mod.check_plan(spec)` is the authoritative
+  ordered list). Against the stub `rebuild.py` it exits 1 with contract-valid JSON,
+  `first_failure.check == "pipeline_exit"`, `progress 0.0714`.
 - Truth files written: `harness/truth/M1.step`, `harness/truth/M1.stl`.
-- Unit tests: `tests/test_metrics.py` (6) + `tests/test_meshcheck.py` (3) + `tests/test_score.py`
-  (3) + `tests/test_selftest.py` (1) — 13 total, all pass.
-- Still needed: M2–M5 generators (each with truth volume recorded in `harness/truth/Mk.json`
-  per MISSION §7), then wire their milestone-specific gates into score.py, then one Opus
-  review pass, then `harness-frozen` tag.
+- Unit tests: `tests/test_metrics.py` (6) + `test_meshcheck.py` (3) + `test_score.py` (6) +
+  `test_selftest.py` (1) — 16 total, all pass (~130 s; the scorer runs gmsh several times).
 
 ## Do not retry
 - `BRepAlgoAPI_Cut.HasErrors()` does not exist in OCP 7.9.3. Use `IsDone()` only.
+- Do not make `selftest.py` skip (rather than fail) an unimplemented milestone generator. It
+  reads like a convenience, but it is the exact hole that lets an incomplete harness certify
+  itself and get frozen. Same for a missing `_BORE_FILLERS` entry.
+- Do not "fix" `step_roundtrip` back to comparing `out_step` against a volume read from
+  `out_step`. That is a tautology that can never fail; it must be a write→read cycle.
+- A stand-in pipeline in a test/selftest must **re-export** the truth shape, never
+  `shutil.copyfile` it — the `not_truth_copy` check hashes the output against
+  `harness/truth/Mk.step` and will (correctly) reject a byte-identical copy.
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 6 — M0 — opus/high — review-harness — 2026-08-29T08:35
+- Score before: selftest exit 0, M1 scorer contract-valid, progress 0.5 — i.e. the driver was
+  one green iteration away from tagging `harness-frozen`.
+- Change: audited `harness/` as the last chance before it becomes immutable. Nine findings, all
+  fixed. Ranked by how badly each would have misled the loop:
+  1. **Freeze would have been fatal.** M2–M5 generators raise `NotImplementedError`, and
+     `selftest.py` *skipped* them, so the harness was about to certify itself as trustworthy
+     while able to score only M1. Post-freeze, `harness/` is restored from the tag every
+     iteration, so M2 would have been unscoreable and unfixable — a permanent stall. Selftest
+     now FAILS on an unimplemented generator (and on a missing `_BORE_FILLERS` entry), which
+     bounces `m0_phase` back to `build` and buys the iterations needed to finish the harness.
+  2. **`step_roundtrip` could never fail.** It compared `out_step` against `result_step_volume`,
+     which was itself read from `out_step` — |ΔV|/V was identically 0. Now re-exports the
+     read shape to a fresh STEP and reads *that* back, which genuinely exercises STEP fidelity.
+  3. **`progress` denominator was the number of checks that had run**, not the number planned,
+     so failing check 2 of 2 scored 0.50 and failing check 12 of 12 scored 0.92 — wildly
+     nonlinear and not comparable across stages. Added `check_plan(spec)`; the denominator is
+     now the full plan (M1: 14). The stub pipeline's score drops 0.5 → 0.0714, which is honest.
+  4. **Partial credit was inverted for higher-is-better checks.** `threshold/value` saturates
+     at the 1.0 clamp for gmsh SICN, so *failing* the last check scored the same as passing it
+     — invisible to stall detection. `_partial()` is now direction-aware and capped at 0.999 so
+     a failing check can never tie a passing one.
+  5. **Skipped-check markers were missing** (MISSION §7 requires `pass:null,
+     skipped:"prior failure"` for unreached checks). Now emitted for the whole plan.
+  6. **The `bbox within 0.1 % of truth` universal gate (§6) was never implemented** — the
+     designated tripwire for a 1000× unit error (§10.9). Added `bbox_err_pct` to all five
+     milestones, comparing all 6 box faces relative to the truth extent (catches scaling *and*
+     bulk translation).
+  7. **Gaming — copying the answer.** cwd isolation cannot stop `rebuild.py` reading
+     `harness/truth/` (it lives in the same repo). Added `not_truth_copy`, a sha256 compare
+     against the truth STEP, plus a regression test that a copying pipeline is rejected.
+  8. **Gaming — a tessellated shell as a "solid".** M2/M4/M5 had no `face_count_max`, so a
+     sewn faceted mesh would pass `n_solids == 1`. Added deliberately generous caps
+     (40/300/400 vs ~6/50/60 for exact geometry) — an anti-tessellation guard, not a style gate.
+  9. Smaller: gmsh now has its own `mesh_timeout_s` (300 s) instead of borrowing
+     `runtime_cap_s`, which for M5 is a 120 s *product* requirement that must not throttle the
+     check; `score.json` is sanitized so a non-finite metric can never emit invalid JSON
+     (`NaN` would break the driver's parse); `metrics.load_mesh` no longer silently returns a
+     `Scene` whose `.is_volume` doesn't mean what the gates assume; `artifacts.pipeline_log`
+     is now populated (was hardcoded null, violating the §7 example).
+- Score after (local): `selftest.py` → **exit 1, by design** — all 6 M1 checks PASS (closed-form
+  rel_err=0; truth STEP passes all 14 gates; 1.01× copy fails volume_err_pct at 3.03 %;
+  bore-filled fails at 9.89 %; gmsh meshes truth, min_quality 0.234; determinism holds), and
+  M2–M5 FAIL on "generator implemented". `score.py --milestone M1` → exit 1, contract-valid,
+  progress 0.0714, 14 checks with 12 skipped markers. `pytest tests/` → 16 passed (was 13).
+- Learned: determinism was only ever tested against the *stub* pipeline, which fails at
+  `pipeline_exit` after two checks — it never exercised the seeded surface sampling or gmsh,
+  the only two plausible sources of nondeterminism. Rerouted through `_score_with_step` so the
+  full stack is compared; it does hold (identical dicts modulo `runtime_s`).
+- Next: `_make_m2()` in `harness/generators.py` — 2:1 ellipsoidal domes on the outer surface at
+  both ends, straight R_i=300 bore through, per `milestones.py::_m2` params (dome_semi_axial =
+  R_o/2 = 500). Register `_make_bore_filled_m2` in `selftest.py::_BORE_FILLERS`. Then M3, M4,
+  M5 the same way; the review pass will re-run automatically once selftest goes green.
 
 ### iter 5 — M0 — sonnet/medium — 2026-08-29T08:30
 - Score before: score.py done and committed; PROGRESS.md pointed at selftest.py as the next
