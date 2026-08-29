@@ -982,7 +982,7 @@ def keep_artifacts(score: dict, ms: str) -> list[str]:
         dest = LOGS_DIR / f"{ms}-final-{key}{src.suffix}"
         try:
             shutil.copy(src, dest)
-            kept.append(str(dest.relative_to(ROOT)))
+            kept.append(os.path.relpath(dest, ROOT))
         except OSError as e:
             log(f"note: could not keep artifact {key} ({src}): {e}")
     if kept:
