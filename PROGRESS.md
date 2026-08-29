@@ -15,6 +15,59 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- Milestone: **M1**. `pipeline/` now exists and `rebuild.py` delegates to it
+  (`from pipeline.cli import main`). **M1 scores `pass: true, progress: 1.0`, all 14 checks
+  green** (`volume_err_pct` 7.2e-6 %, `bbox_err_pct` 2.4e-6 %, `surface_deviation_max_mm`
+  1.4e-4, `face_count_max` 4/8, `step_roundtrip` 5e-15, `gmsh_min_sicn` 0.247), runtime 1.26 s
+  vs the 120 s cap. `pytest tests/ --ignore=tests/test_selftest.py` → 15 passed (two tests that
+  asserted on rebuild.py's now-defunct exit-3 stub were rewritten to monkeypatch a stub
+  `_run_pipeline` instead, per `## Do not retry`).
+- What was built (MISSION §5.2, stages 1/2/3/5/6/7/8 — no loops/matching stage yet, see below):
+  `pipeline/tol.py` (§5.4 table), `pipeline/io.py` (load+orient axis to +Z via
+  `trimesh.geometry.align_vectors`), `pipeline/stations.py` (uniform only), `pipeline/slicing.py`
+  (`mesh.section` + `Path3D.to_2D(to_2D=trimesh.geometry.plane_transform(...))` — NOTE `to_planar`
+  is deprecated in this trimesh version, `to_2D` is the replacement per docs/research/01),
+  `pipeline/fitting.py` (Kasa circle fit + RDP on the (z,R) polyline using **perpendicular**
+  distance, never radial — see the `## Do not retry` entry on `uniform_stations_needed` for why),
+  `pipeline/solids.py` (`build_revolve_solid`: RDP-simplify the meridian, build a closed wire —
+  axis edge / radial edge / wall polyline / radial edge — revolve 360° about Z), `pipeline/
+  booleans.py` (`Cut` with fuzzy retry ×3, no `HasErrors()` per M0's OCP-7.9.3 finding),
+  `pipeline/export.py` (ShapeFix → UnifySameDomain → BRepCheck_Analyzer → undo the axis
+  transform via `gp_Trsf.SetValues` on the inverted 4×4 → STEP/STL), `pipeline/report.py`,
+  `pipeline/cli.py` (argparse + orchestration, catches all exceptions so the harness never sees
+  a raw crash).
+- **Scope of what's implemented, and it's real scope not a shortcut:** only the "all circles
+  centered on the axis" decision-order case (MISSION §5.2 step 6, first bullet) — exactly one
+  outer loop + exactly one hole loop per station, both circles, both centered on axis within
+  `circle_max_resid`. `cli.py` fails fast with a diagnostic stderr line (exit 4) on any station
+  that doesn't fit that shape — no silent wrong answers. This covers M1 exactly. Loop
+  classification/matching (MISSION §5.2 step 4, `linear_sum_assignment`), non-circular fitting
+  (step 5's B-spline branch), prism/loft paths, and multi-chain booleans are NOT built — M2's
+  domes still fit this fast path (still 1 outer + 1 bore, circles all the way, just R(z)
+  non-constant — RDP will need a real epsilon there, not just collapse to 2 points), but M3's
+  star bore and M4/M5's fin slots need the loop/matching stage and non-circular fitting first.
+- **Bug fixed while building `pipeline/stations.py`'s vertex-snap:** the "never place a station
+  at a mesh vertex z" nudge (MISSION §5.2 step 2) used `jitter = 1e-3 * (z_max-z_min)` — for
+  L=10000 that's a 10 mm jitter, not a numerical nudge, and it fired on the two inset end
+  stations (which sit ~1 mm from the true end vertices at z=0/z=L), throwing them ~10 mm past
+  the true end and outside `[z_min, z_max]` entirely (station z=10008.998 on a L=10000 part).
+  Fixed to `jitter = 1e-9 * (z_max-z_min)` — this check only needs to break exact float
+  coincidence, not dodge a real neighborhood.
+- **Why volume error is 7e-6 %, not just "small":** M1's cylindrical wall has zero curvature
+  along Z, so `BRepMesh_IncrementalMesh` only needs vertex rings at the two true ends (z=0, z=L)
+  — no intermediate Z subdivision. A slicing station at any interior z therefore cuts straight
+  vertical mesh edges that lie exactly on the true circle (same (x,y) at both endpoints of the
+  edge), so the circle fit recovers R to floating-point precision instead of being biased by
+  ~half the chordal deflection. This is a property of a prismatic profile, not of the fitting
+  code — M2's domes will show real chordal bias in the fitted R(z) and need to be budgeted
+  against the deviation gates, not the volume gate.
+- Manual pre-check before the harness run: ran `rebuild.py` directly on `harness/truth/M1.stl`
+  in `/tmp` (mirroring the scorer's neutral-cwd convention) — exit 0, 4 faces, 1 solid,
+  `BRepGProp` volume within 7.2e-6 % of the closed-form value, before running the real scorer.
+- Previous milestone (M0, harness build) history is preserved below this block; harness is
+  frozen and not touched this iteration.
+
+### (superseded) M0 state, preserved for history
 - Milestone: M0. **The harness is ready to freeze.** Iter 12's full `selftest.py` run: exit 0,
   `SELFTEST PASSED`, **31/31 checks in 85.7 s** (vs the driver's 1500 s cap and its 24 GB memory
   cap; iter 11's driver run peaked at 0.77 GB). `score.py --milestone M1` → exit 1 with
@@ -126,9 +179,56 @@
   that would mean sandboxing imports, which is out of proportion to the risk — the pipeline is
   written by this same loop, and PROGRESS/commit review is the backstop. If a milestone ever
   passes suspiciously early, check `pipeline/` for a `generators` import first.
+- Do not assume `pipeline/`'s axisymmetric fast path (§5.2 step 6, first bullet) is a general
+  "circle fitter" ready for M3+. It only handles exactly-1-outer + exactly-1-hole per station,
+  both circles centered on axis; `cli.py` fails fast (exit 4, diagnostic stderr) on anything
+  else rather than guessing. M3's star bore and M4/M5's fins need the loop classification/
+  matching stage (§5.2 step 4) and non-circular B-spline fitting (§5.2 step 5) built first —
+  don't try to bend the circle-fit path to fit a star or slot profile.
+- Do not set a station-z jitter (the "never coincide with a mesh vertex" nudge, §5.2 step 2)
+  proportional to the part's axial length. `1e-3 * L` on a 10 m part is a 10 mm jitter — big
+  enough to throw an inset end-station past the true end entirely. This bit `pipeline/
+  stations.py` on the very first run (iter 13). The nudge only needs to break float-exact
+  coincidence; `1e-9 * L` is plenty and can never leave the inset band.
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 13 — M1 — sonnet/medium — 2026-08-29T13:02
+- Score before: driver verdict `M1 progress=0.0667, first_failure=pipeline_exit` — `rebuild.py`
+  was still the exit-3 stub (`pipeline/` didn't exist).
+- Change: built `pipeline/` (the axisymmetric revolve fast path, MISSION §5.2 step 6 first
+  bullet — see `## Current state` for the full module list) and pointed `rebuild.py` at
+  `pipeline.cli.main`. For M1's annular cylinder, every station's outer loop and hole loop
+  fit a circle centered on the axis, so both the outer envelope and the bore are built as
+  `BRepPrimAPI_MakeRevol` of an RDP-simplified (z, R) meridian, then `Cut(outer, bore)`,
+  `ShapeFix_Shape` + `ShapeUpgrade_UnifySameDomain` + `BRepCheck_Analyzer`, undo the axis
+  rotation, write STEP/STL/report.
+- Score after (local): `harness/score.py --milestone M1` → **`pass: true, progress: 1.0`, all
+  14 checks green** — `volume_err_pct` 7.2e-6 % (gate < 0.05 %), `bbox_err_pct` 2.4e-6 %,
+  `surface_deviation_max_mm` 1.4e-4 (gate < 0.6), `face_count_max` 4 (gate ≤ 8),
+  `step_roundtrip` 5e-15, `gmsh_min_sicn` 0.247 (gate > 0.1), runtime 1.26 s (cap 120 s).
+  `harness/selftest.py --skip-gmsh` still PASSED (harness untouched). `pytest tests/
+  --ignore=tests/test_selftest.py` → 15 passed after rewriting the two tests that hardcoded
+  the old exit-3 stub's behavior to monkeypatch a stub `_run_pipeline` instead (see
+  `## Do not retry` — those tests test fail-fast/skip logic, not rebuild.py's current state,
+  so they shouldn't have depended on it being unbuilt in the first place). Full
+  `harness/selftest.py` (with gmsh, all 5 milestones) was kicked off in the background to
+  confirm before the next iteration reads this; check its log if the result isn't recorded yet.
+- Found and fixed one bug along the way: see the two new `## Do not retry` entries above
+  (station jitter proportional to L, and the scope limit of the circle-fit fast path).
+- Next: **M2** (2:1 ellipsoidal domes both ends, straight bore through). The current
+  axisymmetric fast path should still fire — domes are still circles centered on axis, just
+  with non-constant R(z) — but two things need attention that M1 couldn't exercise: (1) RDP's
+  epsilon (currently `0.5*chord_tol`) actually has to do work now instead of collapsing a
+  constant profile to 2 points — verify the dome curvature is captured within the deviation
+  gates, not just "some" points; (2) the envelope-endpoint override (`outer_full` in `cli.py`
+  currently assumes the profile is prismatic at the inset end stations and copies the nearest
+  station's R straight to z_min/z_max) is WRONG for a dome — the true end is the apex (R→0),
+  not a flat cap. `cli.py` needs a dome-apex closure (MISSION §5.2 step 6 "End caps": dense
+  cosine-clustered stations + extrapolated apex vertex via `ThruSections.AddVertex`, or the
+  planar micro-cap fallback) before M2 can pass — this is the actual next unit of work, not a
+  copy-paste of M1's endpoint logic.
 
 ### iter 12 — M0 — opus/high — review-harness — 2026-08-29T12:13
 - Score before: driver's iter-11 evaluation PASSED — 27/27 selftest checks in 1 min, peak RSS

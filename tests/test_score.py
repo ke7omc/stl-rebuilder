@@ -8,7 +8,16 @@ from harness import score as score_mod
 TRUTH_STEP = Path(__file__).parent.parent / "harness" / "truth" / "M1.step"
 
 
-def test_stub_pipeline_fails_fast_at_pipeline_exit():
+def _stub_pipeline(stl_path, out_step, spec, cwd):
+    """Stand-in for a pipeline that hasn't been built yet (exit 3, no output) — the real
+    rebuild.py stub's behavior, kept here so fail-fast/skip tests don't depend on pipeline/
+    being unbuilt."""
+    return {"returncode": 3, "stderr_tail": "rebuild.py: not implemented yet",
+            "timed_out": False, "runtime_s": 0.01}
+
+
+def test_stub_pipeline_fails_fast_at_pipeline_exit(monkeypatch):
+    monkeypatch.setattr(score_mod, "_run_pipeline", _stub_pipeline)
     result = score_mod.score("M1", keep_dir=None)
     assert result["milestone"] == "M1"
     assert result["pass"] is False
@@ -56,10 +65,11 @@ def test_byte_copy_of_truth_is_rejected(monkeypatch):
     assert result["first_failure"]["check"] == "not_truth_copy"
 
 
-def test_skipped_checks_are_recorded_and_progress_uses_full_plan():
+def test_skipped_checks_are_recorded_and_progress_uses_full_plan(monkeypatch):
     """MISSION §7: unreached checks appear with pass=null. The progress denominator is the full
     plan, so failing check 2 of 14 must score ~1/14, not 1/2."""
-    result = score_mod.score("M1", keep_dir=None)  # stub rebuild.py fails at pipeline_exit
+    monkeypatch.setattr(score_mod, "_run_pipeline", _stub_pipeline)
+    result = score_mod.score("M1", keep_dir=None)  # stub pipeline fails at pipeline_exit
     plan = score_mod.check_plan(ms.get("M1"))
     assert [c["name"] for c in result["checks"]] == plan
     skipped = [c for c in result["checks"] if c["pass"] is None]
