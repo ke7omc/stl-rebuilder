@@ -4,6 +4,17 @@
 - Milestone: M0. **The harness is COMPLETE and has been through its pre-freeze audit (iter 10).**
   All five generators are built and `harness/selftest.py` exits **0**, so both M0 gate conditions
   from MISSION §6 hold and the driver should tag `harness-frozen` and advance to M1.
+- ⚠️ **DO NOT TAG `harness-frozen` UNTIL A FULL `selftest.py` RUN IS SEEN TO EXIT 0.** Iter 10
+  changed the harness and then could not complete an end-to-end selftest: two runs were SIGKILLed
+  by the environment (exit 137) at ~11.5 min and mid-M2, not by any assertion. What *was* verified
+  after the changes: all 5 M1 checks PASS (including "truth STEP passes all gates", so the new
+  `AddOptimal_s` bbox and the CHORD_TOL/5 deviation do not fail correct geometry), all three new
+  report gates fire on their own check with correct hints (M2 `dome_stations_min`; M5
+  `dome_stations_min`, `topo_event_z`, `adaptive_efficiency`), and
+  `pytest tests/ --ignore=tests/test_selftest.py` → 15 passed. The unverified remainder is M2–M5's
+  volume/deviation/gmsh checks, which the changes touch. **Next iteration: run
+  `.venv/bin/python -u harness/selftest.py` (unbuffered — a buffered run loses all output when
+  killed) as the first action and confirm exit 0.**
 - **`rebuild.py` must write a `--report` JSON.** The scorer now always passes
   `--report <cwd>/report.json` and three gates are graded from it. Keys: `n_stations` (int),
   `stations_z_mm` (list[float], input-STL coordinates), `paths_used` (list[str]),
