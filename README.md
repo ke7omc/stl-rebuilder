@@ -81,7 +81,7 @@ driver, prompts, and spec (`infra-frozen`).
   (`driver/guard_bash.py`) catches the same things inside `bash -c` / `&&` chains. Each
   iteration runs with all MCP servers and skills disabled. If permission denials keep stalling
   iterations, `LOOP_SKIP_PERMISSIONS=1` switches to `--dangerously-skip-permissions` (your call).
-- *Cost and time:* a per-iteration `--max-budget-usd` ($6 normal, $10 escalated/review, $20
+- *Cost and time:* a per-iteration `--max-budget-usd` ($10 normal, $15 escalated/review, $20
   tournament), a per-iteration wall-clock timeout by mode (90 min normal, 120 escalated/review,
   180 tournament) that kills the agent's whole process tree and auto-commits whatever is on
   disk, an iteration cap, and every iteration's cost/turns/model logged to

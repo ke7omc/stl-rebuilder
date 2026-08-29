@@ -71,8 +71,8 @@ CONFIG = {
     "TOURNAMENT_TIMEOUT_S": 10800, # 180 min
     "SCORE_TIMEOUT_S": 2400,       # 40 min for a selftest / scorer run (MEM_LIMIT_GB is the real backstop)
     "COMMIT_BY_PCT": 80.0,         # header tells the agent to have working state committed by this % of its budget
-    "BUDGET_USD_DEFAULT": 6.0,     # --max-budget-usd per iteration
-    "BUDGET_USD_ESCALATE": 10.0,
+    "BUDGET_USD_DEFAULT": 10.0,    # --max-budget-usd per iteration (Sonnet M1/M2 iterations ran $5–6 in 10–14 min)
+    "BUDGET_USD_ESCALATE": 15.0,
     "BUDGET_USD_TOURNAMENT": 20.0,
     # machine protection / feedback
     "MEM_LIMIT_GB": 24.0,          # kill a selftest/scorer whose process tree exceeds this RSS
