@@ -15,6 +15,71 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- Milestone: **M2**, in progress. Local score: `pass:false, progress:0.4601`, first failure
+  `volume_err_pct` 0.1381% (gate 0.05%). No crash, no timeout — the pipeline runs end-to-end.
+- **Key discovery this iteration, worth internalizing before touching this again:** M2's (and
+  M5's) bore does NOT reach the geometric apex of the dome. Because the straight R_i=300 bore
+  extends the full length, the CUT solid's cross-section is empty wherever the dome radius drops
+  below 300 — so the true mesh terminates where R_dome(z) == R_i (a finite-radius pinch, annulus
+  width → 0), not at z=0/L with R→0. Measured: M2's actual STL z-bounds are [23.03, 9976.97], not
+  [0, 10000]. `_extrapolate_end`'s docstring/comments in `pipeline/cli.py` explain this; do not
+  re-derive it from scratch, and don't assume "apex extrapolation to R=0" (that was iter 13's
+  framing and it's wrong for this shape).
+- Three problems, all real, found and partially fixed in `pipeline/stations.py` /
+  `pipeline/cli.py` this iteration:
+  1. **Under-resolution of the dome**: with only 40 uniform stations across ~9954 mm, only ~2
+     land in each ~500 mm dome band. Fixed: `stations.uniform_stations` now places a
+     double-cosine-clustered distribution (denser at both ends) — gets `dome_stations_min=8` to
+     pass at 10/10 stations per dome band (M2 gate) with the same n=40 budget. M1 unaffected
+     (RDP still collapses a flat profile to 2 points regardless of station distribution).
+  2. **Circle-fit residual blows up very close to the true edge**: within ~50 mm of the pinch,
+     the local dR/dz slope is steep (~2-6 mm/mm measured) and amplifies the STL's own chordal
+     tessellation noise into an apparent circle-fit residual that exceeds `circle_max_resid`
+     (measured up to 1.7 mm at 5 mm inset vs. 0.75 mm gate; settles under gate only past ~70 mm
+     inset). Fixed: station placement now uses `station_eps = max(eps_end_val, 200*chord_tol)`
+     (~100 mm) as its own inset floor, separate from `eps_end_val` (which still governs cutter
+     extension etc.). This does NOT change the true axial extent (`z_min`/`z_max` from the mesh
+     bounds), only where stations are allowed to sit.
+  3. **Outer envelope endpoint extrapolation is still not accurate enough.** `_extrapolate_end`
+     fits R^2 vs z as a quadratic through the 3 nearest *sufficiently-separated* stations
+     (`min_dz = 5*chord_tol` apart, to dodge near-duplicate points from the aggressive end
+     clustering — a naive nearest-3 pick without that filter produces a near-singular Vandermonde
+     fit and can return garbage, e.g. measured R^2 = -91000 at the aft end once). This is
+     *mathematically exact* for a true 2:1 ellipsoidal dome (R^2 is exactly quadratic in z there)
+     when fed well-separated points sampled close to the tip — verified against the analytic
+     ellipse to 1e-6 mm in an isolated test with 3 nicely-spaced points. But fed the ACTUAL
+     station set (points at ~100mm/140mm/170mm inset, spaced further apart because of the new
+     `station_eps` floor), it only gets within ~10-11 mm of the true 300 mm pinch radius, not
+     matching the isolated-test precision. Added a "snap to bore radius" fallback (if the
+     extrapolated outer R lands within 50 mm of the bore's own — much more reliable, because the
+     bore isn't near the dome's curvature — fitted radius at that end, use the bore radius
+     directly, since geometrically they must be equal at the true pinch). This improved volume
+     error from 0.44% (no dome-resolution fix at all) → 0.84% (broken interim state, see below)
+     → 0.15% (quadratic without snap) → 0.138% (quadratic + snap) — still 2.8x over the 0.05%
+     gate. **Not done — the next iteration's target.**
+- **Confusing intermediate data point, worth recording so it isn't re-discovered the hard way:**
+  a cruder 2-point LINEAR (not quadratic) extrapolation from the literal nearest 2 stations
+  (which, before the `station_eps` floor existed, were sometimes near-duplicate points ~0.06 mm
+  apart) once scored `volume_err_pct=0.0025%` — better than every later, more careful attempt —
+  but failed on `surface_deviation_max_mm=24.9mm` at the exact tip. That combination is not a
+  real solution (the deviation failure proves the endpoint geometry was locally very wrong; the
+  low volume number is because the erroneous cap only spans a vanishingly short z-band near a
+  near-duplicate station and so contributes ~0 volume even though it's a bad *local* fit) — do
+  not chase that volume number again without also checking deviation.
+- Ideas not yet tried, ranked for the next iteration: (a) verify what fraction of the 0.138%
+  error is actually the end-cap band vs. general dome-curve RDP resolution elsewhere — add a
+  quick probe that reports the CUT solid's volume with r_start/r_end forced to the *exact*
+  analytic pinch value (computable for M2 since R_i is known) to isolate the two error sources
+  before optimizing further; (b) if it's dominated by general dome resolution, tighten the RDP
+  epsilon for this milestone or add more clustered stations mid-dome (not just near the tip);
+  (c) if the endpoint really is the dominant term, try widening the `min_dz` separation used in
+  `_extrapolate_end` (currently 5*chord_tol — try e.g. 20*chord_tol) since the fit stations are
+  now farther from the tip than the isolated test that got 1e-6 mm precision, or fit against
+  more than 3 points (least-squares quadratic, not exact interpolation) for noise averaging.
+- Deviation/dome_stations/gmsh/face_count/step_roundtrip checks not yet reached (fail-fast stops
+  at volume_err_pct) — unknown whether they pass; check after volume is fixed.
+
+### (superseded) M1 state, preserved for history
 - Milestone: **M1**. `pipeline/` now exists and `rebuild.py` delegates to it
   (`from pipeline.cli import main`). **M1 scores `pass: true, progress: 1.0`, all 14 checks
   green** (`volume_err_pct` 7.2e-6 %, `bbox_err_pct` 2.4e-6 %, `surface_deviation_max_mm`

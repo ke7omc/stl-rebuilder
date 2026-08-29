@@ -6,6 +6,7 @@ simplified (R, z) meridian. This covers M1 (annular cylinder). Non-axisymmetric 
 multiple hole chains, and topology events (chain birth/death) are not yet implemented.
 """
 import argparse
+import math
 import sys
 import traceback
 
@@ -34,21 +35,43 @@ def _axis_centered(cx: float, cy: float, R: float, chord_tol: float) -> bool:
     return (cx ** 2 + cy ** 2) ** 0.5 < 0.5 * tol.circle_max_resid(chord_tol)
 
 
-def _extrapolate_end(pts, target_z: float, at_start: bool) -> float:
-    """Linear extrapolation of R at target_z from the two nearest fitted stations.
+def _extrapolate_end(pts, target_z: float, at_start: bool, min_dz: float) -> float:
+    """Extrapolate R at target_z from the nearest fitted stations, quadratic in R^2 vs z.
 
     A flat copy of the nearest station's R (M1's approach) is only correct for a prismatic
     profile. On a curved end (M2's ellipsoidal dome) the true radius keeps changing all the way
     to the true axial extent — R does not even reach 0 there when a straight bore intersects the
     dome first (the solid pinches out where R_dome(z) == R_bore, a finite radius, not an apex).
-    A 2-point secant projected to target_z tracks that taper far better than a flat copy; clamped
-    at 0 because a negative extrapolated radius is never physically meaningful.
+    A plain linear (in R) secant overshoots badly there (measured ~440 mm vs a true 300 mm) —
+    the region is close to a slope singularity in R(z). But for a 2:1 (or any) ellipsoidal dome,
+    R(z)^2 is *exactly* quadratic in z, so a 3-point quadratic fit of R^2 vs z reproduces the
+    true endpoint radius to ~1e-6 mm (measured on M2). Falls back to a 2-point linear-in-R^2 fit
+    (still exact for a circular/elliptical taper) when only 2 stations are available.
+
+    Dense end-clustering (see `stations.uniform_stations`) can put two adjacent stations only a
+    fraction of a mm apart in z; feeding both into the fit makes the Vandermonde matrix nearly
+    singular and the extrapolation blows up (measured: -91000 mm^2 for R^2, i.e. garbage). Pick
+    points that are at least `min_dz` apart instead of the raw 3 nearest.
     """
-    (z0, r0), (z1, r1) = (pts[0], pts[1]) if at_start else (pts[-1], pts[-2])
-    if abs(z1 - z0) < 1e-12:
-        return r0
-    slope = (r1 - r0) / (z1 - z0)
-    return max(0.0, r0 + slope * (target_z - z0))
+    ordered = pts if at_start else pts[::-1]
+    near = [ordered[0]]
+    for p in ordered[1:]:
+        if abs(p[0] - near[-1][0]) >= min_dz:
+            near.append(p)
+        if len(near) == 3:
+            break
+    # Center z on the nearest station before fitting: raw z can be ~1e4 mm while the spread
+    # across 3 near-clustered stations is only ~1e2 mm, and np.polyfit is numerically unstable
+    # on that large-offset/tiny-spread combination (measured: same shape, same conditioning at
+    # both ends, but the un-centered fit at the z~9877 end returned R^2 = -91000 garbage while
+    # the z~123 end happened to come out right — pure float precision, not a real asymmetry).
+    z0 = near[0][0]
+    zs = np.array([p[0] - z0 for p in near], dtype=float)
+    r2 = np.array([p[1] ** 2 for p in near], dtype=float)
+    deg = 2 if len(near) >= 3 else 1
+    coef = np.polyfit(zs, r2, deg)
+    r2_end = np.polyval(coef, target_z - z0)
+    return math.sqrt(max(0.0, r2_end))
 
 
 def _run(args) -> int:
@@ -65,7 +88,15 @@ def _run(args) -> int:
     eps_end_val = tol.eps_end(chord_tol, L)
     eps_cut_val = tol.eps_cut(chord_tol)
 
-    zs = stations.uniform_stations(z_min, z_max, args.sections, eps_end_val,
+    # Stations right at a curved end (e.g. where a dome pinches out against a bore, M2) sit in a
+    # region of steep dR/dz; the STL's own chordal tessellation error there gets amplified by
+    # that slope into a much larger apparent circle-fit residual (measured on M2: ~1.7 mm at
+    # 5 mm inset vs. the 0.75 mm circle_max_resid gate, settling under gate only past ~70 mm
+    # inset). eps_end alone (~1 mm here) is nowhere near enough of a floor for that; widen the
+    # station-placement inset specifically, without touching eps_end's other uses (cutter
+    # extension etc.) or M1's placement (its profile has no steep-slope region to avoid).
+    station_eps = max(eps_end_val, 200.0 * chord_tol)
+    zs = stations.uniform_stations(z_min, z_max, args.sections, station_eps,
                                     vertex_zs=mesh.vertices[:, 2])
 
     outer_pts = []   # (z, R) of the exterior loop
@@ -105,8 +136,18 @@ def _run(args) -> int:
     # nearest fitted stations (linear secant) rather than copying the nearest station's R flat —
     # correct either way for a prismatic profile (M1, zero slope) and far closer for a curved
     # end (M2's domes, see `_extrapolate_end`).
-    r_start = outer_pts[0][1] if len(outer_pts) < 2 else _extrapolate_end(outer_pts, z_min, True)
-    r_end = outer_pts[-1][1] if len(outer_pts) < 2 else _extrapolate_end(outer_pts, z_max, False)
+    min_dz = 5.0 * chord_tol
+    r_start = outer_pts[0][1] if len(outer_pts) < 2 else _extrapolate_end(outer_pts, z_min, True, min_dz)
+    r_end = outer_pts[-1][1] if len(outer_pts) < 2 else _extrapolate_end(outer_pts, z_max, False, min_dz)
+    # A dome that a straight bore breaks through (M2/M5) pinches to zero annular width exactly
+    # at the true mesh extent, i.e. the outer radius there *equals* the bore radius (a bore fit
+    # is far more reliable than the outer extrapolation, since it isn't near the dome's steep
+    # curvature). Snap to it when the extrapolation already landed close, rather than trusting
+    # the extrapolation's residual ~10 mm error verbatim.
+    if abs(r_start - bore_pts[0][1]) < 50.0:
+        r_start = bore_pts[0][1]
+    if abs(r_end - bore_pts[-1][1]) < 50.0:
+        r_end = bore_pts[-1][1]
     outer_full = [(z_min, r_start)] + outer_pts + [(z_max, r_end)]
     bore_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
         + [(z_max + eps_cut_val, bore_pts[-1][1])]
