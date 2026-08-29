@@ -13,8 +13,10 @@ For each milestone with a built generator:
   3. a 1.01x-scaled copy of the truth STEP must fail on volume_err_pct,
   4. a bore-filled (no-cut) copy must fail on volume_err_pct,
   5. gmsh must be able to mesh the truth STEP.
-Plus one milestone-independent check:
-  6. determinism — scoring the same (stub-pipeline) inputs twice yields identical results.
+Plus two milestone-independent checks:
+  6. the exact point→mesh distance kernel every deviation gate rests on agrees with trimesh's
+     reference query (it is hand-written; an under-reported distance would silently fake a pass),
+  7. determinism — scoring the same (stub-pipeline) inputs twice yields identical results.
 
 Exit 0 only if every check across every implemented milestone holds; prints a PASS/FAIL line
 per check and a summary. Milestones whose generator is not yet implemented are skipped (noted,
@@ -28,6 +30,9 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+import numpy as np
+import trimesh
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -250,6 +255,33 @@ def check_milestone(name: str, work_dir: Path, skip_gmsh: bool = False) -> None:
         _report(ok, f"{name}: {label} fails on {check}",
                 f"first_failure={result['first_failure']}")
 
+    # 2c. the per-region deviation gate must bite on an error the *global* p99 dilutes away.
+    # It cannot be provoked with a perturbed shape: to survive the global p99 the bad band has to
+    # hold under 1 % of the pooled sample points, and no region band of these milestones is that
+    # small — which is exactly why the check is worth having, and why the only honest way to prove
+    # it is wired is to feed the check a by_z_bin table with one region over the gate while the
+    # global max/p99 stay clean. A gate that is never exercised is a gate that does not exist.
+    if "surface_deviation_p99_mm" in spec.gates:
+        real_dev = metrics.surface_deviation
+
+        def dev_with_one_bad_region(*a, **kw):
+            dev = real_dev(*a, **kw)
+            bins = [b for b in (dev.get("by_z_bin") or [])
+                    if b["n_points"] >= score_mod._MIN_BIN_POINTS]
+            if bins:
+                bins[-1]["p99_mm"] = 5.0   # >> any milestone's p99 gate
+            return dev
+
+        metrics.surface_deviation = dev_with_one_bad_region
+        try:
+            result = _score_with_step(name, truth.step_path, truth)
+        finally:
+            metrics.surface_deviation = real_dev
+        ok = (not result["pass"]) and result["first_failure"] is not None \
+            and result["first_failure"]["check"] == "surface_deviation_p99_by_region"
+        _report(ok, f"{name}: one bad region fails on surface_deviation_p99_by_region",
+                f"first_failure={result['first_failure']}")
+
     # 3. scaled copy fails on volume_err_pct
     scaled_path = _make_scaled_copy(truth, work_dir)
     result = _score_with_step(name, scaled_path, truth)
@@ -279,6 +311,52 @@ def check_milestone(name: str, work_dir: Path, skip_gmsh: bool = False) -> None:
     mesh_res = mc.check_meshability(str(truth.step_path), hmax, timeout_s=spec.runtime_cap_s)
     _report(bool(mesh_res.get("ok")), f"{name}: gmsh can mesh truth STEP",
             f"n_tet={mesh_res.get('n_tet')} min_quality={mesh_res.get('min_quality')}")
+
+
+def check_distance_kernel() -> None:
+    """`metrics.point_mesh_distance` must agree exactly with trimesh's reference query.
+
+    It is hand-written: it replaced `ProximityQuery.on_surface`, which sizes its search box by the
+    distance to the nearest mesh *vertex* and therefore exhausts memory on OCC's strip
+    tessellations (iteration 11). Every deviation gate in the scorer rests on it, and the failure
+    that matters is silent — a search radius that is too small under-reports the distance, so a
+    wrong solid would score as a good one and the loop would optimise toward nothing. Nothing else
+    in the harness would notice, so validate it here, on M1 (872 faces: small enough for the
+    reference implementation to be affordable) across the regimes the scorer actually hits.
+    """
+    try:
+        truth = generators.make("M1")
+    except NotImplementedError:
+        _report(False, "distance kernel: M1 generator required")
+        return
+
+    mesh = metrics.load_mesh(truth.stl_path)
+    rng = np.random.default_rng(12345)
+    on = trimesh.sample.sample_surface(mesh, 2000, seed=3)[0]
+    lo, hi = mesh.bounds
+    pad = 0.5 * (hi - lo)
+    cases = {
+        "on-surface": on,
+        "near (sigma 0.3 mm)": on + rng.normal(0.0, 0.3, on.shape),
+        # The far case is the one that exercises the radius bound: a big box means many candidate
+        # triangles and the chunked reduction that keeps peak memory bounded.
+        "far (bbox padded 50%)": rng.uniform(lo - pad, hi + pad, (2000, 3)),
+        "on the motor axis (r=0)": np.column_stack([
+            np.zeros(500), np.zeros(500), np.linspace(lo[2], hi[2], 500)]),
+    }
+
+    worst_abs, worst_under, where = 0.0, 0.0, ""
+    for label, pts in cases.items():
+        mine = metrics.point_mesh_distance(mesh, pts)
+        ref = trimesh.proximity.ProximityQuery(mesh).on_surface(pts)[1]
+        diff = mine - ref
+        if float(np.abs(diff).max()) > worst_abs:
+            worst_abs, where = float(np.abs(diff).max()), label
+        worst_under = min(worst_under, float(diff.min()))
+
+    ok = worst_abs < 1e-6 and np.isfinite(worst_abs)
+    _report(ok, "distance kernel matches trimesh's exact query",
+            f"max |diff|={worst_abs:.2e} mm ({where}), max under-report={worst_under:.2e} mm")
 
 
 def check_determinism() -> None:
@@ -323,6 +401,9 @@ def main(argv=None) -> int:
 
     work_dir = Path(tempfile.mkdtemp(prefix="selftest_"))
     try:
+        # Runs even for a narrowed selection: it is a unit check on the metric kernel every
+        # milestone's deviation gate depends on, and it costs ~2 s.
+        check_distance_kernel()
         for name in selected:
             check_milestone(name, work_dir, skip_gmsh=args.skip_gmsh)
         if not partial:

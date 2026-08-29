@@ -59,6 +59,7 @@ _GATED = [  # (check name, gate key that enables it) — order = evaluation orde
     ("adaptive_efficiency", "adaptive_efficiency"),
     ("surface_deviation_max_mm", "surface_deviation_max_mm"),
     ("surface_deviation_p99_mm", "surface_deviation_p99_mm"),
+    ("surface_deviation_p99_by_region", "surface_deviation_p99_mm"),
     ("face_count_max", "face_count_max"),
     ("step_roundtrip", "step_roundtrip_vol_err"),
     ("gmsh_tet", "gmsh_min_sicn"),
@@ -68,7 +69,8 @@ _GATED = [  # (check name, gate key that enables it) — order = evaluation orde
 # the threshold means threshold/value → 1; for a higher-is-better one (gmsh SICN) that formula
 # is inverted and saturates at 1, so a *failing* gmsh check scored the same as a passing one.
 _LOWER_IS_BETTER = {"volume_err_pct", "bbox_err_pct", "surface_deviation_max_mm",
-                    "surface_deviation_p99_mm", "face_count_max", "step_roundtrip",
+                    "surface_deviation_p99_mm", "surface_deviation_p99_by_region",
+                    "face_count_max", "step_roundtrip",
                     "topo_event_z", "adaptive_efficiency"}
 _HIGHER_IS_BETTER = {"gmsh_tet", "dome_stations_min"}
 
@@ -211,6 +213,22 @@ def _bbox_err_pct(shape, truth_bbox) -> float:
         for side in (0, 3):
             worst = max(worst, abs(b[axis + side] - truth_bbox[axis + side]) / extent * 100.0)
     return worst
+
+
+#: A region bin needs at least this many pooled sample points before its p99 is gated. The truth
+#: mesh is sampled independently of the result, so every band always receives truth-side points —
+#: a pipeline cannot starve a region below this floor to dodge the check.
+_MIN_BIN_POINTS = 200
+
+
+def _region_at(spec, z: float, z_min: float, z_max: float):
+    """Label of the region band containing `z`, for localizing a failure hint (MISSION §7's
+    `first_failure.location.region`). None if z falls outside every band."""
+    span = z_max - z_min
+    for rb in spec.regions:
+        if z_min + rb.z_frac_lo * span <= z <= z_min + rb.z_frac_hi * span:
+            return rb.label
+    return None
 
 
 def _mesh_from_step(step_path: Path, out_stl: Path, deflection: float = DEVIATION_DEFLECTION):
@@ -484,12 +502,14 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
             if "surface_deviation_max_mm" in spec.gates:
                 threshold = spec.gates["surface_deviation_max_mm"]
                 ok = dev["max_mm"] < threshold
+                argmax_region = _region_at(spec, dev["argmax_z_mm"], z_min, z_max)
                 add("surface_deviation_max_mm", ok, value=dev["max_mm"], threshold=threshold)
                 if not ok:
                     fail_here("surface_deviation_max_mm", value=dev["max_mm"], threshold=threshold,
-                              location={"z_mm": dev["argmax_z_mm"], "xyz_mm": dev["argmax_xyz_mm"]},
+                              location={"z_mm": dev["argmax_z_mm"], "xyz_mm": dev["argmax_xyz_mm"],
+                                        "region": argmax_region},
                               hint=f"max deviation {dev['max_mm']:.3f} mm at z={dev['argmax_z_mm']:.1f} "
-                                   f"(gate < {threshold} mm)")
+                                   f"({argmax_region}) (gate < {threshold} mm)")
 
             if "surface_deviation_p99_mm" in spec.gates:
                 threshold = spec.gates["surface_deviation_p99_mm"]
@@ -498,6 +518,39 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
                 if not ok:
                     fail_here("surface_deviation_p99_mm", value=dev["p99_mm"], threshold=threshold,
                               hint=f"p99 deviation {dev['p99_mm']:.3f} mm (gate < {threshold} mm)")
+
+            # --- check: surface_deviation_p99_by_region ------------------------------------
+            # MISSION §6 (M2, inherited by M5): "the deviation gate must hold PER Z-BIN including
+            # dome bins". The global p99 is dominated by the cylinder, which carries ~90 % of the
+            # surface area, so a dome that is wrong across 5 % of all sampled points still sits
+            # below the global 99th percentile and passes. Re-applying the same p99 threshold
+            # inside each labelled region is what the milestone actually asks for; the global max
+            # already implies the per-region max, so only p99 needs its own check.
+            if "surface_deviation_p99_mm" in spec.gates:
+                threshold = spec.gates["surface_deviation_p99_mm"]
+                bins = [b for b in (dev.get("by_z_bin") or [])
+                        if b["p99_mm"] is not None and b["n_points"] >= _MIN_BIN_POINTS]
+                worst = max(bins, key=lambda b: b["p99_mm"]) if bins else None
+                ok = worst is not None and worst["p99_mm"] < threshold
+                add("surface_deviation_p99_by_region", ok,
+                    value=worst["p99_mm"] if worst else None, threshold=threshold,
+                    region=worst["region"] if worst else None)
+                if not ok:
+                    if worst is None:
+                        hint = (f"no region band collected >= {_MIN_BIN_POINTS} sample points, so "
+                                "the per-region deviation gate could not be evaluated — check "
+                                "harness/milestones.py region bands against the truth's z extent")
+                    else:
+                        hint = (f"p99 deviation {worst['p99_mm']:.3f} mm inside region "
+                                f"'{worst['region']}' (z {worst['z0']:.0f}-{worst['z1']:.0f}, gate "
+                                f"< {threshold} mm). The global p99 is {dev['p99_mm']:.3f} mm, so "
+                                "the error is concentrated in this band, not spread over the part "
+                                "— add stations there.")
+                    fail_here("surface_deviation_p99_by_region",
+                              value=worst["p99_mm"] if worst else None, threshold=threshold,
+                              location={"region": worst["region"], "z_mm": worst["z0"]} if worst
+                                       else None,
+                              hint=hint)
 
         # --- check: face_count_max ----------------------------------------------------
         if "face_count_max" in spec.gates:
