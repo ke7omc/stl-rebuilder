@@ -3,26 +3,29 @@
 ## Current state
 - Milestone: M0, phase **build** (the review pass ran at iter 6 and deliberately pushed the
   phase back — see below). `harness/` modules all exist; `harness/selftest.py` now **exits 1**
-  by design because the M3–M5 generators are still `NotImplementedError` (M2 landed iter 7).
-- **The one thing that matters right now: build the M3–M5 generators.** The driver tags
+  by design because the M4–M5 generators are still `NotImplementedError` (M2 landed iter 7, M3
+  landed iter 8).
+- **The one thing that matters right now: build the M4–M5 generators.** The driver tags
   `harness-frozen` the instant `selftest.py` exits 0 and the M1 scorer emits contract-valid
   JSON (`loop.py::evaluate`, ~line 529). Until iter 6, `selftest.py` *skipped* unimplemented
   generators, so it would have exited 0 and frozen a harness that can only score 1 of 5
   milestones — the loop would then have reached M2 and stalled forever with no legal way to
   fix `harness/`. The selftest now FAILS on any unimplemented generator, which is what keeps
   the phase in `build` until the harness is genuinely complete.
-- Order to build them in (one per iteration, MISSION §2.1): M3 (6-point star bore) → M4
-  (finocyl, 8 fin slots aft of z=6000 with a flat fore wall) → M5 (M2 domes + M4 fins). Each
-  needs, in `generators.py`, a `_make_mK()` returning a `Truth` (mirror `_make_m1`/`_make_m2`),
-  and in `selftest.py` a bore-filled perturbation registered in `_BORE_FILLERS` — a missing
-  filler is now also a selftest FAILURE (MISSION §7 requires the perturbation test per
-  milestone). `milestones.py` already has all five specs, so no spec work is needed.
+- Order to build them in (one per iteration, MISSION §2.1): M4 (finocyl, 8 fin slots aft of
+  z=6000 with a flat fore wall) → M5 (M2 domes + M4 fins). Each needs, in `generators.py`, a
+  `_make_mK()` returning a `Truth` (mirror `_make_m1`/`_make_m2`/`_make_m3`), and in
+  `selftest.py` a bore-filled perturbation registered in `_BORE_FILLERS` — a missing filler is
+  now also a selftest FAILURE (MISSION §7 requires the perturbation test per milestone).
+  `milestones.py` already has all five specs, so no spec work is needed.
 - `harness/score.py` runs 14 checks for M1 (`score_mod.check_plan(spec)` is the authoritative
   ordered list). Against the stub `rebuild.py` it exits 1 with contract-valid JSON,
   `first_failure.check == "pipeline_exit"`, `progress 0.0714`.
-- Truth files written: `harness/truth/M1.step`, `harness/truth/M1.stl`.
+- Truth files written: `harness/truth/M1.step`, `harness/truth/M1.stl` (and M2/M3 truth files
+  when `selftest.py`/`generators.make` regenerate them — all gitignored, deterministic).
 - Unit tests: `tests/test_metrics.py` (6) + `test_meshcheck.py` (3) + `test_score.py` (6) +
-  `test_selftest.py` (1) — 16 total, all pass (~130 s; the scorer runs gmsh several times).
+  `test_selftest.py` (1) — 16 total, all pass (~340 s; the scorer runs gmsh several times per
+  milestone, and M1–M3 are all exercised now).
 - **Expect the driver to report a stall every M2–M5 generator iteration, and do not read it as
   a real regression.** `loop.py::m0_build_progress` caps at 0.6 (0.1 per harness module, all 6
   already present) while `best_progress` is already 0.95 from the pre-review "harness complete"
@@ -45,6 +48,43 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 8 — M0 — sonnet/medium — 2026-08-29T09:10
+- Score before: `selftest.py` exit 1, 2 failures (M4/M5 generators unimplemented; M1/M2/M3 all
+  green after this iteration's own run).
+- Change: built `harness/generators.py::_make_m3` — outer cylinder R_o=1000 cut by a 6-point
+  star bore (alternating tip R_tip=450 / valley R_valley=250 vertices at 12 points around the
+  axis, straight edges, filleted per-vertex via `BRepFilletAPI_MakeFillet2d`: tip fillet=30,
+  valley fillet=40), extruded the full length with the same margin-past-both-ends pattern as
+  `_straight_bore`. New helper `_star_bore_cutter()` builds the profile with
+  `BRepBuilderAPI_MakeVertex` once per point and reuses the same `TopoDS_Vertex` objects in both
+  the polygon edges and the `AddFillet(vertex, radius)` calls — Fillet2d needs shared vertex
+  identity to find the two adjacent edges at each corner. Registered `_make_bore_filled_m3` in
+  `selftest.py::_BORE_FILLERS` (solid R_o cylinder, no star cut, mirrors `_make_bore_filled_m1`).
+- Score after (local): `selftest.py` → all 4 M3 checks PASS (closed-form N/A — M3 has no
+  `closed_form_volume`, so that check is skipped by design; truth STEP passes all 14 gates —
+  n_faces=27 well under `face_count_max=100`; 1.01x-scaled copy fails volume_err_pct at 3.03%;
+  bore-filled copy fails at 11.89%; gmsh meshes truth, min_quality=0.137 > gate 0.1). M4/M5
+  still correctly FAIL on "generator implemented". `pytest tests/` → 16 passed (unchanged count
+  — M3 has no dedicated generator test file yet, existing tests exercise it indirectly via
+  `selftest.py`'s own test). Manual pre-check with a standalone script confirmed n_solids=1,
+  brep_valid=True, volume=2.8077e10 mm³ (matches outer-cylinder-minus-star-prism-volume
+  arithmetic exactly) before wiring into the real module.
+- Learned: `BRepFilletAPI_MakeFillet2d(face)` + `AddFillet(TopoDS_Vertex, radius)` is the OCP
+  2D fillet API — it operates on a planar face's own vertices/edges (not a 3D edge fillet), and
+  `.Shape()` returns the filleted face as a `TopoDS_Shape` that needs `TopoDS.Face_s(...)` to
+  cast back to `TopoDS_Face` before `BRepPrimAPI_MakePrism`. Confirmed live: `IsDone()` on both
+  the wire builder and the fillet builder are the only checks needed — no `HasErrors()` follow-up
+  (same OCP-7.9.3 pattern as `BRepAlgoAPI_Cut` noted in iter 1).
+- Next: `_make_m4()` — finocyl per `milestones.py::_m4` params (circular bore R=300 fore of
+  z=6000, 8 fin slots aft of z=6000 with w=80, radial 300→700, tip_r=40, flat fore wall). This
+  is more involved than M2/M3: the bore cross-section changes shape at z=6000 (circle → circle+8
+  slots), so the cutter is likely two boolean unions (straight cylinder for the fore segment,
+  fore segment + 8 filleted slot prisms for the aft segment) fused or built as one prism per
+  segment then unioned, cut from the outer cylinder. Register `_make_bore_filled_m4` in
+  `selftest.py::_BORE_FILLERS` (solid cylinder, same pattern as M1/M3). Then M5 (M2 domes + M4
+  fins combined) the same way — the review pass will re-run automatically once selftest goes
+  green for all five milestones.
 
 ### iter 7 — M0 — sonnet/medium — 2026-08-29T08:51
 - Score before: selftest exit 1, 4 failures (M2/M3/M4/M5 unimplemented aspects).

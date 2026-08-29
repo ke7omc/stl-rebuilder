@@ -112,7 +112,18 @@ def _make_bore_filled_m2(spec, work_dir: Path) -> Path:
     return path
 
 
-_BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2}
+def _make_bore_filled_m3(spec, work_dir: Path) -> Path:
+    """M3 without the star bore: a solid cylinder at R_o, same length — should badly fail
+    volume_err_pct against the star-bored truth."""
+    L, R_o = spec.params["L"], spec.params["R_o"]
+    shape = BRepPrimAPI_MakeCylinder(R_o, L).Shape()
+    path = work_dir / "M3_bore_filled.step"
+    generators._write_step(shape, path)
+    return path
+
+
+_BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2,
+                  "M3": _make_bore_filled_m3}
 
 
 def check_milestone(name: str, work_dir: Path) -> None:

@@ -8,22 +8,24 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple
 
-from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder, BRepPrimAPI_MakeRevol
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder, BRepPrimAPI_MakeRevol, BRepPrimAPI_MakePrism
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.StlAPI import StlAPI_Writer
 from OCP.STEPControl import STEPControl_Writer, STEPControl_StepModelType
-from OCP.TopoDS import TopoDS_Shape
+from OCP.TopoDS import TopoDS_Shape, TopoDS
 from OCP.GC import GC_MakeArcOfEllipse
-from OCP.gp import gp_Elips, gp_Ax2, gp_Ax1, gp_Pnt, gp_Dir, gp_Trsf
+from OCP.gp import gp_Elips, gp_Ax2, gp_Ax1, gp_Pnt, gp_Dir, gp_Trsf, gp_Vec
 from OCP.BRepBuilderAPI import (
+    BRepBuilderAPI_MakeVertex,
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeWire,
     BRepBuilderAPI_MakeFace,
     BRepBuilderAPI_Transform,
 )
+from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet2d
 
 from harness import milestones as ms
 
@@ -202,13 +204,92 @@ def _make_m2() -> Truth:
     )
 
 
-# ---------------------------------------------------------------------------
-# M3–M5: not yet implemented (built in later M0 iterations)
-# ---------------------------------------------------------------------------
+def _star_bore_cutter(n_star: int, R_valley: float, R_tip: float, fillet_tip: float,
+                       fillet_valley: float, L: float, margin: float = 20.0) -> TopoDS_Shape:
+    """A star-shaped prism cutter, centered on Z, extending margin/2 past each end of [0, L].
 
+    Profile: 2*n_star vertices alternating tip (R_tip) / valley (R_valley) around the origin,
+    connected by straight edges, then rounded per-vertex via BRepFilletAPI_MakeFillet2d (tips
+    get fillet_tip, valleys get fillet_valley) — the 2D fillet operator needs the *unrounded*
+    polygon's own vertices, so vertices are built once with BRepBuilderAPI_MakeVertex and reused
+    identically in both the edges and the AddFillet calls (shared TopoDS_Vertex identity is what
+    lets Fillet2d find the two edges adjacent to each corner).
+    """
+    points = []
+    for i in range(2 * n_star):
+        angle = i * math.pi / n_star
+        r = R_tip if i % 2 == 0 else R_valley
+        points.append(gp_Pnt(r * math.cos(angle), r * math.sin(angle), 0.0))
+
+    vertices = [BRepBuilderAPI_MakeVertex(p).Vertex() for p in points]
+    mkwire = BRepBuilderAPI_MakeWire()
+    for i in range(len(vertices)):
+        v1, v2 = vertices[i], vertices[(i + 1) % len(vertices)]
+        mkwire.Add(BRepBuilderAPI_MakeEdge(v1, v2).Edge())
+    if not mkwire.IsDone():
+        raise RuntimeError("M3 star profile wire construction failed")
+    face = BRepBuilderAPI_MakeFace(mkwire.Wire(), True).Face()
+
+    fillet = BRepFilletAPI_MakeFillet2d(face)
+    for i, v in enumerate(vertices):
+        r = fillet_tip if i % 2 == 0 else fillet_valley
+        fillet.AddFillet(v, r)
+    fillet.Build()
+    if not fillet.IsDone():
+        raise RuntimeError("M3 star profile fillet construction failed")
+    filleted_face = TopoDS.Face_s(fillet.Shape())
+
+    prism = BRepPrimAPI_MakePrism(filleted_face, gp_Vec(0.0, 0.0, L + margin)).Shape()
+    trsf = gp_Trsf()
+    trsf.SetTranslation(gp_Pnt(0.0, 0.0, 0.0), gp_Pnt(0.0, 0.0, -margin / 2.0))
+    return BRepBuilderAPI_Transform(prism, trsf, True).Shape()
+
+
+# ---------------------------------------------------------------------------
+# M3: outer cylinder + 6-point star bore (filleted tips/valleys), full length
+# ---------------------------------------------------------------------------
 
 def _make_m3() -> Truth:
-    raise NotImplementedError("M3 generator not yet built (M0 iteration 2+)")
+    spec = ms.get("M3")
+    L = spec.params["L"]
+    R_o = spec.params["R_o"]
+    R_valley = spec.params["R_valley"]
+    R_tip = spec.params["R_tip"]
+    n_star = spec.params["n_star"]
+    fillet_tip = spec.params["fillet_tip"]
+    fillet_valley = spec.params["fillet_valley"]
+
+    outer = BRepPrimAPI_MakeCylinder(R_o, L).Shape()
+    bore = _star_bore_cutter(n_star, R_valley, R_tip, fillet_tip, fillet_valley, L)
+
+    cut = BRepAlgoAPI_Cut(outer, bore)
+    cut.Build()
+    if not cut.IsDone():
+        raise RuntimeError("M3 boolean cut failed")
+    shape = cut.Shape()
+
+    V, A = _volume_area(shape)
+    bbox = _bbox(shape)
+
+    step_path = TRUTH_DIR / "M3.step"
+    stl_path = TRUTH_DIR / "M3.stl"
+    _write_step(shape, step_path)
+    _write_stl(shape, stl_path)
+
+    return Truth(
+        milestone="M3",
+        shape=shape,
+        V_truth=V,
+        A_truth=A,
+        bbox=bbox,
+        step_path=step_path,
+        stl_path=stl_path,
+    )
+
+
+# ---------------------------------------------------------------------------
+# M4–M5: not yet implemented (built in later M0 iterations)
+# ---------------------------------------------------------------------------
 
 
 def _make_m4() -> Truth:
