@@ -3,21 +3,20 @@
 ## Current state
 - Milestone: M0, phase **build** (the review pass ran at iter 6 and deliberately pushed the
   phase back — see below). `harness/` modules all exist; `harness/selftest.py` now **exits 1**
-  by design because the M2–M5 generators are still `NotImplementedError`.
-- **The one thing that matters right now: build the M2–M5 generators.** The driver tags
+  by design because the M3–M5 generators are still `NotImplementedError` (M2 landed iter 7).
+- **The one thing that matters right now: build the M3–M5 generators.** The driver tags
   `harness-frozen` the instant `selftest.py` exits 0 and the M1 scorer emits contract-valid
   JSON (`loop.py::evaluate`, ~line 529). Until iter 6, `selftest.py` *skipped* unimplemented
   generators, so it would have exited 0 and frozen a harness that can only score 1 of 5
   milestones — the loop would then have reached M2 and stalled forever with no legal way to
   fix `harness/`. The selftest now FAILS on any unimplemented generator, which is what keeps
   the phase in `build` until the harness is genuinely complete.
-- Order to build them in (one per iteration, MISSION §2.1): M2 (2:1 ellipsoidal domes both
-  ends + straight bore) → M3 (6-point star bore) → M4 (finocyl, 8 fin slots aft of z=6000
-  with a flat fore wall) → M5 (M2 domes + M4 fins). Each needs, in `generators.py`, a
-  `_make_mK()` returning a `Truth` (mirror `_make_m1`), and in `selftest.py` a bore-filled
-  perturbation registered in `_BORE_FILLERS` — a missing filler is now also a selftest FAILURE
-  (MISSION §7 requires the perturbation test per milestone). `milestones.py` already has all
-  five specs, so no spec work is needed.
+- Order to build them in (one per iteration, MISSION §2.1): M3 (6-point star bore) → M4
+  (finocyl, 8 fin slots aft of z=6000 with a flat fore wall) → M5 (M2 domes + M4 fins). Each
+  needs, in `generators.py`, a `_make_mK()` returning a `Truth` (mirror `_make_m1`/`_make_m2`),
+  and in `selftest.py` a bore-filled perturbation registered in `_BORE_FILLERS` — a missing
+  filler is now also a selftest FAILURE (MISSION §7 requires the perturbation test per
+  milestone). `milestones.py` already has all five specs, so no spec work is needed.
 - `harness/score.py` runs 14 checks for M1 (`score_mod.check_plan(spec)` is the authoritative
   ordered list). Against the stub `rebuild.py` it exits 1 with contract-valid JSON,
   `first_failure.check == "pipeline_exit"`, `progress 0.0714`.
@@ -46,6 +45,40 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 7 — M0 — sonnet/medium — 2026-08-29T08:51
+- Score before: selftest exit 1, 4 failures (M2/M3/M4/M5 unimplemented aspects).
+- Change: built `harness/generators.py::_make_m2` — revolves a meridian wire (fore ellipse arc
+  + cylindrical wall + aft ellipse arc + on-axis edge) about Z via `BRepPrimAPI_MakeRevol` into
+  a "capsule" solid (2:1 ellipsoidal domes, radial semi-axis R_o, axial semi-axis R_o/2,
+  apexes on-axis at z=0/z=L), then cuts a straight `R_i` bore spanning the full length —
+  matches docs/research/04 §"M2 + domed ends" exactly. Verified the ellipse winding/apex
+  placement and the closed-form-free volume against a 400k-point numeric integration
+  (27547756121.10 kernel vs .11 numeric — matches to 9 sig figs) before wiring it in.
+  Registered `_make_bore_filled_m2` in `selftest.py::_BORE_FILLERS` as `Fuse(capsule, bore)`
+  rather than the bare capsule — the bare capsule's meridian wire has an edge lying exactly on
+  the rotation axis, which `BRepCheck_Analyzer` accepts in memory but a STEP write/read
+  round-trip corrupts into an invalid shape, so the bare-capsule filler was failing on
+  `brep_valid` instead of exercising `volume_err_pct`. Fusing routes it through OCC's boolean
+  solver (same code path the real cut truth uses), which survives the round-trip.
+- Score after (local): `selftest.py` — M2's 4 checks (truth passes all gates, scaled-copy
+  fails on volume_err_pct, bore-filled fails on volume_err_pct, gmsh meshes truth) all PASS.
+  Remaining 3 failures are only M3/M4/M5 generators, unchanged/expected.
+  `score.py --milestone M1` still exits 1 at `pipeline_exit` (stub unchanged) — contract-valid.
+- Learned: `gp_Ax2(origin, N, Vx)` ellipse winding for a quarter-arc apex-on-axis dome: with
+  `Vx=(1,0,0)` (radial), `N=(0,1,0)` puts the arc's angle-90 end (the apex) at `z = center_z -
+  minor_radius`; `N=(0,-1,0)` puts it at `z = center_z + minor_radius` — needed opposite N for
+  fore (apex below center) vs aft (apex above center) domes. `BRepPrimAPI_MakeRevol` on a
+  profile face that touches the rotation axis is valid in-memory but degenerate at the axis
+  edge; don't trust `BRepCheck_Analyzer` on such a shape without also checking it survives a
+  STEP round-trip, since that's what the scorer actually does.
+- Next: `_make_m3` — 6-point star bore (R_valley=250, R_tip=450, tip fillet=30, valley
+  fillet=40) cut through a straight R_o=1000 cylinder. Star profile: build a closed planar wire
+  of alternating tip/valley points at radius R_tip/R_valley around 6-fold symmetry, fillet each
+  vertex (`BRepFilletAPI_MakeFillet2d` on the wire's face, per-vertex radius), then
+  `BRepPrimAPI_MakePrism` the filleted profile through L (or revolve-equivalent prism since no
+  taper), cut from `BRepPrimAPI_MakeCylinder(R_o, L)`. Register `_make_bore_filled_m3` (solid
+  cylinder, no star cut) in `_BORE_FILLERS`.
 
 ### iter 6 — M0 — opus/high — review-harness — 2026-08-29T08:35
 - Score before: selftest exit 0, M1 scorer contract-valid, progress 0.5 — i.e. the driver was

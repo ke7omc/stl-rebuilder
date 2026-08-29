@@ -84,7 +84,35 @@ def _make_scaled_copy(truth, work_dir: Path, factor: float = 1.01) -> Path:
     return path
 
 
-_BORE_FILLERS = {"M1": _make_bore_filled_m1}
+def _make_bore_filled_m2(spec, work_dir: Path) -> Path:
+    """M2 without the bore: the solid capsule (domes + cylinder), no hole — should badly fail
+    volume_err_pct against the bored truth.
+
+    Built as Fuse(capsule, bore) rather than the bare capsule: the raw revolve's meridian wire
+    includes an edge lying exactly on the rotation axis (apex-to-apex), which produces a
+    degenerate result that BRepCheck_Analyzer accepts in memory but that a STEP write/read
+    round-trip corrupts into an invalid shape (fails `brep_valid` before the scorer ever reaches
+    `volume_err_pct`, hiding the check this filler exists to exercise). Fusing the bore back in
+    routes the shape through OCC's boolean solver, which produces a boundary that survives the
+    round-trip cleanly, same as the real (cut) truth shape does.
+    """
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+
+    L, R_o = spec.params["L"], spec.params["R_o"]
+    R_i = spec.params["R_i"]
+    dome_h = spec.params["dome_semi_axial"]
+    outer = generators._capsule_outer_shape(L, R_o, dome_h)
+    bore = generators._straight_bore(R_i, L)
+    fuse = BRepAlgoAPI_Fuse(outer, bore)
+    fuse.Build()
+    if not fuse.IsDone():
+        raise RuntimeError("M2 bore-filler fuse failed")
+    path = work_dir / "M2_bore_filled.step"
+    generators._write_step(fuse.Shape(), path)
+    return path
+
+
+_BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2}
 
 
 def check_milestone(name: str, work_dir: Path) -> None:
