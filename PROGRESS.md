@@ -24,6 +24,14 @@
 - Truth files written: `harness/truth/M1.step`, `harness/truth/M1.stl`.
 - Unit tests: `tests/test_metrics.py` (6) + `test_meshcheck.py` (3) + `test_score.py` (6) +
   `test_selftest.py` (1) — 16 total, all pass (~130 s; the scorer runs gmsh several times).
+- **Expect the driver to report a stall every M2–M5 generator iteration, and do not read it as
+  a real regression.** `loop.py::m0_build_progress` caps at 0.6 (0.1 per harness module, all 6
+  already present) while `best_progress` is already 0.95 from the pre-review "harness complete"
+  signal, so no build iteration can ever beat it. Consequences: the model escalates to Opus at
+  `STALL_ESCALATE=3`, tournaments are suppressed at M0 (`loop.py:421`), and the loop halts with
+  a status report at `STALL_MAX=12`. Four generators at one to two iterations each fits inside
+  that budget, but do not burn iterations on side quests. `loop.py` is frozen, so this cannot
+  be fixed from inside the loop; the stall counter resets when M1 begins.
 
 ## Do not retry
 - `BRepAlgoAPI_Cut.HasErrors()` does not exist in OCP 7.9.3. Use `IsDone()` only.
