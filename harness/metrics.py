@@ -131,6 +131,65 @@ def surface_deviation(
     return result
 
 
+def radius_profile(mesh: trimesh.Trimesh, z_min: float, z_max: float, n_bins: int = 1000):
+    """Silhouette radius profile r(z) = max sqrt(x²+y²) over the mesh's vertices, binned in z.
+
+    Returns (z_centers, r_max) as float arrays of length `n_bins`. Empty bins (possible only on a
+    very coarse mesh) are filled by linear interpolation from their populated neighbours so the
+    profile is always usable.
+    """
+    v = np.asarray(mesh.vertices, dtype=float)
+    r = np.hypot(v[:, 0], v[:, 1])
+    span = z_max - z_min
+    if span <= 0:
+        raise ValueError("z_max must exceed z_min")
+    idx = np.clip(((v[:, 2] - z_min) / span * n_bins).astype(int), 0, n_bins - 1)
+
+    prof = np.zeros(n_bins)
+    np.maximum.at(prof, idx, r)
+    populated = np.bincount(idx, minlength=n_bins) > 0
+    z_centers = z_min + (np.arange(n_bins) + 0.5) * span / n_bins
+    if not populated.all():
+        if not populated.any():
+            raise ValueError("radius profile has no populated bins")
+        prof = np.interp(z_centers, z_centers[populated], prof[populated])
+    return z_centers, prof
+
+
+def uniform_stations_needed(mesh: trimesh.Trimesh, z_min: float, z_max: float, tol: float,
+                            max_n: int = 4096) -> int:
+    """Smallest number of *uniformly spaced* stations whose piecewise-linear interpolation of the
+    silhouette profile r(z) stays within `tol` mm of the true profile.
+
+    This is the baseline for MISSION §6's M5 adaptive-efficiency gate ("stations used <= 0.5 x the
+    uniform count needed to hit the same deviation gate"). It is computed by bisection on the
+    *truth geometry* rather than by re-running the pipeline at many station counts: the geometric
+    answer is deterministic, costs milliseconds, and cannot make the frozen scorer time out or
+    stall the loop — whereas a pipeline-driven bisection would add several minutes and a failure
+    mode with no legal fix once harness/ is frozen.
+    """
+    z_centers, prof = radius_profile(mesh, z_min, z_max)
+
+    def err(n: int) -> float:
+        zs = np.linspace(z_min, z_max, n)
+        rs = np.interp(zs, z_centers, prof)
+        return float(np.max(np.abs(np.interp(z_centers, zs, rs) - prof)))
+
+    n = 4
+    while n <= max_n and err(n) >= tol:
+        n *= 2
+    if n > max_n:
+        return max_n
+    lo, hi = max(2, n // 2), n
+    while lo + 1 < hi:
+        mid = (lo + hi) // 2
+        if err(mid) < tol:
+            hi = mid
+        else:
+            lo = mid
+    return hi
+
+
 def read_step(path) -> Tuple[TopoDS_Shape, float]:
     """Read a STEP file via STEPControl_Reader and compute its kernel-exact volume with
     BRepGProp (docs/research/02-…md §5 pattern). Raises RuntimeError if the read fails or

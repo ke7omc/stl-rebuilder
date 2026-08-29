@@ -55,11 +55,18 @@ def _volume_area(shape: TopoDS_Shape) -> Tuple[float, float]:
 
 
 def _bbox(shape: TopoDS_Shape) -> Tuple[float, float, float, float, float, float]:
-    from OCP.BRep import BRep_Builder
+    """Tight bounding box from exact geometry.
+
+    `BRepBndLib.Add_s` boxes a B-spline by its *control poles*, which for a spline through points
+    on a circle lie outside the surface — a 20-station periodic fit of R=1000 overshoots by ~16 mm,
+    which would trip the 0.1 % `bbox_err_pct` gate (2 mm here) on a geometrically correct result.
+    `AddOptimal_s` evaluates the real geometry instead. `useTriangulation=False` keeps the answer
+    independent of whether a triangulation happens to be attached to the shape.
+    """
     from OCP.Bnd import Bnd_Box
     from OCP.BRepBndLib import BRepBndLib
     box = Bnd_Box()
-    BRepBndLib.Add_s(shape, box)
+    BRepBndLib.AddOptimal_s(shape, box, False, False)
     xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
     return xmin, ymin, zmin, xmax, ymax, zmax
 

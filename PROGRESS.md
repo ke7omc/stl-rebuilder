@@ -1,9 +1,14 @@
 # PROGRESS — lab notebook of the loop (agent-maintained)
 
 ## Current state
-- Milestone: M0. **The harness is COMPLETE.** As of iter 9 all five generators are built and
-  `harness/selftest.py` exits **0** (22 checks, all PASS), so both M0 gate conditions from
-  MISSION §6 now hold and the driver should tag `harness-frozen` and advance to M1.
+- Milestone: M0. **The harness is COMPLETE and has been through its pre-freeze audit (iter 10).**
+  All five generators are built and `harness/selftest.py` exits **0**, so both M0 gate conditions
+  from MISSION §6 hold and the driver should tag `harness-frozen` and advance to M1.
+- **`rebuild.py` must write a `--report` JSON.** The scorer now always passes
+  `--report <cwd>/report.json` and three gates are graded from it. Keys: `n_stations` (int),
+  `stations_z_mm` (list[float], input-STL coordinates), `paths_used` (list[str]),
+  `topology_events_z_mm` (list[float]). Missing file or key = that gate fails. M1 has none of
+  these gates, so M1 can ignore it; M2 onward cannot.
 - The two gate conditions, verified this iteration:
   1. `.venv/bin/python harness/selftest.py` → exit 0, `SELFTEST PASSED`.
   2. `.venv/bin/python harness/score.py --milestone M1` → exit 1 with contract-valid JSON
@@ -43,9 +48,68 @@
   `fin_r_outer`=700 at z≈9857, so full-length fins punch open slots straight through the dome
   wall — not a finocyl, and it contradicts `milestones._m5`'s `fin_zone` band, which ends at
   `1 - dome_h/L`. M5's fins stop at the aft dome shoulder z=L-dome_h=9500 with a flat aft wall.
+- Do not measure bounding boxes with `BRepBndLib.Add_s`. It boxes B-splines by their control
+  poles and overshoots a 20-station R=1000 fit by ~16 mm — eight times the `bbox_err_pct` budget
+  — so it fails correct geometry. `AddOptimal_s(shape, box, False, False)` only.
+- Do not replace `metrics.uniform_stations_needed`'s geometric bisection with one that re-runs
+  the pipeline at successive station counts. It reads like the more honest baseline, but it adds
+  minutes to every score and a timeout failure mode that, once `harness/` is frozen, has no legal
+  fix from inside the loop.
+- Do not lower `DEVIATION_DEFLECTION` below `CHORD_TOL/5` chasing a cleaner metric floor. The
+  remaining ~0.05 mm of chordal noise is 12 % of M1's p99 budget, and halving it roughly triples
+  the scorer's dominant cost against a hard 1500 s `SCORE_TIMEOUT_S`.
+- Known residual gaming hole, accepted: `_truth_hidden()` stops a pipeline from *reading* the
+  truth STEP, but a pipeline could still `import harness.generators` and regenerate it. Closing
+  that would mean sandboxing imports, which is out of proportion to the risk — the pipeline is
+  written by this same loop, and PROGRESS/commit review is the backstop. If a milestone ever
+  passes suspiciously early, check `pipeline/` for a `generators` import first.
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 10 — M0 — opus/high — review-harness — 2026-08-29T10:2x
+- Score before: `selftest.py` exit 0 (22 checks). Nothing was broken; this was the pre-freeze
+  audit of `harness/` as the immutable fitness function, per MISSION §2.
+- Findings and fixes, in the order of the review checklist:
+  1. **Truth correctness — `_bbox()` was measuring the wrong thing.** `BRepBndLib.Add_s` boxes a
+     B-spline by its *control poles*; for a periodic 20-station fit through points on R=1000 the
+     poles sit ~16 mm outside the surface, so a geometrically perfect result would have failed
+     the 0.1 % `bbox_err_pct` gate (2 mm). Switched to `AddOptimal_s(..., useTriangulation=False)`,
+     which evaluates real geometry and does not depend on an attached triangulation.
+  2. **Gate fidelity — three §6 gates were declared but never enforced, and M4 was gameable.**
+     - `dome_stations_min`, `topo_event_z`, `adaptive_efficiency` had no check blocks at all.
+       They grade *how* the pipeline worked, which is only knowable from the pipeline's own
+       account, so the optional `--report` of MISSION §5.3 is now **always** passed and its four
+       keys (`n_stations`, `stations_z_mm`, `paths_used`, `topology_events_z_mm`) are frozen
+       contract. A missing report or key is a check *failure* with a hint, never a crash.
+     - `adaptive_efficiency` needs a "uniform stations needed" denominator. It is computed from
+       the *truth geometry* (`metrics.uniform_stations_needed`, bisection on the silhouette
+       profile r(z), milliseconds) rather than by re-running the pipeline at many station counts.
+     - M5's gate row says "all M2 and M4 gates" but `dome_stations_min` was missing from it.
+     - M4 listed no deviation gate, so a fin-less annular cylinder with a fudged radius passed
+       M4 outright. Added `surface_deviation_max_mm = 2*CHORD_TOL` as an anti-gaming floor —
+       deliberately looser than M5's 1.2*chord_tol on the same fins; a missing slot is ~400 mm off.
+  3. **Gaming resistance — cwd isolation was not enough.** The scorer already ran `rebuild.py`
+     in a temp cwd on a neutrally-named STL and byte-hashed the output against the truth, but
+     nothing stopped a pipeline from reading `harness/truth/Mk.step` by absolute path and
+     *re-exporting* it, which defeats a byte hash. `_truth_hidden()` now renames `harness/truth/`
+     out of the way for the duration of the pipeline subprocess and restores it after, discarding
+     anything the pipeline left at that path.
+  4. **Metric fidelity — 62 % of M1's deviation budget was tessellation noise.** The deviation
+     compared two 0.5 mm tessellations; measured, that alone is max 0.2495 / p99 0.2440 mm
+     against an M1 p99 gate of 0.4 mm. Both sides are now re-tessellated at
+     `DEVIATION_DEFLECTION = CHORD_TOL/5` (0.1 mm, ~0.05 mm noise) for the comparison only; the
+     pipeline's *input* STL still ships at CHORD_TOL as §6 requires. /5 and not /10 because
+     deviation is the scorer's dominant cost (M1: 30 s at 0.5 mm, 77 s at 0.1 mm, superlinear
+     below) and `selftest.py` runs under the driver's 1500 s `SCORE_TIMEOUT_S`.
+  5. **Contract — check ordering.** The three report checks are a JSON parse plus arithmetic, so
+     they were placed *before* the 100k-sample deviation in the cheap→expensive ladder. This also
+     keeps the new selftest perturbations fast, since they fail before deviation ever runs.
+- Verification: `selftest.py` grew a perturbation block that mutates the report of an otherwise
+  perfect submission three ways (truncated dome stations / no topology event / 100 000 stations)
+  and asserts each fails on *its own* check — a gate that is never exercised is a gate that does
+  not exist. `pytest tests/ --ignore=tests/test_selftest.py` → 15 passed.
+- Not done, deliberately: nothing in `pipeline/` was touched.
 
 ### iter 9 — M0 — opus/high — escalated — 2026-08-29T09:30
 - Score before: `selftest.py` exit 1, 2 failures (M4 and M5 generators unimplemented). The

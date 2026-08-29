@@ -16,6 +16,7 @@ per check and a summary. Milestones whose generator is not yet implemented are s
 not failed) so this file needs no changes as M2-M5 land.
 """
 import copy
+import json
 import shutil
 import sys
 import tempfile
@@ -42,13 +43,35 @@ def _report(ok: bool, label: str, detail: str = "") -> None:
         FAILURES.append(label)
 
 
-def _score_with_step(milestone: str, step_src: Path):
+def _ideal_report(spec, truth) -> dict:
+    """The report an ideal pipeline would write for `spec` (see score.REPORT_KEYS): dense stations
+    in every dome band, a sparse pass elsewhere, and a topology event exactly at the fin plane."""
+    z_min, z_max = truth.bbox[2], truth.bbox[5]
+    span = z_max - z_min
+    stations = [z_min + span * i / 11.0 for i in range(12)]
+    for rb in spec.regions:
+        if "dome" in rb.label:
+            z0, z1 = z_min + rb.z_frac_lo * span, z_min + rb.z_frac_hi * span
+            stations += [z0 + (z1 - z0) * i / 9.0 for i in range(10)]
+    return {
+        "n_stations": len(stations),
+        "stations_z_mm": sorted(stations),
+        "paths_used": {"outer": "revolve", "bore": "revolve"},
+        "topology_events_z_mm": [spec.params["fin_z_start"]] if "fin_z_start" in spec.params else [],
+    }
+
+
+def _score_with_step(milestone: str, step_src: Path, truth, report_mutate=None):
     """Score `milestone` with `_run_pipeline` monkeypatched to emit `step_src` as the pipeline
     output, so the metric stack runs on a known STEP without needing a real rebuild.py.
 
     The stand-in *re-exports* the shape rather than copying the file: a byte-for-byte copy of the
     truth would (correctly) trip the scorer's `not_truth_copy` anti-gaming check. Re-exporting
     also proves that check has no false positives on a geometrically perfect result.
+
+    It also writes the `--report` JSON that the report-derived gates (dome_stations_min,
+    topo_event_z, adaptive_efficiency) read. `report_mutate` lets a caller corrupt one field to
+    prove a specific gate fails on it.
     """
     orig = score_mod._run_pipeline
 
@@ -56,6 +79,10 @@ def _score_with_step(milestone: str, step_src: Path):
         shape, _ = metrics.read_step(step_src)
         generators._write_step(shape, out_step)
         (cwd / "pipeline.log").write_text("selftest stand-in pipeline\n")
+        rep = _ideal_report(spec, truth)
+        if report_mutate is not None:
+            rep = report_mutate(dict(rep))
+        (cwd / "report.json").write_text(json.dumps(rep))
         return {"returncode": 0, "stderr_tail": "", "timed_out": False, "runtime_s": 0.0}
 
     score_mod._run_pipeline = fake_run_pipeline
@@ -178,13 +205,33 @@ def check_milestone(name: str, work_dir: Path) -> None:
         _report(rel_err < 1e-6, f"{name}: closed-form volume", f"rel_err={rel_err:.2e}")
 
     # 2. truth STEP passes every gate
-    result = _score_with_step(name, truth.step_path)
+    result = _score_with_step(name, truth.step_path, truth)
     _report(result["pass"], f"{name}: truth STEP passes all gates",
             "" if result["pass"] else f"first_failure={result['first_failure']}")
 
+    # 2b. the report-derived gates must actually bite: a perfect solid with a report that admits
+    # too few dome stations / no topology event / a uniform station count must FAIL. Without this
+    # a mis-wired gate would be indistinguishable from a passing one.
+    for gate, check, mutate, label in (
+        ("dome_stations_min", "dome_stations_min",
+         lambda r: {**r, "stations_z_mm": r["stations_z_mm"][:3], "n_stations": 3},
+         "too few dome stations"),
+        ("topo_event_z_tolerance_mm", "topo_event_z",
+         lambda r: {**r, "topology_events_z_mm": []}, "no topology event"),
+        ("adaptive_efficiency", "adaptive_efficiency",
+         lambda r: {**r, "n_stations": 100_000}, "station count not adaptive"),
+    ):
+        if gate not in spec.gates:
+            continue
+        result = _score_with_step(name, truth.step_path, truth, report_mutate=mutate)
+        ok = (not result["pass"]) and result["first_failure"] is not None \
+            and result["first_failure"]["check"] == check
+        _report(ok, f"{name}: {label} fails on {check}",
+                f"first_failure={result['first_failure']}")
+
     # 3. scaled copy fails on volume_err_pct
     scaled_path = _make_scaled_copy(truth, work_dir)
-    result = _score_with_step(name, scaled_path)
+    result = _score_with_step(name, scaled_path, truth)
     ok = (not result["pass"]) and result["first_failure"] is not None \
         and result["first_failure"]["check"] == "volume_err_pct"
     _report(ok, f"{name}: 1.01x-scaled copy fails on volume_err_pct",
@@ -193,7 +240,7 @@ def check_milestone(name: str, work_dir: Path) -> None:
     # 4. bore-filled copy fails on volume_err_pct
     if name in _BORE_FILLERS:
         filled_path = _BORE_FILLERS[name](spec, work_dir)
-        result = _score_with_step(name, filled_path)
+        result = _score_with_step(name, filled_path, truth)
         ok = (not result["pass"]) and result["first_failure"] is not None \
             and result["first_failure"]["check"] == "volume_err_pct"
         _report(ok, f"{name}: bore-filled copy fails on volume_err_pct",
@@ -230,8 +277,8 @@ def check_determinism() -> None:
         _report(False, "determinism: M1 generator required")
         return
 
-    r1 = strip_timing(_score_with_step("M1", truth.step_path))
-    r2 = strip_timing(_score_with_step("M1", truth.step_path))
+    r1 = strip_timing(_score_with_step("M1", truth.step_path, truth))
+    r2 = strip_timing(_score_with_step("M1", truth.step_path, truth))
     detail = ""
     if r1 != r2:
         diffs = [k for k in r1 if r1[k] != r2.get(k)]

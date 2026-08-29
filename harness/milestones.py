@@ -150,6 +150,11 @@ def _m4() -> MilestoneSpec:
             n_solids=1,
             brep_valid=True,
             volume_err_pct=0.2,
+            # MISSION §6's M4 row lists no deviation gate, but volume+bbox+face-count alone let a
+            # plain annular cylinder with a fudged radius pass M4 with no fins at all. This is the
+            # anti-gaming floor, deliberately looser than M5's 1.2*chord_tol on the same fins:
+            # it only has to catch geometry that is grossly wrong (a missing slot is ~400 mm off).
+            surface_deviation_max_mm=2.0 * CHORD_TOL,
             topo_event_z_tolerance_mm=topo_tol,
             face_count_max=300,             # anti-tessellation guard (exact M4 needs ~50)
             bbox_err_pct=0.1,
@@ -193,6 +198,7 @@ def _m5() -> MilestoneSpec:
             volume_err_pct=0.2,
             surface_deviation_p99_mm=0.8 * CHORD_TOL,
             surface_deviation_max_mm=1.2 * CHORD_TOL,
+            dome_stations_min=8,       # MISSION §6: M5 must hold "all M2 and M4 gates"
             topo_event_z_tolerance_mm=topo_tol,
             adaptive_efficiency=0.5,   # stations_used <= 0.5 * uniform_count_needed
             face_count_max=400,        # anti-tessellation guard

@@ -7,9 +7,11 @@ Checks run cheap -> expensive, fail-fast: the first failing check stops evaluati
 later check is recorded with pass=null, skipped="prior failure".
 """
 import argparse
+import contextlib
 import hashlib
 import json
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -50,6 +52,11 @@ _GATED = [  # (check name, gate key that enables it) — order = evaluation orde
     ("brep_valid", "brep_valid"),
     ("volume_err_pct", "volume_err_pct"),
     ("bbox_err_pct", "bbox_err_pct"),
+    # Report-derived checks are a JSON parse plus arithmetic — they belong ahead of the
+    # 100k-sample deviation metric in the cheap→expensive ladder.
+    ("dome_stations_min", "dome_stations_min"),
+    ("topo_event_z", "topo_event_z_tolerance_mm"),
+    ("adaptive_efficiency", "adaptive_efficiency"),
     ("surface_deviation_max_mm", "surface_deviation_max_mm"),
     ("surface_deviation_p99_mm", "surface_deviation_p99_mm"),
     ("face_count_max", "face_count_max"),
@@ -61,8 +68,87 @@ _GATED = [  # (check name, gate key that enables it) — order = evaluation orde
 # the threshold means threshold/value → 1; for a higher-is-better one (gmsh SICN) that formula
 # is inverted and saturates at 1, so a *failing* gmsh check scored the same as a passing one.
 _LOWER_IS_BETTER = {"volume_err_pct", "bbox_err_pct", "surface_deviation_max_mm",
-                    "surface_deviation_p99_mm", "face_count_max", "step_roundtrip"}
-_HIGHER_IS_BETTER = {"gmsh_tet"}
+                    "surface_deviation_p99_mm", "face_count_max", "step_roundtrip",
+                    "topo_event_z", "adaptive_efficiency"}
+_HIGHER_IS_BETTER = {"gmsh_tet", "dome_stations_min"}
+
+# The deviation metric compares two *tessellations*, so each side carries its own chordal error.
+# At the scoring tolerance (0.5 mm) a tessellation sits up to 0.25 mm inside the true surface —
+# measured — which is 62 % of M1's 0.4 mm p99 budget before the pipeline has done anything wrong.
+# Both sides are therefore re-tessellated finer for the comparison only; the pipeline's *input*
+# STL stays at CHORD_TOL, as MISSION §6 requires.
+#
+# The factor is 5, not 10, because deviation cost is the scorer's dominant term: measured on M1,
+# one comparison costs 30 s at 0.5 mm, 77 s at 0.1 mm, and superlinearly more below that, while
+# selftest scores every milestone under the driver's 1500 s SCORE_TIMEOUT_S. 0.1 mm leaves ~0.05 mm
+# of chordal noise — 12 % of M1's 0.4 mm p99 budget — which is a floor the gates can live with;
+# 0.05 mm would buy 6 % instead and risk the whole harness timing out once frozen.
+DEVIATION_DEFLECTION = ms.CHORD_TOL / 5.0
+
+# --- pipeline report contract (MISSION §5.3's `--report`) ---------------------------------
+# The scorer always passes `--report <path>`. Three gates (dome_stations_min, topo_event_z,
+# adaptive_efficiency) grade *how* the pipeline worked and can only be read from its own account
+# of what it did, so these keys are part of the frozen contract:
+#   n_stations           int          total slice stations used
+#   stations_z_mm        list[float]  each station's z, in the input STL's coordinates (mm)
+#   paths_used           dict[str,str] chain name -> "revolve" | "prism" | "loft" | ...
+#   topology_events_z_mm list[float]  z of each detected chain birth/death event
+# A missing file or key fails only the checks that need it, with a hint naming the key — it never
+# fails `pipeline_exit`, so a milestone with no report-derived gate is unaffected.
+REPORT_KEYS = ("n_stations", "stations_z_mm", "paths_used", "topology_events_z_mm")
+
+
+def _load_report(path: Path) -> dict | None:
+    try:
+        data = json.loads(Path(path).read_text())
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _report_hint(key: str) -> str:
+    return (f"pipeline report is missing '{key}'. rebuild.py must honour --report and write "
+            f"JSON with keys {list(REPORT_KEYS)} (see harness/score.py REPORT_KEYS).")
+
+
+_UNIFORM_BASELINE_CACHE: dict = {}
+
+
+def _uniform_baseline(milestone: str, truth, tol: float) -> int:
+    """Cached uniform-station baseline for the adaptive-efficiency gate. Deterministic (a pure
+    function of the truth geometry and the tolerance), so caching it cannot change any verdict."""
+    key = (milestone, round(tol, 9))
+    if key not in _UNIFORM_BASELINE_CACHE:
+        mesh = metrics.load_mesh(truth.stl_path)
+        _UNIFORM_BASELINE_CACHE[key] = metrics.uniform_stations_needed(
+            mesh, truth.bbox[2], truth.bbox[5], tol)
+    return _UNIFORM_BASELINE_CACHE[key]
+
+
+@contextlib.contextmanager
+def _truth_hidden():
+    """Move harness/truth/ aside for the duration of the pipeline subprocess.
+
+    cwd isolation alone cannot stop rebuild.py from reading the answer: it lives in the same repo
+    and can open harness/truth/Mk.step by absolute path, then re-export it (which defeats the
+    byte-hash `not_truth_copy` check). Hiding the directory makes that impossible rather than
+    merely detectable. Truth files are regenerated deterministically when missing, so an
+    interrupted run costs a regeneration, not correctness.
+    """
+    src = generators.TRUTH_DIR
+    if not src.is_dir():
+        yield
+        return
+    hidden = src.parent / f".truth_hidden_{os.getpid()}"
+    src.rename(hidden)
+    try:
+        yield
+    finally:
+        # If the pipeline recreated harness/truth/ while it was hidden (e.g. by importing
+        # generators itself), discard what it wrote — the scorer's own truth is authoritative.
+        if src.exists():
+            shutil.rmtree(src, ignore_errors=True)
+        hidden.rename(src)
 
 
 def check_plan(spec) -> list:
@@ -121,15 +207,17 @@ def _bbox_err_pct(shape, truth_bbox) -> float:
     return worst
 
 
-def _mesh_from_step(step_path: Path, work_dir: Path, spec):
-    """Tessellate a STEP-read shape at the milestone's chord_tol and load it as a trimesh, so
-    surface_deviation can compare it against the truth STL on equal footing."""
+def _mesh_from_step(step_path: Path, out_stl: Path, deflection: float = DEVIATION_DEFLECTION):
+    """Re-read a STEP file and tessellate it at `deflection`, returning a trimesh.
+
+    Both sides of the deviation comparison go through this same function so neither is favoured by
+    the tessellator; `deflection` is far finer than CHORD_TOL so the measurement reflects the
+    geometry rather than the faceting (see DEVIATION_DEFLECTION).
+    """
     shape, _ = metrics.read_step(step_path)
-    chord_tol = ms.CHORD_TOL
-    BRepMesh_IncrementalMesh(shape, chord_tol, False, 0.3, True).Perform()
-    stl_path = work_dir / "result.stl"
-    StlAPI_Writer().Write(shape, str(stl_path))
-    return metrics.load_mesh(stl_path)
+    BRepMesh_IncrementalMesh(shape, deflection, False, 0.3, True).Perform()
+    StlAPI_Writer().Write(shape, str(out_stl))
+    return metrics.load_mesh(out_stl)
 
 
 class FailFast(Exception):
@@ -143,13 +231,14 @@ def _run_pipeline(stl_path: Path, out_step: Path, spec, cwd: Path) -> dict:
     shutil.copyfile(stl_path, input_stl)
 
     cmd = [sys.executable, str(REPO_ROOT / "rebuild.py"), str(input_stl)] + spec.rebuild_args \
-        + ["-o", str(out_step)]
+        + ["-o", str(out_step), "--report", str(cwd / "report.json")]
     log_path = cwd / "pipeline.log"
     t0 = time.monotonic()
     try:
-        proc = subprocess.run(
-            cmd, cwd=str(cwd), capture_output=True, text=True, timeout=spec.runtime_cap_s,
-        )
+        with _truth_hidden():
+            proc = subprocess.run(
+                cmd, cwd=str(cwd), capture_output=True, text=True, timeout=spec.runtime_cap_s,
+            )
         log_path.write_text(f"$ {' '.join(cmd)}\n\n--- stdout ---\n{proc.stdout}"
                             f"\n--- stderr ---\n{proc.stderr}")
         return {
@@ -288,12 +377,98 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
                                f"(gate < {threshold}%); check units (mm end to end) and that the "
                                "axis transform was undone before export")
 
+        # --- checks derived from the pipeline's own report --------------------------------
+        report = _load_report(work_dir / "report.json")
+        if report is not None:
+            for key in ("n_stations", "paths_used"):
+                if key in report:
+                    metrics_out[key] = report[key]
+
+        stations = report.get("stations_z_mm") if report else None
+        stations = [float(z) for z in stations] if isinstance(stations, list) else None
+
+        # --- check: dome_stations_min (MISSION §6 M2/M5: >= 8 stations in EACH dome) ------
+        if "dome_stations_min" in spec.gates:
+            threshold = spec.gates["dome_stations_min"]
+            if stations is None:
+                add("dome_stations_min", False, value=None,
+                    threshold=threshold, reason=_report_hint("stations_z_mm"))
+                fail_here("dome_stations_min", threshold=threshold,
+                          hint=_report_hint("stations_z_mm"))
+            z_min, z_max = truth.bbox[2], truth.bbox[5]
+            span = z_max - z_min
+            per_dome = {}
+            for rb in spec.regions:
+                if "dome" not in rb.label:
+                    continue
+                z0, z1 = z_min + rb.z_frac_lo * span, z_min + rb.z_frac_hi * span
+                per_dome[rb.label] = sum(1 for z in stations if z0 <= z <= z1)
+            metrics_out["dome_stations"] = per_dome
+            worst_label = min(per_dome, key=per_dome.get) if per_dome else None
+            worst = per_dome[worst_label] if per_dome else 0
+            ok = bool(per_dome) and worst >= threshold
+            add("dome_stations_min", ok, value=worst, threshold=threshold, per_dome=per_dome)
+            if not ok:
+                fail_here("dome_stations_min", value=worst, threshold=threshold,
+                          location={"region": worst_label},
+                          hint=f"only {worst} station(s) in {worst_label} (gate >= {threshold}); "
+                               "cosine-cluster stations toward the dome apex")
+
+        # --- check: topo_event_z (MISSION §6 M4/M5: an event detected at fin_z_start) ------
+        if "topo_event_z_tolerance_mm" in spec.gates:
+            threshold = spec.gates["topo_event_z_tolerance_mm"]
+            expected_z = spec.params["fin_z_start"]
+            events = report.get("topology_events_z_mm") if report else None
+            events = [float(z) for z in events] if isinstance(events, list) else None
+            if events is None:
+                add("topo_event_z", False, value=None, threshold=threshold,
+                    reason=_report_hint("topology_events_z_mm"))
+                fail_here("topo_event_z", threshold=threshold,
+                          hint=_report_hint("topology_events_z_mm"))
+            best = min((abs(z - expected_z) for z in events), default=None)
+            metrics_out["topology_events_z_mm"] = events
+            ok = best is not None and best <= threshold
+            add("topo_event_z", ok, value=best, threshold=threshold, expect_z_mm=expected_z)
+            if not ok:
+                fail_here("topo_event_z", value=best, threshold=threshold,
+                          location={"z_mm": expected_z, "region": "fin_zone"},
+                          hint=f"no topology event detected within {threshold} mm of "
+                               f"z={expected_z} (reported: {events}); the fin slots are born at "
+                               "that plane — bisect on loop-count change to localize it")
+
+        # --- check: adaptive_efficiency (MISSION §6 M5) -----------------------------------
+        if "adaptive_efficiency" in spec.gates:
+            threshold = spec.gates["adaptive_efficiency"]
+            if stations is None and (report is None or "n_stations" not in report):
+                add("adaptive_efficiency", False, value=None, threshold=threshold,
+                    reason=_report_hint("n_stations"))
+                fail_here("adaptive_efficiency", threshold=threshold,
+                          hint=_report_hint("n_stations"))
+            n_used = int(report.get("n_stations", len(stations or [])))
+            dev_tol = spec.gates.get("surface_deviation_p99_mm",
+                                     spec.gates.get("surface_deviation_max_mm", ms.CHORD_TOL))
+            # The truth STL's vertices lie exactly ON the analytic surface (a tessellation is
+            # inscribed), so a max-radius-per-z-bin profile taken from vertices alone is exact —
+            # no fine re-tessellation is needed for the baseline.
+            n_uniform = _uniform_baseline(milestone, truth, dev_tol)
+            metrics_out["uniform_stations_needed"] = n_uniform
+            ratio = n_used / n_uniform if n_uniform else float("inf")
+            ok = ratio <= threshold
+            add("adaptive_efficiency", ok, value=ratio, threshold=threshold,
+                n_stations=n_used, n_uniform=n_uniform)
+            if not ok:
+                fail_here("adaptive_efficiency", value=ratio, threshold=threshold,
+                          hint=f"used {n_used} stations; a uniform pass needs {n_uniform} to hit "
+                               f"the same {dev_tol} mm gate, so the budget is "
+                               f"{int(threshold * n_uniform)} — concentrate stations where "
+                               "|dA/dz| is large instead of spreading them uniformly")
+
         # --- checks: surface deviation ----------------------------------------------------
         needs_deviation = any(k in spec.gates for k in
                                ("surface_deviation_max_mm", "surface_deviation_p99_mm"))
         if needs_deviation:
-            truth_mesh = metrics.load_mesh(truth.stl_path)
-            result_mesh = _mesh_from_step(out_step, work_dir, spec)
+            truth_mesh = _mesh_from_step(truth.step_path, work_dir / "truth_fine.stl")
+            result_mesh = _mesh_from_step(out_step, work_dir / "result_fine.stl")
             z_min, z_max = truth.bbox[2], truth.bbox[5]
             dev = metrics.surface_deviation(
                 truth_mesh, result_mesh, regions=spec.regions, z_min=z_min, z_max=z_max,
