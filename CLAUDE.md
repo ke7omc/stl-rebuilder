@@ -1,20 +1,23 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
-- 2026-08-29: Loop infrastructure built and **plumbing proven with 2 supervised iterations**
-  (`./loop.sh --once` ×2): agent invoked headless, committed its own work, PROGRESS.md kept,
-  driver scored/recorded cost, M0 progress proxy moved 0.0 → 0.3. Cost so far ≈ $2.9 (plus
-  ~$0.5 of preflight smoke tests). Harness state: `milestones.py`, `generators.py` (M1 only),
-  `metrics.py` (+6 tests) exist; `meshcheck.py`, `score.py`, `selftest.py`, M2–M5 generators
-  still to come — all inside M0.
-- Driver facts learned: CLI 2.1.152's `sonnet` alias resolves to Sonnet **4.6**, so the driver
-  uses full IDs (`claude-sonnet-5`, `claude-opus-5`) — both verified served correctly.
-  `--max-turns` does not exist on this CLI; per-iteration bounds are `--max-budget-usd` + timeout.
-- **Next (Brady):** start the unattended run — `cd ~/Projects/stl-rebuilder && ./loop.sh` —
-  and leave it. Monitor with `tail -f logs/loop.log` / `python3 loop.py --status`. Expect several
-  more M0 iterations, then an Opus review pass, then the `harness-frozen` tag and M1.
-- After the first `USAGE GATE` or `RATE/USAGE LIMIT` line appears, set `LOOP_WINDOW_BUDGET_USD`
-  to roughly what had been spent in that window (default 40 is a placeholder).
+- 2026-08-29 (first unattended run, 08:10–11:24, 11 iterations, ≈$27): the M0 harness is built —
+  all five truth generators, 22 selftest checks, scorer contract valid — and went through the
+  Opus review pass (`33e3257`), which tightened three §6 gates but rewrote the deviation metric
+  into something that exhausts 64 GB RAM + 64 GB swap on M2's fine tessellation (SIGKILL at
+  ~11.5 min, every run since). Iter 11 (`8cedc57`) coarsened the tessellation (`CHORD_TOL/2`);
+  whether that is enough is unverified. State: M0 build phase, escalated (Opus), stall reset.
+- The run exposed driver gaps, now fixed (commit "driver: hardening after the first unattended
+  run"): Ctrl-C/timeout left the agent running as an orphan; no clock for the agent; the
+  review pass counted as builder stalls; killed agents booked $0; no memory guard; no live
+  progress. See README "Watch it / Stop it" and the `CONFIG` block for the new knobs
+  (90/120/180-min timeouts, $6 normal budget, $120 window, 24 GB memory cap, 5-min heartbeats).
+- **Next (Brady):** `cd ~/Projects/stl-rebuilder && ./loop.sh` and leave it. Expected: iter 12
+  (Opus) verifies/fixes the memory blowup → selftest green → review pass → `harness-frozen` →
+  M1 on Sonnet. Watch `tail -f logs/loop.log` / `python3 loop.py --status`; stop with
+  `python3 loop.py --stop` (graceful) or `--kill` (now; Ctrl-C is the same).
+- After the first real `RATE/USAGE LIMIT` line, set `LOOP_WINDOW_BUDGET_USD` to roughly what
+  `--status` shows spent in that window (the $120 default is a placeholder above today's rate).
 - The driver never pushes; push manually from an interactive session to sync GitHub.
 - After HANDOFF.md exists: Brady opens the listed STEP files in SpaceClaim (Notion Phase 4).
 
@@ -32,8 +35,13 @@ update `PROGRESS.md`. Use `.venv/bin/python`. No network, no `git push`, nothing
 ## If you are Brady's assistant in an interactive session
 Do not edit `harness/` after it is frozen (tag `harness-frozen`) without also re-tagging —
 the driver restores it from the tag before every scoring run. Infra files are restored from
-`infra-frozen`; to change `loop.py`/`PROMPT.md`/`MISSION.md`, edit, commit, then
-`git tag -f infra-frozen`. The loop's state is `state/loop_state.json` (gitignored).
+`infra-frozen`; to change `loop.py`/`PROMPT.md`/`MISSION.md`, edit, commit, then re-point
+the `infra-frozen` tag (`-f`). The loop's state is `state/loop_state.json` (gitignored);
+`state/current.json` says what the driver is doing right now; `state/STATUS.md` is the dashboard.
+Stop a running loop with `python3 loop.py --stop` / `--kill`, never by killing processes by hand.
+The project's Bash guard hook (`driver/guard_bash.py`) also applies to you here: any Bash command
+whose text mentions a `~/.claude`/`~/.ssh`/`~/.config` path, or `git tag`/`git remote`, is
+blocked — use the Read/Write tools for those files and a script file for the re-tag.
 
 ## Key paths
 - `MISSION.md` — spec, milestones, gates, harness contract, failure modes

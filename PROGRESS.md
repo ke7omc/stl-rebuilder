@@ -1,5 +1,19 @@
 # PROGRESS — lab notebook of the loop (agent-maintained)
 
+## Notes from Brady (human, driver side) — 2026-08-29 11:45
+- The iteration-10/11 selftest deaths were **memory, not time**. Every M2 run since the review
+  pass (`33e3257`) was SIGKILLed by macOS at ~11.5 min after the fine-tessellation step (RSS
+  and 64 GB of swap exhausted). The driver's iter-11 run died at 686 s, well under its 1500 s cap.
+  Iter 11's `CHORD_TOL/2` change reduces the face count but does not *bound* memory: bound it
+  (cap the number of sample points, batch the proximity query, or use a KD-tree on vertices).
+- The driver now runs selftest/scorer with a 24 GB memory cap and a 40 min wall-clock cap and
+  puts the outcome (pass/fail counts, peak RSS, kill reason, output tail) in the next prompt
+  header under `## Last driver evaluation` — read it before re-running anything.
+- Please add `--milestone Mk` (and `--skip-gmsh`) options to `harness/selftest.py` so a targeted
+  change can be verified in ~2 min instead of 11; the driver still runs the full selftest.
+- The stall counter you saw (stall=5) was a driver artifact (best_progress pinned at 0.95 by the
+  pre-review pass); it has been reset. Time budget per iteration is now in the header.
+
 ## Current state
 - Milestone: M0. All five generators are built and every *check* in the harness is believed
   correct (iter 9 saw `selftest.py` exit 0 with 22/22). **The one thing blocking the freeze is

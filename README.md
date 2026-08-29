@@ -17,15 +17,25 @@ cd ~/Projects/stl-rebuilder
 
 Watch it:
 ```bash
-tail -f logs/loop.log                  # driver narrative: mode, model, cost, verdicts
-python3 loop.py --status               # milestone, stall count, spend, latest verdict
+tail -f logs/loop.log                  # narrative + a heartbeat every 5 min while an agent or scorer runs:
+                                       #   [hb] iter 12 escalated/opus-5 M0: 25 min of 2h00m (21%), deadline 13:24 — turns 14, tools 9, last: Bash(...) 2 min ago — window $21/$90
+python3 loop.py --status               # where it is: iteration/phase, elapsed vs deadline, spend vs gate, last evaluation
+cat state/STATUS.md                    # the same plus a table of the last 12 iterations (refreshed after every iteration)
 cat out/score.json | python3 -m json.tool | head -40   # the latest scorer verdict
-git log --oneline | head               # one commit per iteration
+git log --oneline | head               # one commit per iteration (plus the agent's own WIP commits)
 ```
 
-Stop it with Ctrl-C at any time. All state is on disk (`state/loop_state.json`, git); rerun
-`./loop.sh` to resume exactly where it left off. If it stopped on a guardrail, read
-`state/STATUS.md`, fix or adjust, then `python3 loop.py --reset-stall && ./loop.sh`.
+Stop it:
+```bash
+python3 loop.py --stop     # graceful: finish and evaluate the in-flight iteration, then exit
+python3 loop.py --kill     # now: kill the agent's whole process tree, checkpoint-commit its work, save state, exit
+                           # (Ctrl-C in the driver's terminal does the same as --kill)
+```
+All state is on disk (`state/loop_state.json`, git); rerun `./loop.sh` to resume exactly where
+it left off — if it was stopped after an agent finished but before its evaluation ran, the
+evaluation runs first. If it stopped on a guardrail, read `state/STATUS.md`, fix or adjust,
+then `python3 loop.py --reset-stall && ./loop.sh`. Preflight also kills any agent left orphaned
+by an earlier driver.
 
 Tunable knobs are the `CONFIG` block at the top of `loop.py`; any of them can be overridden
 per run with an env var, e.g. `LOOP_WINDOW_BUDGET_USD=60 LOOP_MODEL_DEFAULT=claude-opus-5 ./loop.sh`.
@@ -71,11 +81,19 @@ driver, prompts, and spec (`infra-frozen`).
   (`driver/guard_bash.py`) catches the same things inside `bash -c` / `&&` chains. Each
   iteration runs with all MCP servers and skills disabled. If permission denials keep stalling
   iterations, `LOOP_SKIP_PERMISSIONS=1` switches to `--dangerously-skip-permissions` (your call).
-- *Cost:* a per-iteration `--max-budget-usd`, a per-iteration wall-clock timeout, an iteration
-  cap, and every iteration's cost/turns/model logged to `logs/iter-NNNN.claude.json`.
+- *Cost and time:* a per-iteration `--max-budget-usd` ($6 normal, $10 escalated/review, $20
+  tournament), a per-iteration wall-clock timeout by mode (90 min normal, 120 escalated/review,
+  180 tournament) that kills the agent's whole process tree and auto-commits whatever is on
+  disk, an iteration cap, and every iteration's cost/turns/model logged to
+  `logs/iter-NNNN.claude.json`. The agent is told its deadline and a commit-by time in the
+  prompt header. If the CLI dies before reporting cost, the driver books the budget cap as an
+  estimate so the usage gate errs safe.
+- *Machine protection:* the driver's own selftest/scorer runs are watched every 5 s and killed
+  if their process tree exceeds `MEM_LIMIT_GB` (24 GB) or `SCORE_TIMEOUT_S` (40 min); the reason
+  is written into the evaluation tail that the next agent sees in its header.
 - *Usage pacing:* the driver sums each iteration's cost into a rolling 5-hour window and
   pauses **between** iterations (the in-flight task always finishes and commits) when it
-  reaches 75 % of `WINDOW_BUDGET_USD`, resuming automatically when the window ages out. If a
+  reaches 75 % of `WINDOW_BUDGET_USD` (default $120), resuming automatically when the window ages out. If a
   rate/usage limit hits mid-iteration anyway, the driver parses the reset time from the error,
   sleeps, and retries without counting it as an iteration; partial edits stay in the working
   tree for the next iteration to pick up. `WINDOW_BUDGET_USD` is a stand-in for your plan's
@@ -83,7 +101,10 @@ driver, prompts, and spec (`infra-frozen`).
 - *Stalls:* no improvement in the scorer's `progress` for 3 iterations → escalate from Sonnet
   (medium effort) to Opus 5 (high); 4 more → a **tournament** (Opus spawns 2–3 subagents in
   isolated worktrees, each with a different strategy; only the best-scoring branch merges);
-  12 → stop with `state/STATUS.md`. A milestone pass resets everything back to Sonnet.
+  12 → stop with `state/STATUS.md`. A milestone pass resets everything back to Sonnet. At M0,
+  progress is 0.6 for the six harness modules existing plus 0.35 × the fraction of selftest
+  checks passing; when the Opus review pass sends the harness back to build, the bar resets so
+  the review's stricter checks do not count as builder stalls (no tournaments at M0).
 
 **5. Model choice is per iteration, in code.** `--model sonnet` by default (cheap, fine for
 spec-following work), `--model claude-opus-5` when escalated, for the harness review, and for

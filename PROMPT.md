@@ -22,6 +22,20 @@ Then:
   and `## Do not retry`.
 - Commit: `git add -A && git commit -m "<milestone>: <what changed>"`. Do not push.
 
+Time, checkpoints, and saving work (the driver enforces the hard kill given in the header):
+- You cannot see a clock; budget from the header's deadline and reserve the last 15 minutes for
+  committing and updating PROGRESS.md. At the kill the driver auto-commits whatever is on disk,
+  but your reasoning is lost unless it is already written in PROGRESS.md.
+- Commit after every verified sub-step (`git commit -m "WIP <milestone>: <step>"` is fine);
+  never carry more than ~20 minutes of uncommitted work.
+- Before any run longer than 5 minutes (a full selftest, a scorer run), first write what you are
+  testing and what result you expect into PROGRESS.md and commit. While iterating, verify the
+  narrowest thing that answers the question (one milestone, one check); do one full run at the end.
+- Run long commands unbuffered (`.venv/bin/python -u ...`) into a log file and poll it; never
+  block on a silent call. The driver's own evaluation caps memory (MEM_LIMIT_GB in the header)
+  and wall clock, and reports the reason in the next header — read `## Last driver evaluation`
+  before re-running anything.
+
 Constraints: never edit frozen paths (`loop.py`, `loop.sh`, `driver/`, `PROMPT.md`,
 `MISSION.md`, `CLAUDE.md`, `.claude/`, and `harness/` once frozen); no network; no installs
 outside `.venv`; no `git push`; do not delete `harness/truth/` artifacts; keep runtime of any
