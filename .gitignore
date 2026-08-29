@@ -1,0 +1,16 @@
+.venv/
+.venv-install.log
+out/
+logs/
+state/
+harness/truth/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+*.stl
+*.step
+*.stp
+*.msh
+*.ply
+!docs/**
