@@ -39,7 +39,7 @@ VENV_PY = ROOT / ".venv" / "bin" / "python"
 #   LOOP_WINDOW_BUDGET_USD=60 LOOP_MODEL_DEFAULT=claude-opus-5 ./loop.sh
 CONFIG = {
     # models / effort
-    "MODEL_DEFAULT": "sonnet",
+    "MODEL_DEFAULT": "claude-sonnet-5",   # full IDs: the CLI's alias table can lag (2.1.152: 'sonnet' → 4.6)
     "EFFORT_DEFAULT": "medium",
     "MODEL_ESCALATE": "claude-opus-5",
     "EFFORT_ESCALATE": "high",
@@ -418,7 +418,7 @@ def choose_mode(st: dict) -> dict:
         st["escalated"] = True
     if st["escalated"]:
         t_at = CONFIG["STALL_ESCALATE"] + CONFIG["STALL_TOURNAMENT"]
-        if stall >= t_at and (stall - t_at) % 3 == 0:
+        if ms != "M0" and stall >= t_at and (stall - t_at) % 3 == 0:
             return dict(mode="tournament", model=CONFIG["MODEL_ESCALATE"], effort=CONFIG["EFFORT_TOURNAMENT"],
                         budget=CONFIG["BUDGET_USD_TOURNAMENT"], timeout=CONFIG["TOURNAMENT_TIMEOUT_S"])
         return dict(mode="escalated", model=CONFIG["MODEL_ESCALATE"], effort=CONFIG["EFFORT_ESCALATE"],
@@ -489,26 +489,41 @@ def update_stall(st: dict, progress: float) -> None:
         log(f"no improvement (progress {progress:.3f}, best {st['best_progress']:.3f}); stall={st['stall']}")
 
 
+HARNESS_FILES = ["milestones.py", "generators.py", "metrics.py", "meshcheck.py", "score.py", "selftest.py"]
+
+
+def m0_build_progress() -> float:
+    """Coarse but monotone proxy for harness completeness (0..0.6), so a multi-iteration build
+    doesn't read as a stall: 0.1 per required harness module present and importable."""
+    score = 0.0
+    for f in HARNESS_FILES:
+        p = ROOT / "harness" / f
+        if p.exists() and p.stat().st_size > 200:
+            score += 0.1
+    return round(score, 3)
+
+
 def evaluate(st: dict, iteration: int, mode: str) -> None:
     ms = st["milestone"]
     if ms == "M0":
         ok, tail = run_selftest()
         (LOGS_DIR / f"iter-{iteration:04d}.selftest.log").write_text(tail)
         if not ok:
-            log("M0: selftest failing")
+            built = m0_build_progress()
+            log(f"M0: selftest not passing yet (harness modules present: {int(built * 10)}/{len(HARNESS_FILES)})")
             if st["m0_phase"] == "review":
                 st["m0_phase"] = "build"
-            update_stall(st, 0.0)
+            update_stall(st, built)
             return
         code, score, _ = run_scorer("M1", iteration)
         valid, why = contract_valid(score)
         if code == 2 or not valid:
             log(f"M0: selftest ok but scorer contract invalid (exit {code}: {why})")
-            update_stall(st, 0.5)
+            update_stall(st, 0.8)
             return
         if st["m0_phase"] == "build":
             st["m0_phase"] = "review"
-            update_stall(st, 0.9)
+            update_stall(st, 0.95)
             log("M0: harness complete → next iteration is the review-harness pass")
             return
         # review pass done and everything still green → freeze
@@ -598,9 +613,10 @@ def preflight(st: dict, recheck: bool) -> None:
                      "If this is an auth error, run `claude` interactively once to log in, or set LOOP_USE_API_KEY=1.")
         st["verified_models"][m] = {"served": served, "ts": ts(), "cost_usd": data.get("total_cost_usd")}
         log(f"preflight: --model {m} → served by {served or 'unknown'}")
-        want = "opus" if "opus" in m else ("sonnet" if "sonnet" in m else m)
+        want = m if m.startswith("claude-") else ("opus" if "opus" in m else ("sonnet" if "sonnet" in m else m))
         if served and not any(want in s for s in served):
-            log(f"WARNING: requested {m} but served by {served}; alias may be stale — consider `claude update`")
+            log(f"WARNING: requested {m} but served by {served}; alias may be stale — use a full model ID "
+                f"or run `claude update`")
     save_state(st)
 
 
