@@ -1,6 +1,11 @@
 """Self-test: proves the harness is trustworthy WITHOUT a real pipeline (MISSION.md §7).
 
-    .venv/bin/python harness/selftest.py
+    .venv/bin/python harness/selftest.py [--milestone M2 ...] [--skip-gmsh]
+
+`--milestone`/`--skip-gmsh` narrow the run so a targeted change can be checked in a couple of
+minutes instead of the full sweep. They are a *developer* convenience only: a narrowed run
+prints `SELFTEST PASSED (PARTIAL)` and is not evidence for the M0 freeze. The driver always
+invokes this file with no arguments, which runs everything.
 
 For each milestone with a built generator:
   1. closed-form volume check (where a formula exists),
@@ -15,6 +20,7 @@ Exit 0 only if every check across every implemented milestone holds; prints a PA
 per check and a summary. Milestones whose generator is not yet implemented are skipped (noted,
 not failed) so this file needs no changes as M2-M5 land.
 """
+import argparse
 import copy
 import json
 import shutil
@@ -201,7 +207,7 @@ _BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2,
                   "M5": _make_bore_filled_m5}
 
 
-def check_milestone(name: str, work_dir: Path) -> None:
+def check_milestone(name: str, work_dir: Path, skip_gmsh: bool = False) -> None:
     spec = ms.get(name)
     try:
         truth = generators.make(name)
@@ -266,6 +272,9 @@ def check_milestone(name: str, work_dir: Path) -> None:
                 "bore-filled perturbation per milestone")
 
     # 5. gmsh can mesh the truth STEP
+    if skip_gmsh:
+        print(f"[SKIP] {name}: gmsh can mesh truth STEP (--skip-gmsh)", flush=True)
+        return
     hmax = spec.params.get("R_o", 1000.0) / 10.0
     mesh_res = mc.check_meshability(str(truth.step_path), hmax, timeout_s=spec.runtime_cap_s)
     _report(bool(mesh_res.get("ok")), f"{name}: gmsh can mesh truth STEP",
@@ -302,12 +311,22 @@ def check_determinism() -> None:
             detail)
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--milestone", action="append", choices=list(ms.MILESTONES),
+                        help="only check these milestones (repeatable); default: all")
+    parser.add_argument("--skip-gmsh", action="store_true",
+                        help="skip the gmsh meshability check on each truth STEP")
+    args = parser.parse_args(argv)
+    selected = args.milestone or list(ms.MILESTONES)
+    partial = len(selected) < len(ms.MILESTONES) or args.skip_gmsh
+
     work_dir = Path(tempfile.mkdtemp(prefix="selftest_"))
     try:
-        for name in ms.MILESTONES:
-            check_milestone(name, work_dir)
-        check_determinism()
+        for name in selected:
+            check_milestone(name, work_dir, skip_gmsh=args.skip_gmsh)
+        if not partial:
+            check_determinism()
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -319,7 +338,10 @@ def main() -> int:
         for f in FAILURES:
             print(f"  - {f}")
         return 1
-    print("SELFTEST PASSED")
+    if partial:
+        print("SELFTEST PASSED (PARTIAL — narrowed by CLI flags; not evidence for the M0 freeze)")
+    else:
+        print("SELFTEST PASSED")
     return 0
 
 
