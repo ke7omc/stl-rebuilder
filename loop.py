@@ -758,7 +758,7 @@ def run_scorer(milestone: str, iteration: int) -> tuple[int, dict | None, str]:
         out.unlink()
     if not (ROOT / "harness" / "score.py").exists():
         return 2, None, "harness/score.py does not exist"
-    r = run_guarded([str(VENV_PY), "-u", "harness/score.py", "--milestone", milestone, "--out", str(out)],
+    r = run_guarded([str(VENV_PY), "-u", "harness/score.py", "--milestone", milestone, "--out", str(out), "--keep"],
                     CONFIG["SCORE_TIMEOUT_S"], f"scorer {milestone}")
     code = r["code"]
     tail = clean_tail(r["stdout"] + "\n" + r["stderr"], 4000)
@@ -959,14 +959,35 @@ def evaluate(st: dict, iteration: int, mode: str) -> None:
     progress = float(score.get("progress", 0.0)) if score else 0.0
     set_last_eval(st, iteration, f"scorer {ms}", bool(score and score.get("pass")), latest_verdict_line(), tail)
     if score and score.get("pass"):
-        # keep the winning artifacts
-        for key, path in (score.get("artifacts") or {}).items():
-            p = ROOT / path
-            if p.exists():
-                shutil.copy(p, LOGS_DIR / f"{ms}-final{p.suffix}")
+        keep_artifacts(score, ms)
         advance(st, f"scorer pass at iteration {iteration}")
         return
     update_stall(st, progress)
+
+
+def keep_artifacts(score: dict, ms: str) -> list[str]:
+    """Copy a passing milestone's artifacts to logs/<ms>-final.*; tolerate missing/null paths."""
+    kept: list[str] = []
+    arts = score.get("artifacts")
+    if not isinstance(arts, dict):
+        return kept
+    for key, path in arts.items():
+        if not isinstance(path, str) or not path:
+            continue
+        src = Path(path)
+        if not src.is_absolute():
+            src = ROOT / src
+        if not src.exists():
+            continue
+        dest = LOGS_DIR / f"{ms}-final-{key}{src.suffix}"
+        try:
+            shutil.copy(src, dest)
+            kept.append(str(dest.relative_to(ROOT)))
+        except OSError as e:
+            log(f"note: could not keep artifact {key} ({src}): {e}")
+    if kept:
+        log(f"kept {ms} artifacts: {', '.join(kept)}")
+    return kept
 
 
 # ----------------------------------------------------------------------------- status / dashboard
@@ -1312,6 +1333,23 @@ def main() -> int:
     except KeyboardInterrupt as e:
         save_then_stop(st, "interrupted (--kill)" if "signal" in str(e) else "interrupted (Ctrl-C)")
         return 130
+    except Exception as e:  # a driver bug must never stop the loop silently
+        import traceback
+        tb = traceback.format_exc()
+        LOGS_DIR.mkdir(exist_ok=True)
+        with (LOGS_DIR / "driver-crash.log").open("a") as fh:
+            fh.write(f"\n[{ts()}] driver crashed\n{tb}\n")
+        log(f"DRIVER CRASH: {type(e).__name__}: {e} — traceback in logs/driver-crash.log; "
+            f"state saved, loop.sh restarts the driver (state is resumable)")
+        for pid in (CURRENT_AGENT_PID, CURRENT_CHILD_PID):
+            if pid:
+                kill_tree(pid)
+        auto_commit(st["iteration"] + 1, "driver crash — checkpoint of any uncommitted agent work")
+        st["history"].append({"ts": ts(), "event": "driver_crash", "error": f"{type(e).__name__}: {e}"[:300]})
+        save_state(st)
+        set_current(None)
+        write_dashboard(st, note=f"Driver crashed at {hhmm(now())}: {type(e).__name__}: {e} — see logs/driver-crash.log")
+        return 3
     finally:
         release_lock()
 
