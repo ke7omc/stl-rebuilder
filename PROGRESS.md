@@ -1,20 +1,43 @@
 # PROGRESS — lab notebook of the loop (agent-maintained)
 
 ## Current state
-- Milestone: M0. **The harness is COMPLETE and has been through its pre-freeze audit (iter 10).**
-  All five generators are built and `harness/selftest.py` exits **0**, so both M0 gate conditions
-  from MISSION §6 hold and the driver should tag `harness-frozen` and advance to M1.
-- ⚠️ **DO NOT TAG `harness-frozen` UNTIL A FULL `selftest.py` RUN IS SEEN TO EXIT 0.** Iter 10
-  changed the harness and then could not complete an end-to-end selftest: two runs were SIGKILLed
-  by the environment (exit 137) at ~11.5 min and mid-M2, not by any assertion. What *was* verified
-  after the changes: all 5 M1 checks PASS (including "truth STEP passes all gates", so the new
-  `AddOptimal_s` bbox and the CHORD_TOL/5 deviation do not fail correct geometry), all three new
-  report gates fire on their own check with correct hints (M2 `dome_stations_min`; M5
-  `dome_stations_min`, `topo_event_z`, `adaptive_efficiency`), and
-  `pytest tests/ --ignore=tests/test_selftest.py` → 15 passed. The unverified remainder is M2–M5's
-  volume/deviation/gmsh checks, which the changes touch. **Next iteration: run
-  `.venv/bin/python -u harness/selftest.py` (unbuffered — a buffered run loses all output when
-  killed) as the first action and confirm exit 0.**
+- Milestone: M0. All five generators are built and every *check* in the harness is believed
+  correct (iter 9 saw `selftest.py` exit 0 with 22/22). **The one thing blocking the freeze is
+  RUNTIME, not correctness.**
+- 🔴 **THE ACTUAL CAUSE OF THE 5-ITERATION STALL (diagnosed iter 11).** The driver's M0 gate is
+  `loop.py::run_selftest`, which runs `harness/selftest.py` under `SCORE_TIMEOUT_S = 1500 s`.
+  Iter 10's changes pushed the selftest past 1500 s, so it is **killed mid-run every time**;
+  `run_selftest` returns False, `evaluate()` knocks `m0_phase` back `review → build`, and
+  `update_stall(built=0.6)` can never beat `best_progress=0.95` → a stall is logged. That has
+  now happened five times and will repeat forever until the selftest fits the budget. Evidence:
+  `logs/iter-0010.selftest.log` ends mid-M2 with no PASS/FAIL or summary line, and
+  `git show-ref` has **no `harness-frozen` tag** — the harness has never actually been frozen.
+  The exit-137 SIGKILLs iter 10 saw in its *own* shell were the same overrun, not a flaky
+  environment; that misreading is what cost the five iterations.
+- **The dominant cost is `metrics.surface_deviation`, and it scales with mesh FACE COUNT**, not
+  with the sample count (trimesh's `ProximityQuery.on_surface` does an r-tree lookup per query
+  point). Measured this iteration with `_mesh_from_step` at three deflections:
+  | mesh | 0.5 mm | 0.25 mm | 0.1 mm |
+  |---|---|---|---|
+  | M1 faces | 872 | 1 232 | 1 952 |
+  | M2 faces | 29 286 | 58 472 | 153 636 |
+  M1 is small enough to mislead — a *full* M1 score at 0.5 mm is 76 s — but M2's single
+  deviation call at 0.1 mm did not finish in 8 min of direct probing. Iter 10 set
+  `DEVIATION_DEFLECTION = CHORD_TOL/5` after benchmarking **M1 only** (30 s → 77 s, "acceptable"),
+  and that extrapolation is what broke the budget on M2–M5.
+- Fix applied this iteration: `DEVIATION_DEFLECTION = CHORD_TOL/2` (0.25 mm). This is a pure
+  cost/noise trade and cannot change any selftest verdict — the selftest's stand-in pipeline
+  re-exports the truth shape, so both sides tessellate identically and deviation is ~3e-7 mm at
+  any deflection. It only sets the noise floor for a *real* pipeline output: ~0.125 mm, i.e.
+  31 % of M1's 0.4 mm p99 budget (62 % at CHORD_TOL, 12 % at /5).
+- `selftest.py` now prints per-check and cumulative elapsed time (flushed) and a final
+  `total …s (driver SCORE_TIMEOUT_S = 1500 s)` line, so the next overrun is readable directly
+  from the driver's truncated 3000-char log tail instead of looking like a random kill.
+- ⚠️ **Still DO NOT tag `harness-frozen` until a full `selftest.py` run is seen to exit 0 with a
+  total comfortably under 1500 s.** Run `.venv/bin/python -u harness/selftest.py` (unbuffered) as
+  the first action of the next iteration and read the new `total` line. If it is still over
+  budget, the next lever is *not* another deflection tweak — see `## Do not retry` and the
+  ranked options in the iter 11 log block.
 - **`rebuild.py` must write a `--report` JSON.** The scorer now always passes
   `--report <cwd>/report.json` and three gates are graded from it. Keys: `n_stations` (int),
   `stations_z_mm` (list[float], input-STL coordinates), `paths_used` (list[str]),
@@ -66,9 +89,16 @@
   the pipeline at successive station counts. It reads like the more honest baseline, but it adds
   minutes to every score and a timeout failure mode that, once `harness/` is frozen, has no legal
   fix from inside the loop.
-- Do not lower `DEVIATION_DEFLECTION` below `CHORD_TOL/5` chasing a cleaner metric floor. The
-  remaining ~0.05 mm of chordal noise is 12 % of M1's p99 budget, and halving it roughly triples
-  the scorer's dominant cost against a hard 1500 s `SCORE_TIMEOUT_S`.
+- Do not lower `DEVIATION_DEFLECTION` below `CHORD_TOL/2` chasing a cleaner metric floor. This
+  entry previously said `/5`; `/5` was measured on **M1 only** and is wrong for the milestones
+  that matter — M2 has 154 k faces at 0.1 mm and one deviation call there can eat the whole
+  1500 s `SCORE_TIMEOUT_S`, which is exactly what stalled M0 for five iterations. Deviation cost
+  scales with mesh face count (≈ 1/deflection²), so always benchmark a *dome* milestone (M2/M5),
+  never M1, before touching this constant.
+- Do not benchmark harness cost on M1 and extrapolate. M1 is an annular cylinder: 872 faces at
+  CHORD_TOL, versus 29 286 for M2. Any per-mesh cost measured on M1 understates M2–M5 by 30x+.
+- Do not read an exit-137 / SIGKILL of `selftest.py` as a flaky environment or an OOM. It is the
+  1500 s budget. Check the new `total …s` line at the end of the selftest output first.
 - Do not measure the `uniform_stations_needed` baseline as radial error |Δr(z)|. A dome apex has
   a vertical tangent in r(z), so radial error diverges there while true surface deviation stays
   small; the bisection pins to `max_n` and the adaptive_efficiency gate silently becomes
@@ -81,6 +111,53 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 11 — M0 — opus/high — escalated — 2026-08-29T10:54
+- Score before: driver verdict `M1 progress=0.0714, first failure pipeline_exit` — but that is
+  the *M1* scorer, which is not the M0 gate and has been unchanged since iter 4. The real signal
+  was `stall=5, best_progress=0.95` with `m0_phase` stuck at `build`.
+- Escalated mode says form a *different* hypothesis before touching code, so I did not try to
+  finish or re-verify the harness. I asked instead why five consecutive iterations were logged
+  as stalls when iter 9 had already seen `selftest.py` exit 0 with 22/22 checks.
+- **Diagnosis (the different hypothesis, and it is the right one): the M0 gate is failing on
+  TIME, not on any assertion.** `loop.py::evaluate` runs `run_selftest()` under
+  `SCORE_TIMEOUT_S = 1500 s`; on timeout it returns False, resets `m0_phase` `review → build`,
+  and calls `update_stall(m0_build_progress()=0.6)`, which can never beat `best_progress=0.95`.
+  So every iteration since iter 10 has been recorded as a stall for a reason nothing in
+  `out/score.json` can show. Three pieces of evidence, all cheap:
+  1. `logs/iter-0010.selftest.log` ends mid-M2 with no PASS/FAIL line and no summary — a
+     truncated tail of a killed run, not a completed failing run.
+  2. `git show-ref` shows `infra-frozen` but **no `harness-frozen`** — the freeze never fired.
+  3. Iter 10's own note that two shell runs were "SIGKILLed by the environment (exit 137) at
+     ~11.5 min" is the same overrun seen from inside; it was misattributed to the environment.
+- Change: `DEVIATION_DEFLECTION` `CHORD_TOL/5` → `CHORD_TOL/2` in `harness/score.py`, plus
+  per-check + total elapsed-time reporting in `harness/selftest.py`.
+- Measured before changing anything (`_mesh_from_step` at three deflections, and a full score
+  via `selftest._score_with_step`):
+  - M1: 872 / 1 232 / 1 952 faces at 0.5 / 0.25 / 0.1 mm. Full M1 score at 0.5 mm = **76.0 s**.
+  - M2: 29 286 / 58 472 / 153 636 faces at the same deflections. A *single* M2 deviation call at
+    0.1 mm did not complete in 8 min of direct probing.
+  Iter 10 justified `/5` with "30 s at 0.5 mm, 77 s at 0.1 mm" — both M1 numbers. Deviation cost
+  tracks face count because `ProximityQuery.on_surface` does an r-tree lookup per query point,
+  and face count grows as 1/deflection², so M2–M5 are 30x+ worse than the figure that was used.
+- Why this specific change is safe: in the selftest the stand-in pipeline *re-exports the truth
+  shape*, so both sides of the comparison tessellate identically — measured `dev_max = 3.5e-07`
+  at 0.5 mm. Deflection therefore cannot move a selftest verdict at all; it only sets the noise
+  floor a *real* pipeline output is judged against (~0.125 mm at /2 = 31 % of M1's 0.4 mm p99
+  budget, vs 62 % at CHORD_TOL and 12 % at /5). Cost/fidelity only, no gate weakened.
+- Score after (my local run): see the `total …s` line the new instrumentation prints. The target
+  is exit 0 **and** a total with real margin under 1500 s.
+- Learned: the driver's M0 gate has a failure mode that is invisible in `out/score.json` — the
+  file the prompt calls "the single most important line in the repo". When M0 stalls, read
+  `logs/iter-NNNN.selftest.log` and check for a summary line before trusting the M1 verdict.
+- Next: if the total is still near 1500 s, do **not** tweak the deflection again. Ranked options,
+  cheapest first: (a) `check_determinism` currently runs 2 more *full* M1 scores on top of the
+  M1 truth score — reuse the truth score as `r1` and run only one more (~76 s); (b) drop
+  `metrics.uniform_stations_needed`'s `n_bins` 8192 → 4096 (invariant only needs it above
+  `max_n`=2048), which cuts the M2/M5 baseline bisection; (c) the real structural fix — replace
+  `ProximityQuery.on_surface` with a vectorized cKDTree candidate shortlist + point-triangle
+  distance, validated to ~1e-9 against trimesh on M1 and M2. (c) is worth doing properly because
+  it removes the timeout risk permanently rather than trading fidelity for it.
 
 ### iter 10 — M0 — opus/high — review-harness — 2026-08-29T10:2x
 - Score before: `selftest.py` exit 0 (22 checks). Nothing was broken; this was the pre-freeze

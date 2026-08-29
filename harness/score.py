@@ -78,12 +78,18 @@ _HIGHER_IS_BETTER = {"gmsh_tet", "dome_stations_min"}
 # Both sides are therefore re-tessellated finer for the comparison only; the pipeline's *input*
 # STL stays at CHORD_TOL, as MISSION §6 requires.
 #
-# The factor is 5, not 10, because deviation cost is the scorer's dominant term: measured on M1,
-# one comparison costs 30 s at 0.5 mm, 77 s at 0.1 mm, and superlinearly more below that, while
-# selftest scores every milestone under the driver's 1500 s SCORE_TIMEOUT_S. 0.1 mm leaves ~0.05 mm
-# of chordal noise — 12 % of M1's 0.4 mm p99 budget — which is a floor the gates can live with;
-# 0.05 mm would buy 6 % instead and risk the whole harness timing out once frozen.
-DEVIATION_DEFLECTION = ms.CHORD_TOL / 5.0
+# The factor is 2, not 5. Deviation is the scorer's dominant cost and it scales with the *face
+# count* of both meshes (trimesh's proximity query does an r-tree lookup per query point), which
+# grows as 1/deflection². M1 is small enough to mislead — 872 faces at 0.5 mm — but M2 has 29 k
+# faces at 0.5 mm, 58 k at 0.25 mm and 154 k at 0.1 mm, and its single deviation call at 0.1 mm
+# alone can exceed the driver's whole 1500 s SCORE_TIMEOUT_S. That is what actually happened:
+# selftest at /5 timed out inside M2, which reads to the driver as "M0 gate not met" forever
+# (see PROGRESS iter 11). The harness must fit that budget with margin or it can never be frozen.
+#
+# /2 keeps most of what /5 bought: a tessellation sits up to deflection/2 inside the true surface,
+# so the noise floor is ~0.125 mm — 31 % of M1's 0.4 mm p99 budget, versus 62 % at CHORD_TOL and
+# 12 % at /5. The pipeline's *input* STL still ships at CHORD_TOL, as MISSION §6 requires.
+DEVIATION_DEFLECTION = ms.CHORD_TOL / 2.0
 
 # --- pipeline report contract (MISSION §5.3's `--report`) ---------------------------------
 # The scorer always passes `--report <path>`. Three gates (dome_stations_min, topo_event_z,

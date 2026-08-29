@@ -20,6 +20,7 @@ import json
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -34,11 +35,25 @@ from harness import milestones as ms
 from harness import score as score_mod
 
 FAILURES = []
+_T0 = time.time()
+_T_LAST = [_T0]
 
 
 def _report(ok: bool, label: str, detail: str = "") -> None:
+    """Print one PASS/FAIL line prefixed with this check's elapsed time and the running total.
+
+    The timing is not decoration. The driver runs this file under a hard 1500 s SCORE_TIMEOUT_S
+    and keeps only the last 3000 characters of output, which OCC's STEP writer floods with banner
+    noise. When selftest went over budget in iter 10 the tail therefore held no check lines at
+    all, the overrun was misread as the environment killing the process, and the M0 gate stalled
+    for five iterations. Flushed per-check times make a future overrun readable from that tail.
+    """
+    now = time.time()
+    dt, total = now - _T_LAST[0], now - _T0
+    _T_LAST[0] = now
     status = "PASS" if ok else "FAIL"
-    print(f"[{status}] {label}" + (f" — {detail}" if detail else ""))
+    print(f"[{status}] [{dt:6.1f}s |{total:7.1f}s] {label}"
+          + (f" — {detail}" if detail else ""), flush=True)
     if not ok:
         FAILURES.append(label)
 
@@ -296,7 +311,9 @@ def main() -> int:
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 
-    print()
+    # The driver's SCORE_TIMEOUT_S is 1500 s and it restores harness/ from a tag once frozen, so
+    # a selftest that creeps up on that budget is a latent permanent stall. Report the margin.
+    print(f"\ntotal {time.time() - _T0:.1f}s (driver SCORE_TIMEOUT_S = 1500 s)", flush=True)
     if FAILURES:
         print(f"SELFTEST FAILED ({len(FAILURES)} check(s)):")
         for f in FAILURES:
