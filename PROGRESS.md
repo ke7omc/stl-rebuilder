@@ -1,29 +1,64 @@
 # PROGRESS — lab notebook of the loop (agent-maintained)
 
 ## Current state
-- Milestone: M0 — harness under construction. `harness/milestones.py` (all 5 specs),
-  `harness/generators.py` (M1 only), `harness/metrics.py` (volume/CoM/inertia, symmetric
-  surface deviation with by_z_bin, STEP round-trip), `harness/meshcheck.py` (gmsh headless
-  meshability check, run in a subprocess), and `harness/score.py` (full CLI contract) are done
-  and verified against M1 truth (score.py both fails correctly on the stub pipeline and passes
-  every check when the pipeline emits the truth STEP itself).
-- `harness/score.py --milestone M1 --out out/score.json` against the current stub `rebuild.py`
-  exits 1 and writes contract-valid JSON with `first_failure.check == "pipeline_exit"` — this
-  is exactly the M0 gate condition in MISSION §6 (score.py just needs to run to completion with
-  valid JSON, pass or fail; the stub correctly fails, not errors — exit 1, never 2).
+- Milestone: M0 — both M0 gate conditions now hold. `harness/milestones.py` (all 5 specs),
+  `harness/generators.py` (M1 only), `harness/metrics.py`, `harness/meshcheck.py`,
+  `harness/score.py` (full CLI contract), and now `harness/selftest.py` are done.
+  `.venv/bin/python harness/selftest.py` exits 0 (prints a PASS/FAIL line per check + summary).
+  `harness/score.py --milestone M1 --out out/score.json` against the stub `rebuild.py` exits 1
+  with contract-valid JSON, `first_failure.check == "pipeline_exit"` — exactly MISSION §6's M0
+  gate. Only M2-M5 generators remain before harness-freeze (still inside M0).
+- `harness/selftest.py` iterates `ms.MILESTONES`, skipping any whose generator raises
+  `NotImplementedError` (currently M2-M5) so it needs no edits as those land. For each
+  implemented milestone (M1) it checks: closed-form volume match, truth STEP passes every gate
+  (via `score.score()` with `_run_pipeline` monkeypatched to copy a given STEP — same pattern
+  `tests/test_score.py` already used), a 1.01x-scaled copy fails on `volume_err_pct`, a
+  bore-filled copy fails on `volume_err_pct` (filler builders registered per-milestone in
+  `_BORE_FILLERS`, only M1 so far), and gmsh can mesh the truth STEP. Plus one
+  milestone-independent determinism check: score the same stub-pipeline inputs twice, diff
+  after stripping `runtime_s` (the only nondeterministic field).
 - Truth files written: `harness/truth/M1.step`, `harness/truth/M1.stl`.
 - Unit tests: `tests/test_metrics.py` (6) + `tests/test_meshcheck.py` (3) + `tests/test_score.py`
-  (3) — 12 total, all pass. test_score.py covers: stub pipeline fails fast at pipeline_exit with
-  progress in [0,1); a monkeypatched pipeline that emits the truth STEP passes every check in
-  order (input_watertight → ... → gmsh_tet); result is JSON-serializable with all contract keys.
-- Still needed: `harness/selftest.py` (per MISSION §7: closed-form check, truth-STEP-passes,
-  perturbed-copy-fails-expected-check, determinism), and M2–M5 generators.
+  (3) + `tests/test_selftest.py` (1) — 13 total, all pass.
+- Still needed: M2–M5 generators (each with truth volume recorded in `harness/truth/Mk.json`
+  per MISSION §7), then wire their milestone-specific gates into score.py, then one Opus
+  review pass, then `harness-frozen` tag.
 
 ## Do not retry
 - `BRepAlgoAPI_Cut.HasErrors()` does not exist in OCP 7.9.3. Use `IsDone()` only.
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 5 — M0 — sonnet/medium — 2026-08-29T08:30
+- Score before: score.py done and committed; PROGRESS.md pointed at selftest.py as the next
+  step (the other half of the M0 gate).
+- Change: built `harness/selftest.py` per MISSION §7. `check_milestone()` runs per-milestone
+  (closed-form volume, truth-STEP-passes-all-gates, scaled-copy-fails, bore-filled-fails,
+  gmsh-can-mesh), skipping milestones whose generator isn't built yet via a
+  `NotImplementedError` catch so the file doesn't need touching again as M2-M5 land.
+  `_score_with_step()` reuses `score.score()` by monkeypatching `_run_pipeline` to copy a given
+  STEP file in as the "pipeline output" — the same trick `tests/test_score.py` already used, so
+  no changes to score.py were needed. Scaled copy built with
+  `BRepBuilderAPI_Transform(shape, gp_Trsf().SetScale(origin, 1.01), True)`. Bore-filled copy is
+  a milestone-specific builder registered in `_BORE_FILLERS` (only `_make_bore_filled_m1` so
+  far: a solid R_o cylinder with no inner cut). `check_determinism()` scores the stub pipeline
+  twice and diffs after stripping `runtime_s` (the only field expected to vary run-to-run).
+  Added `tests/test_selftest.py` (1 test: `main()` exits 0 with no FAILURES).
+- Score after (local): `harness/selftest.py` → exit 0, all 6 implemented checks PASS (M1
+  closed-form rel_err=0; truth STEP passes all gates; scaled copy fails volume_err_pct at
+  3.03%; bore-filled fails volume_err_pct at 9.89%; gmsh meshes truth at min_quality=0.234;
+  determinism holds). M2-M5 correctly SKIP. `pytest tests/` → 13 passed (was 12). This is the
+  second (and last remaining) M0 gate condition from MISSION §6 — both now hold with the stub
+  pipeline in place.
+- Learned: `gp_Trsf().SetScale(gp_Pnt, factor)` + `BRepBuilderAPI_Transform(shape, trsf, True)`
+  is the OCP way to uniformly scale a shape (confirmed live: 1.01 scale factor → 1.030301x
+  volume, matches (1.01)^3 exactly as expected for a solid).
+- Next: M2 generator (`harness/generators.py::_make_m2` — 2:1 ellipsoidal domes on the outer
+  surface both ends, straight bore through, per MISSION §7 build-order step 5 and
+  `milestones.py::_m2`'s params/regions/gates already defined). After M2-M5 generators land and
+  their gates are wired into score.py, do the review-harness pass MISSION §11 describes before
+  the freeze.
 
 ### iter 4 — M0 — sonnet/medium — 2026-08-29T08:25
 - Score before: no score.py; meshcheck.py just landed. PROGRESS.md pointed at score.py as the
