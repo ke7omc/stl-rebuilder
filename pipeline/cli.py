@@ -34,6 +34,23 @@ def _axis_centered(cx: float, cy: float, R: float, chord_tol: float) -> bool:
     return (cx ** 2 + cy ** 2) ** 0.5 < 0.5 * tol.circle_max_resid(chord_tol)
 
 
+def _extrapolate_end(pts, target_z: float, at_start: bool) -> float:
+    """Linear extrapolation of R at target_z from the two nearest fitted stations.
+
+    A flat copy of the nearest station's R (M1's approach) is only correct for a prismatic
+    profile. On a curved end (M2's ellipsoidal dome) the true radius keeps changing all the way
+    to the true axial extent — R does not even reach 0 there when a straight bore intersects the
+    dome first (the solid pinches out where R_dome(z) == R_bore, a finite radius, not an apex).
+    A 2-point secant projected to target_z tracks that taper far better than a flat copy; clamped
+    at 0 because a negative extrapolated radius is never physically meaningful.
+    """
+    (z0, r0), (z1, r1) = (pts[0], pts[1]) if at_start else (pts[-1], pts[-2])
+    if abs(z1 - z0) < 1e-12:
+        return r0
+    slope = (r1 - r0) / (z1 - z0)
+    return max(0.0, r0 + slope * (target_z - z0))
+
+
 def _run(args) -> int:
     chord_tol = args.chord_tol
     mesh, R_axis, info = pio.load_and_orient(args.input_stl, args.axis)
@@ -84,9 +101,13 @@ def _run(args) -> int:
             return 4
         bore_pts.append((zz, Ri))
 
-    # Envelope spans the true axial extent; the profile is constant near the (inset) end
-    # stations for M1, so the true-end radius equals the nearest fitted station radius.
-    outer_full = [(z_min, outer_pts[0][1])] + outer_pts + [(z_max, outer_pts[-1][1])]
+    # Envelope spans the true axial extent. Extrapolate the outer radius to it from the two
+    # nearest fitted stations (linear secant) rather than copying the nearest station's R flat —
+    # correct either way for a prismatic profile (M1, zero slope) and far closer for a curved
+    # end (M2's domes, see `_extrapolate_end`).
+    r_start = outer_pts[0][1] if len(outer_pts) < 2 else _extrapolate_end(outer_pts, z_min, True)
+    r_end = outer_pts[-1][1] if len(outer_pts) < 2 else _extrapolate_end(outer_pts, z_max, False)
+    outer_full = [(z_min, r_start)] + outer_pts + [(z_max, r_end)]
     bore_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
         + [(z_max + eps_cut_val, bore_pts[-1][1])]
 
