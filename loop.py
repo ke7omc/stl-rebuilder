@@ -959,13 +959,20 @@ def evaluate(st: dict, iteration: int, mode: str) -> None:
         if not r["ok"]:
             built = m0_progress(r["passed"], r["total"])
             log(f"M0: selftest not passing — {summary} (modules {m0_modules_present()}/{len(HARNESS_FILES)})")
+            prev_passed = int(st.get("m0_passed") or 0)
             if st["m0_phase"] == "review":
                 # the review pass legitimately raised the bar; that is not a stall of the builder
                 st["m0_phase"] = "build"
                 st["best_progress"], st["stall"] = built, 0
                 log(f"M0: review pass moved the bar → back to build at progress {built:.3f}; stall counter reset")
+            elif r["passed"] > prev_passed:
+                # more selftest checks pass than ever before: that is progress even when the
+                # fraction barely moves (each new milestone adds checks to the denominator)
+                st["best_progress"], st["stall"] = max(built, st["best_progress"]), 0
+                log(f"M0: {r['passed'] - prev_passed} more selftest check(s) pass ({r['passed']}/{r['total']}); progress {built:.3f}")
             else:
                 update_stall(st, built)
+            st["m0_passed"] = max(prev_passed, int(r["passed"]))
             return
         st["last_selftest_s"] = r["duration_s"]
         code, score, tail = run_scorer("M1", iteration)
