@@ -18,6 +18,75 @@
 - Milestone: **M4 PASSES** — `pass:true, progress:1.0`, all 13 checks green (volume_err_pct
   0.0127%, surface_deviation_max_mm 0.653, topo_event_z 1.28e-5mm, face_count_max 44,
   gmsh min_quality 0.265 vs gate 0.1). M1/M2/M3 all still `pass:true, progress:1.0`.
+- **M5: progress 0.0556 -> 0.9476 this iteration, 13/14 checks pass, only `gmsh_tet` fails.**
+  M5 needed a genuinely new topology shape M4 didn't have: fins that stop *before* the aft end
+  (at the aft dome shoulder), so the bore is circular -> non-circular (star) -> circular again —
+  two topology events sandwiching one prism run, not the single event M4's code assumed.
+  1. `pipeline/cli.py::_run`: generalized the bore-type detection (was a hard error "circular and
+     non-circular interleaved... not yet implemented" whenever `bore_pts` had entries on *both*
+     sides of `bore_rings`). Now splits `bore_pts` into `pts_before`/`pts_after` relative to the
+     ring z-range; if both are non-empty it bisects **two** events (`event_fore`, `event_aft`)
+     and builds **three** cutters (circ_fore, fin prism spanning [event_fore,event_aft], circ_aft)
+     fused in sequence, vs. the original two-cutter one-event path (kept, unchanged, for M4).
+  2. `pipeline/export.py::finalize`: `ShapeUpgrade_UnifySameDomain` on the sandwich's
+     double-fused solid **broke BRepCheck_Analyzer validity** (confirmed: pre-unify shape valid,
+     post-unify invalid — verified in isolation with a debug script, not a fluke). Since unify is
+     a pure face/edge-merging simplification (no geometry change), a shape it invalidates is
+     strictly worse than the input; `finalize` now checks validity after `ShapeFix_Shape` and
+     again after unify, and **falls back to the pre-unify shape** if unify made things invalid.
+     Only cost: slightly higher face count (well under `face_count_max`'s generous ceiling).
+  3. The sandwich's internal seam fuses (`booleans.fuse(circ_fore, fin, ...)` etc.) were using
+     `tol.fuzzy(chord_tol)` (0.5 mm) same as everywhere else — but that let BOPAlgo snap/merge
+     vertices across the *whole* seam overlap band, distorting the plain-circular bore radius by
+     up to ~1 mm right at the seam (measured: `surface_deviation_max_mm` 0.683 mm vs the 0.6 mm
+     gate, entirely inside the supposedly-featureless `fore_cylinder` region 22 mm before the
+     event — confirmed via a local `trimesh.sample_surface_even` + `ProximityQuery` probe, not a
+     resolution/station-density issue: the true bore there is dead-flat R≈300 both in truth and
+     in our own build). Fix: use `seam_eps` (0.5*chord_tol, the same small margin already used
+     for the seam's *axial* extension) as the fuse's fuzzy value too, instead of the 10x-bigger
+     `tol.fuzzy`. This alone took M5 from failing at `surface_deviation_max_mm` to failing only
+     at `gmsh_tet` (0.9476 progress, 13/14 checks green).
+- **What's left for M5 — `gmsh_tet` fails at min_quality ~0.006 (gate 0.1), sliver tets cluster
+  tightly around the FORE seam only (z 5988-6011, not the aft seam near 9500).** Root cause not
+  fully nailed down but strongly suspected: a near-tangent intersection between the circular
+  cutter's boundary and the fin-slot prism's own embedded circular-arc segments (the "web"
+  between fin slots, which independently circle-fits the SAME nominal R_bore from a *different*
+  z-station than `circ_fore`'s fit) — a tiny radius mismatch between the two independently-fit
+  circles produces a knife-edge sliver volume exactly where they meet, which gmsh can't tet
+  cleanly. **Two things tried and reverted — do not retry verbatim:**
+  1. Widening only `fin_solid`'s own axial seam extension (to fatten the sliver for gmsh)
+     directly reintroduces the M4-era eps_cut-bleed bug: the star/fin cutter then removes
+     fin-shaped material from genuinely-circular territory. Measured exactly linear: an 8×chord_tol
+     (4 mm) widening produced *exactly* 4.0 mm of spurious surface deviation in `fore_cylinder`.
+     Only `circ_fore`/`circ_aft`'s own extension is safe to widen (circle ⊆ star always), but
+     widening only that side didn't move the gmsh number at all — the sliver is at the fin-root
+     corner, not the plain-circle/star overlap band width.
+  2. Sweeping `seam_eps` itself up (1x/1.5x/2x/3x chord_tol, both fuzzy AND axial extension
+     together) does not fix the fore-seam sliver and **breaks the AFT seam instead** (which sits
+     close to the aft-dome pinch logic) — `surface_deviation_p99_by_region` then fails in
+     `aft_dome`, and at 1.5x+ the deviation check outright NaNs (probably a degenerate/empty
+     region from an over-widened aft cutter interacting with the dome-pinch snap). The two seams
+     are NOT symmetric in how much margin they tolerate; don't tune `seam_eps` as one global knob.
+  3. `ShapeFix_Shape(shape); .SetPrecision(prec)` swept 0/0.1/0.25/0.5/1.0 mm before `.Perform()`
+     on the already-built M5 STEP: shape stayed valid at every precision, but a spot-check at
+     prec=0/0.1 (coarse hmax=30 probe, not the real gate mesh size) still showed min_quality
+     ~0.025 — better than the unmodified 0.006 but likely still short of the real 0.1 gate at the
+     tighter official hmax, and this sweep was **cut off before finishing (0.25/0.5/1.0 and the
+     official-hmax comparison never ran — gmsh on a shape this size takes minutes per data point,
+     do NOT loop it live again; script it, run once in the background, and read the log).**
+     `SetPrecision` on `ShapeFix_Shape` is a real, unexplored lever — worth pursuing further, but
+     budget it: pick ONE precision value (start with 0.25 = `chord_tol`) and wire it into
+     `export.finalize()` (needs a new `chord_tol` parameter threaded from `cli.py`'s call site),
+     rerun the real scorer once, read `out/score.m5.json`. Don't sweep interactively again.
+- **Next milestone step:** try wiring `ShapeFix_Shape.SetPrecision(chord_tol)` into
+  `export.finalize()` (threading `chord_tol` through from `cli.py`) as the next single change,
+  verify with the real scorer (`harness/score.py --milestone M5`), not an ad hoc gmsh probe at a
+  different hmax. If that doesn't clear `gmsh_tet`, the next idea is snapping `circ_fore`/
+  `circ_aft`'s boundary radius to the SAME value the fin ring's arc-fit uses at the seam (both
+  ultimately fit the same physical R_bore; forcing them numerically identical removes the
+  near-tangent mismatch at its source instead of papering over it with tolerances). `pytest
+  tests/ --ignore=tests/test_selftest.py` is 15/15 green throughout this iteration's changes;
+  M1-M4 all still `pass:true, progress:1.0`.
   `pytest tests/ --ignore=tests/test_selftest.py` → 15 passed (the ignored test has the
   same pre-existing argparse/conftest issue as every prior iteration, not a regression).
 - M4 required a genuinely new pipeline path: a *mixed* bore — a plain circular bore fore of
