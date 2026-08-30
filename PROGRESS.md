@@ -15,6 +15,29 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 24: confirmed M1–M5 all still pass on HEAD (no code change needed) and pre-wrote
+  `HANDOFF.md`.** Re-ran `harness/score.py --milestone M{1..5} --keep` fresh: all five
+  `pass:true, progress:1.0` with comfortable gate margins (worst case M4's surface deviation at
+  0.44 vs 0.6mm threshold, 1.36x; M5's `gmsh_tet` 0.234 vs 0.1, 2.3x — see `HANDOFF.md`'s table
+  for the full per-milestone numbers). `--keep` output (STEP/report/log per milestone + full
+  score JSON) saved to `out/handoff/` for reference (gitignored, local only, regenerate with the
+  command HANDOFF.md documents). Wrote `HANDOFF.md` now, one iteration ahead of the driver
+  reaching `milestone: HANDOFF`, since all the data was already in hand and it doesn't touch any
+  pipeline/harness code — no regression risk. It should satisfy the driver's HANDOFF gate
+  (exists, >1500 chars, mentions M1-M5) on the first pass once the driver advances to it.
+  Covers: per-milestone results table, truth/output STEP paths, exact rebuild.py command per
+  milestone, SpaceClaim import checklist, known limitations (loop-matching and loft paths not
+  built, seam_eps is not one global knob, hole-repair is 1-3 triangles only), and what to try
+  first on a real burnback STL.
+- **Found and fixed while verifying: `tests/test_selftest.py` was broken** — it called
+  `selftest.main()` with no `argv`, so under `pytest tests/` argparse consumed pytest's own CLI
+  args (`tests/ -q`) instead of an empty list and crashed with `SystemExit: 2`. This was latent
+  since `harness/selftest.py` gained `--milestone`/`--skip-gmsh` argparse options (see Brady's
+  note above) — nothing in the loop's per-milestone workflow runs the full `pytest tests/`
+  suite, so it went unnoticed for several iterations. Fixed: `selftest.main(argv=[])`. Also
+  refreshed its docstring, which still said "while M2-M5 raise NotImplementedError" (stale since
+  M5 landed). `pytest tests/` → 16 passed (was 1 failed/15 passed). `tests/` is not a frozen
+  path, so this was safe to fix directly.
 - **iter 23 fixed the M4 regression (see log below): M1–M5 ALL PASS `pass:true, progress:1.0`
   on HEAD, `harness/selftest.py` also passes.** The driver's regression gate should re-advance
   past M4 to M5/HANDOFF on the next evaluation.
@@ -465,6 +488,35 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 24 — M5 (verification + HANDOFF prep) — sonnet/medium — 2026-08-29T20:26
+- Score before: driver header showed milestone M5, last eval "M4 PASSED (progress 1.0)" (iter
+  23's fix). No known open bug per PROGRESS.md's `## Current state`.
+- Change: no pipeline/harness code changes. (1) Re-ran `harness/score.py --milestone M{1..5}
+  --out out/handoff/score.M{1..5}.json --keep` fresh from HEAD to confirm all five still pass
+  and to capture STEP/report/log artifacts for documentation. (2) Wrote `HANDOFF.md` per
+  MISSION §9 (per-milestone table, file paths, exact rebuild.py commands, SpaceClaim checklist,
+  known limitations, what to try on a real STL) — one iteration ahead of the driver reaching
+  `milestone: HANDOFF`, since it's pure documentation with zero regression risk and all the
+  source data was already available. (3) While verifying with `pytest tests/`, found
+  `tests/test_selftest.py` crashing under the full suite (argparse in `selftest.main()` consumed
+  pytest's own argv instead of an empty list — latent since `--milestone`/`--skip-gmsh` were
+  added to `harness/selftest.py`, never caught because no per-milestone workflow runs the whole
+  `pytest tests/`). Fixed: `selftest.main(argv=[])`, refreshed the test's stale docstring.
+- Score after (local): M1-M5 all `pass:true, progress:1.0` (`out/handoff/score.M*.json`).
+  `harness/selftest.py` (full, all milestones) exits 0. `pytest tests/` → 16 passed (was 1
+  failed / 15 passed before the argv fix). `HANDOFF.md` is 9824 bytes and mentions M1-M5,
+  satisfying the driver's HANDOFF-gate check (`len > 1500` and `"M{i}" in text for i in 1..5`).
+- Learned: `out/` and `*.step` are gitignored repo-wide, so `--keep`'s output artifacts
+  (including `out/handoff/`) are local-only, not committed — HANDOFF.md says so explicitly and
+  gives the exact regeneration command, so a future session (or Brady) isn't surprised if those
+  files are gone after a clean checkout.
+- Next: nothing outstanding on M1-M5. When the driver's own evaluation of this iteration
+  confirms M5 still passes with no regressions, it should advance `milestone` to `HANDOFF`;
+  since `HANDOFF.md` already exists and meets the gate, that check should pass immediately
+  without needing further agent work, advancing straight to `DONE`. If somehow it doesn't (e.g.
+  the driver's own regression sweep finds something this session's local runs didn't), read
+  `out/score.json`'s `first_failure` first — this session found no reason to expect one.
 
 ### iter 23 — M4 (regression fix) — sonnet/medium — 2026-08-29T20:19
 - Score before: `harness/score.py --milestone M4` -> `pass:false, progress:0.7143`, first
