@@ -15,12 +15,26 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
-- Milestone: **M4 PASSES** — `pass:true, progress:1.0`, all 13 checks green (volume_err_pct
-  0.0127%, surface_deviation_max_mm 0.653, topo_event_z 1.28e-5mm, face_count_max 44,
-  gmsh min_quality 0.265 vs gate 0.1). M1/M2/M3 all still `pass:true, progress:1.0`.
-- **M5: progress 0.0556 -> 0.9481 (iter 21 nudged 0.9476 -> 0.9481), 13/14 checks pass, only
-  `gmsh_tet` fails. Iter 21 root-caused the sliver's exact location — see the dedicated bullet
-  right after "What's left for M5" below before touching this again.**
+- **Milestone: M5 PASSES — `pass:true, progress:1.0`, all 14 checks green** (iter 22; see the
+  iter-22 log entry for the fix). `gmsh_tet` min_quality 0.234 vs gate 0.1 (was 0.00664, the
+  long-standing blocker). volume_err_pct 0.0059%, surface_deviation_max_mm 0.358mm (gate 0.6),
+  face_count_max 53. `harness/score.py --milestone M1|M2|M3` still `pass:true, progress:1.0`.
+- **M4 REGRESSION FOUND (iter 22, pre-existing, NOT caused by the M5 fix — confirmed via
+  `git stash` before touching anything):** `harness/score.py --milestone M4` now fails at
+  `surface_deviation_max_mm` = NaN, z~6015 (fin_zone). M4 was last verified `pass:true` around
+  iter 19-20; something in iter 21's `bore_radius`-snapping work to `pipeline/solids.py::
+  build_prism_solid` (the origin-centered arc-run snap, see its docstring) appears to have broken
+  the *single*-event mixed-bore path M4 uses (`elif circ_before:` in `cli.py::_run`, untouched by
+  iter 22's edit — confirmed the NaN reproduces byte-identical on the pre-iter-22 commit). Not
+  investigated further this iteration (M5 was the active milestone and is now fully green; fixing
+  M4 is a distinct, scoped task for a future iteration — the driver does not re-score a milestone
+  once it has advanced past it, so this hasn't blocked forward progress, but it will need fixing
+  before `HANDOFF.md` claims M4's artifacts are good). **Next iteration on M4: bisect iter 21's
+  commits (`3d475d1`, `ad265d4`, `a20190f`, `3510381`) against `harness/score.py --milestone M4`
+  to find which one broke it, most likely the bore_radius-snap changes to `build_prism_solid`.**
+- Previously (superseded by the above): M5 progress 0.0556 -> 0.9481 (iter 21 nudged
+  0.9476 -> 0.9481), 13/14 checks pass, only `gmsh_tet` failed. Iter 21 root-caused the sliver's
+  exact location — kept below for context; iter 22's fix (see log) resolved it.
   M5 needed a genuinely new topology shape M4 didn't have: fins that stop *before* the aft end
   (at the aft dome shoulder), so the bore is circular -> non-circular (star) -> circular again —
   two topology events sandwiching one prism run, not the single event M4's code assumed.
@@ -448,6 +462,61 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 22 — M5 — sonnet/medium — 2026-08-29T20:07
+- Score before: `harness/score.py --milestone M5` -> `pass:false, progress:0.9481`, first
+  failure `gmsh_tet` (min_quality 0.006636 <= 0.1 gate). 13/14 checks green. Iter 21 had root-
+  caused the sliver's exact vertex location (see "Iter 21 findings" in `## Current state`
+  above/below) but not fixed it.
+- Change: confirmed the root cause experimentally before touching geometry. (1) Bumped the
+  M5-sandwich fuse's fuzzy value alone (`booleans.fuse(circ_fore_solid, fin_solid, ...)` in
+  `pipeline/cli.py::_run`, the `pts_before and pts_after` branch) from `1x` to `1.5x seam_eps`
+  with everything else unchanged: `gmsh_tet` min_quality came back bit-identical
+  (0.006636085173 -> 0.006636085026) — proved it is NOT a fuzzy/tolerance-merge issue, matching
+  iter 21's read that the offending vertex is a genuine (not degenerate-merge) intersection.
+  Reverted that no-op. (2) `_build_prism_bore` (used to build `fin_solid`) extrudes a *constant*
+  cross-section — the full star shape, unchanged, all the way to its own boundary — so within the
+  `2*seam_eps`=0.5mm fuse-overlap band, the star's "web" boundary (the material between fin
+  slots, ~r 382-391, matching iter 21's vertex dump exactly) is genuinely intersecting the
+  circular cutter's cylindrical face there. gmsh's own `MeshSizeMin` at the M5 gate is
+  hmax/10=10mm — 20x wider than the 0.5mm band it's being asked to tet, hence the sliver. Fix:
+  made the overlap asymmetric instead of symmetric. `circ_fore_solid`/`circ_aft_solid`'s own
+  extension into the fin zone (safe to widen arbitrarily — circle is always a subset of the star
+  cross-section there, so it's a geometric no-op on the final cut, already established safe in
+  iter 20/21) widened from `1x seam_eps` (0.25mm) to `80x seam_eps` (~20mm, comparable to gmsh's
+  own min element size) via a new `circ_overlap` local. `fin_solid`'s own extension past
+  event_fore/event_aft (the thing that can NOT be widened without reintroducing the M4-era
+  eps_cut-bleed bug — already established) shrunk from `1x seam_eps` to `0.02x seam_eps`
+  (~0.005mm, effectively a flat end cap) via a new `fin_overlap` local, passed to
+  `_build_prism_bore`'s `eps_start`/`eps_end_val`. Net effect: the star/cylinder intersection edge
+  that was forced into a 0.5mm-thick slab is now living inside a ~20mm-thick, geometrically-inert
+  (circle-subset) region instead, which gmsh can mesh cleanly.
+  Swept the knob before settling: `circ_overlap` at 4x/10x/80x seam_eps (fin_overlap fixed at
+  0.02x) gave `gmsh_tet` 0.0144 / 0.0264 / 0.234 respectively — monotonically better, chose 80x.
+  Also tried `fin_overlap=0` exactly (a true flat cap, no magic-number extension at all): works
+  (`gmsh_tet` 0.167, still passes) but has less margin than the tiny nonzero value — kept
+  `0.02x seam_eps`.
+- Score after (local): `harness/score.py --milestone M5` -> **`pass:true, progress:1.0`, all 14
+  checks green.** `gmsh_tet` min_quality 0.234 (gate 0.1), volume_err_pct 0.0059% (gate 0.2%),
+  surface_deviation_max_mm 0.358mm (gate 0.6), surface_deviation_p99_mm 0.291mm (gate 0.4),
+  face_count_max 53 (gate 400), step_roundtrip 7e-14 (gate 1e-6), dome_stations_min 10/10 (gate
+  8), adaptive_efficiency 0.0195 (gate 0.5), topo_event_z 2e-5mm (gate 2.0). M1/M2/M3 all still
+  `pass:true, progress:1.0` (re-ran all three to confirm no regression). `pytest tests/` -> 15
+  passed, 1 failed (the same pre-existing `tests/test_selftest.py` argparse/conftest issue every
+  prior iteration has hit, not a regression — see iter 6's log).
+- Learned / found: while re-verifying M1-M4 after the fix, **discovered `harness/score.py
+  --milestone M4` now fails** (`surface_deviation_max_mm` = NaN at z~6015, fin_zone). Bisected
+  with `git stash` before making any other change: the NaN reproduces byte-for-byte on the
+  pre-iter-22 commit too, so this is a **pre-existing regression from iter 21's work**, not
+  something this iteration introduced — iter 22's diff only touches the `pts_before and
+  pts_after` (M5-sandwich) branch of `cli.py::_run`, which M4 never enters (M4 takes the `elif
+  circ_before:` branch, unchanged). Left uninvestigated this iteration (M5 was the target and is
+  now fully green; the driver doesn't re-score a milestone once advanced past it, so this hasn't
+  blocked forward progress) — see `## Current state` for the specific next-step bisection plan.
+- Next: M5 is done. Pick up the M4 regression (bisect iter 21's commits against `harness/score.py
+  --milestone M4`, prime suspect is the `bore_radius`-snap addition to
+  `pipeline/solids.py::build_prism_solid`), then move toward the HANDOFF milestone (MISSION §6:
+  write `HANDOFF.md` citing every milestone's artifacts — M4 needs to actually pass again first).
 
 ### iter 21 (WIP, testing) — M5 — sonnet/medium — 2026-08-29T19:52
 - First tried: threaded `chord_tol` into `export.finalize()` and called

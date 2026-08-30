@@ -395,12 +395,35 @@ def _run(args) -> int:
             # territory, measured 4.0 mm deviation at the widened amount. Only the *circular*
             # cutter's overlap may be widened — circle is always a subset of the star cross-
             # section, so extending it further into fin territory is a no-op there.)
+            #
+            # `gmsh_tet` fix (iter 22): the sliver gmsh chokes on isn't a tolerance/fuzzy issue
+            # (confirmed: bumping the fuse fuzzy value alone from 1x to 1.5x seam_eps left
+            # min_quality bit-identical, 0.006636085173 -> 0.006636085026). Root cause per iter
+            # 21's vertex dump: `fin_solid` is a *constant*-cross-section prism (see
+            # `_build_prism_bore`) — even right at its own boundary it's the full star shape, not
+            # tapered — so fusing it against `circ_fore/aft_solid` (a plain cylinder) produces a
+            # genuine intersection edge between the star's "web" boundary (~r 382-391, the
+            # material between fin slots) and the cylinder, squeezed into a band only
+            # `2*seam_eps` = 0.5 mm thick — far thinner than gmsh's own `MeshSizeMin` (hmax/10 =
+            # 10 mm at the M5 gate), forcing a near-degenerate tet there. Since the circular
+            # cutter's overlap is a geometric no-op arbitrarily far into the fin zone (circle is
+            # always a subset of the star cross-section there, same invariant as above), widening
+            # it drastically (80x seam_eps ~= 20 mm, comparable to gmsh's own min element size)
+            # while shrinking `fin_solid`'s own extension to near-zero moves that same
+            # intersection edge into a band gmsh can actually mesh, with ZERO effect on the final
+            # cut geometry (bore_solid's boolean union in that region is unchanged — fin_solid's
+            # material there is a strict superset of circ's). Verified: full M5 scorer now
+            # `pass:true, progress:1.0` (was progress 0.9481, `gmsh_tet` 0.00664 <= 0.1 gate);
+            # `gmsh_tet` min_quality 0.234 (was tried at fin_overlap=0 exactly too: works but only
+            # 0.167, less margin — kept the small nonzero value for a bigger safety margin).
+            circ_overlap = 80.0 * seam_eps
+            fin_overlap = 0.02 * seam_eps
             circ_fore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before \
-                + [(event_fore + seam_eps, pts_before[-1][1])]
-            circ_aft_full = [(event_aft - seam_eps, pts_after[0][1])] + pts_after \
+                + [(event_fore + circ_overlap, pts_before[-1][1])]
+            circ_aft_full = [(event_aft - circ_overlap, pts_after[0][1])] + pts_after \
                 + [(z_max + eps_cut_val, pts_after[-1][1])]
             seam_bore_radius = 0.5 * (pts_before[-1][1] + pts_after[0][1])
-            fin_solid = _build_prism_bore(bore_rings, event_fore, event_aft, seam_eps, seam_eps,
+            fin_solid = _build_prism_bore(bore_rings, event_fore, event_aft, fin_overlap, fin_overlap,
                                            chord_tol, bore_radius=seam_bore_radius)
             circ_fore_solid = solids.build_revolve_solid(circ_fore_full, chord_tol)
             circ_aft_solid = solids.build_revolve_solid(circ_aft_full, chord_tol)
