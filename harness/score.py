@@ -73,6 +73,8 @@ _GATED = [  # (check name, gate key that enables it) — order = evaluation orde
     # Report-derived checks are a JSON parse plus arithmetic — they belong ahead of the
     # 100k-sample deviation metric in the cheap→expensive ladder.
     ("dome_stations_min", "dome_stations_min"),
+    ("station_bands", "station_bands"),
+    ("n_stations_max", "n_stations_max"),
     ("topo_event_z", "topo_event_z_tolerance_mm"),
     ("topo_events", "topo_events"),
     ("adaptive_efficiency", "adaptive_efficiency"),
@@ -90,7 +92,7 @@ _GATED = [  # (check name, gate key that enables it) — order = evaluation orde
 _LOWER_IS_BETTER = {"volume_err_pct", "per_solid_volume_err_pct", "bbox_err_pct",
                     "surface_deviation_max_mm",
                     "surface_deviation_p99_mm", "surface_deviation_p99_by_region",
-                    "face_count_max", "step_roundtrip",
+                    "face_count_max", "step_roundtrip", "n_stations_max",
                     "topo_event_z", "topo_events", "adaptive_efficiency"}
 _HIGHER_IS_BETTER = {"gmsh_tet", "dome_stations_min"}
 
@@ -484,6 +486,52 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
                           location={"region": worst_label},
                           hint=f"only {worst} station(s) in {worst_label} (gate >= {threshold}); "
                                "cosine-cluster stations toward the dome apex")
+
+        # --- check: station_bands (MISSION §6.2 M8+: named region bands each need >= min
+        # stations; generalises dome_stations_min to arbitrary feature bands, e.g. fore_wall,
+        # aft_wall, breakthrough) --------------------------------------------------------
+        if "station_bands" in spec.gates:
+            if stations is None:
+                add("station_bands", False, value=None, reason=_report_hint("stations_z_mm"))
+                fail_here("station_bands", hint=_report_hint("stations_z_mm"))
+            z_min, z_max = truth.bbox[2], truth.bbox[5]
+            span = z_max - z_min
+            per_band = {}
+            for label, min_count in spec.station_bands.items():
+                rb = next((r for r in spec.regions if r.label == label), None)
+                if rb is None:
+                    continue
+                z0, z1 = z_min + rb.z_frac_lo * span, z_min + rb.z_frac_hi * span
+                per_band[label] = sum(1 for z in stations if z0 <= z <= z1)
+            metrics_out["station_bands"] = per_band
+            failing = {l: c for l, c in per_band.items() if c < spec.station_bands[l]}
+            ok = bool(per_band) and not failing
+            add("station_bands", ok, value=per_band, per_band=per_band)
+            if not ok:
+                worst_label = min(failing, key=failing.get) if failing else None
+                fail_here("station_bands", value=per_band,
+                          location={"region": worst_label} if worst_label else None,
+                          hint=(f"band '{worst_label}' has {failing[worst_label]} station(s), "
+                                f"need >= {spec.station_bands[worst_label]}"
+                                if worst_label else
+                                "no station bands matched spec.regions — harness bug"))
+
+        # --- check: n_stations_max (MISSION §6.2 M8+: total stations must stay bounded — an
+        # "adaptive" pipeline that just refines everything uniformly should fail this) --------
+        if "n_stations_max" in spec.gates:
+            threshold = spec.n_stations_max
+            n_stations = report.get("n_stations") if report else None
+            if n_stations is None:
+                add("n_stations_max", False, value=None, threshold=threshold,
+                    reason=_report_hint("n_stations"))
+                fail_here("n_stations_max", threshold=threshold, hint=_report_hint("n_stations"))
+            ok = n_stations <= threshold
+            add("n_stations_max", ok, value=n_stations, threshold=threshold)
+            if not ok:
+                fail_here("n_stations_max", value=n_stations, threshold=threshold,
+                          hint=f"pipeline used {n_stations} station(s) (gate <= {threshold}); "
+                               "this milestone expects feature-aware/adaptive station placement, "
+                               "not brute uniform refinement")
 
         # --- check: topo_event_z (MISSION §6 M4/M5: an event detected at fin_z_start) ------
         if "topo_event_z_tolerance_mm" in spec.gates:

@@ -15,6 +15,45 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 31 (M0, round 2): `harness/score.py` wires `station_bands` and `n_stations_max`
+  (M8/M9/M10/M12/M13), the report-derived gates iter 30's log flagged as next.**
+  - `station_bands`: generalizes `dome_stations_min`'s pattern from hardcoded "dome" label
+    matching to an arbitrary `spec.station_bands: Dict[label, min_count]`. For each label it
+    looks up the matching `RegionBand` in `spec.regions` by name, converts that band's
+    `z_frac_lo/hi` to absolute z via `truth.bbox`, and counts how many of the pipeline's
+    reported `stations_z_mm` fall inside. Fails if ANY band is under its minimum (reports the
+    worst one in `location`/hint); a label with no matching region is silently skipped rather
+    than erroring (defensive — every current spec's `station_bands` keys do match a region
+    label, verified by inspection: M8/M9/M10 use fore_wall/aft_wall, M12/M13 use
+    fore_wall/breakthrough, all present in their `regions` lists). Reuses the `stations` list
+    already parsed from the report for `dome_stations_min` (unconditional above that block), so
+    no new report parsing. `value` is the per-band count dict, not a scalar — `_partial()`
+    already returns 0.0 for non-numeric values, so this earns no partial credit on failure
+    (equality/boolean-style, matching `dome_stations_min`'s spirit for the multi-band case).
+  - `n_stations_max`: straight `report["n_stations"] <= spec.n_stations_max` check — added to
+    `_LOWER_IS_BETTER` since it's a cap (smaller is fine, exceeding it fails), giving real
+    partial credit as the pipeline's station count approaches the cap from above. This is the
+    gate that stops a pipeline from gaming `station_bands`/`dome_stations_min` by just cranking
+    `--sections` uniformly instead of doing feature-aware placement (MISSION §6.2 note: "60
+    uniform stations -> station_bands fails; n_stations 10000 -> n_stations_max").
+  - Both inserted into `_GATED` right after `dome_stations_min`, before `topo_event_z` (cheap
+    report-arithmetic checks stay grouped ahead of the 100k-sample deviation metric, per the
+    existing cheap->expensive ordering comment).
+  - **Verified:** `score.py --milestone M8` still fails at generator construction (M8's
+    generator isn't built yet — expected, these gates are unreachable until then).
+    `selftest.py --milestone M1/M7/M11 --skip-gmsh` all still PASS (no regression from the
+    `_GATED`/`_LOWER_IS_BETTER` list edits touching earlier milestones' evaluation order).
+    `score.py --milestone M{1..5}` on the real pipeline: all `pass: true, progress: 1.0`,
+    unchanged from iter 30 (regression gate). `pytest tests/` (16 tests, 207s): all pass.
+  - **Next:** M8's generator (dilated-cavity fillet cut: bore + 8 obround slots with end
+    fillets, offset by dilation_w=150 from the M5 cavity) is now the biggest lever — it's the
+    only thing blocking these two new gates (plus `topo_events`, already wired) from ever being
+    exercised, and per the original build order it's the next new-generator milestone after
+    M6/M7/M11. `frame_axis_err_deg`/`axial_extent_err_mm` (M10/M13) and `min_edge_mm`
+    (M12/M13) remain unwired — the frame ones need `truth.bbox`'s frame convention resolved
+    first (see iter 30's note, still unresolved, still not needed until M10/M13's generators
+    exist).
+
 - **iter 30 (M0, round 2): `harness/score.py` extended with two of the missing §7.2 gates —
   `topo_events` (M7/M8/M9/M12/M13) and `per_solid_volume_err_pct` (M11).** Both were declared
   in `milestones.py` gates but silently skipped (not in `score.py`'s `_GATED` list) since iter
