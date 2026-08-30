@@ -285,22 +285,35 @@ def _run(args) -> int:
 
     event_z = None
     circ_before = None
+    pts_before, pts_after = [], []
+    event_fore = event_aft = None
     if bore_rings and bore_pts:
-        # M4/M5: a plain circular bore fore of `fin_z_start`, fin slots (non-circular combined
-        # bore+slot ring) aft of it — a genuine, single topology event, not an unsupported case.
-        # Anything else (circular and non-circular stations interleaved) is not modeled here.
+        # M4: a plain circular bore fore of `fin_z_start`, fin slots (non-circular combined
+        # bore+slot ring) aft of it (or vice versa) — a single topology event. M5 adds domes on
+        # both ends, and per the design the fins stop short of each dome shoulder, so the bore
+        # is circular BEFORE the fin zone, non-circular THROUGH it, and circular again AFTER it
+        # (two events sandwiching one prism run). Anything else (circular and non-circular
+        # stations interleaved in more than that one pattern) is not modeled here.
         bore_pts.sort(key=lambda p: p[0])
         bore_rings.sort(key=lambda p: p[0])
-        circ_before = bore_pts[-1][0] < bore_rings[0][0]
-        circ_after = bore_pts[0][0] > bore_rings[-1][0]
-        if not (circ_before or circ_after):
+        ring_z_min, ring_z_max = bore_rings[0][0], bore_rings[-1][0]
+        pts_before = [p for p in bore_pts if p[0] < ring_z_min]
+        pts_after = [p for p in bore_pts if p[0] > ring_z_max]
+        if len(pts_before) + len(pts_after) != len(bore_pts) or not (pts_before or pts_after):
             print("rebuild.py: hole loop topology is inconsistent across stations "
                   "(circular and non-circular sections are interleaved, not one contiguous "
                   "transition) — not yet implemented", file=sys.stderr)
             return 4
-        z_a, z_b = (bore_pts[-1][0], bore_rings[0][0]) if circ_before \
-            else (bore_rings[-1][0], bore_pts[0][0])
-        event_z = _bisect_topology_event(mesh, z_a, z_b, chord_tol, circ_at_a=circ_before)
+        if pts_before and pts_after:
+            event_fore = _bisect_topology_event(mesh, pts_before[-1][0], ring_z_min, chord_tol,
+                                                 circ_at_a=True)
+            event_aft = _bisect_topology_event(mesh, ring_z_max, pts_after[0][0], chord_tol,
+                                                circ_at_a=False)
+        else:
+            circ_before = bool(pts_before)
+            z_a, z_b = (pts_before[-1][0], ring_z_min) if circ_before \
+                else (ring_z_max, pts_after[0][0])
+            event_z = _bisect_topology_event(mesh, z_a, z_b, chord_tol, circ_at_a=circ_before)
 
     # Envelope spans the true axial extent. Extrapolate the outer radius to it from the two
     # nearest fitted stations (linear secant) rather than copying the nearest station's R flat —
@@ -363,16 +376,32 @@ def _run(args) -> int:
         # just inside the circular zone, gate 1.0 mm). Use a much smaller `seam_eps` there instead
         # — just enough for `BRepAlgoAPI_Fuse`'s topological overlap, not a boolean-cut margin.
         seam_eps = 0.5 * chord_tol
-        if circ_before:
+        if pts_before and pts_after:
+            # M5 sandwich: two internal seams (event_fore, event_aft), no true end on either
+            # side of the fin-slot prism, so both its extensions use the small seam margin —
+            # same eps_cut-bleed reasoning as the single-event case above, just on both sides.
+            circ_fore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before \
+                + [(event_fore + seam_eps, pts_before[-1][1])]
+            circ_aft_full = [(event_aft - seam_eps, pts_after[0][1])] + pts_after \
+                + [(z_max + eps_cut_val, pts_after[-1][1])]
+            fin_solid = _build_prism_bore(bore_rings, event_fore, event_aft, seam_eps, seam_eps,
+                                           chord_tol)
+            circ_fore_solid = solids.build_revolve_solid(circ_fore_full, chord_tol)
+            circ_aft_solid = solids.build_revolve_solid(circ_aft_full, chord_tol)
+            bore_solid = booleans.fuse(circ_fore_solid, fin_solid, tol.fuzzy(chord_tol))
+            bore_solid = booleans.fuse(bore_solid, circ_aft_solid, tol.fuzzy(chord_tol))
+        elif circ_before:
             circ_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
                 + [(event_z + seam_eps, bore_pts[-1][1])]
             fin_solid = _build_prism_bore(bore_rings, event_z, z_max, seam_eps, eps_cut_val, chord_tol)
+            circ_solid = solids.build_revolve_solid(circ_full, chord_tol)
+            bore_solid = booleans.fuse(circ_solid, fin_solid, tol.fuzzy(chord_tol))
         else:
             circ_full = [(event_z - seam_eps, bore_pts[0][1])] + bore_pts \
                 + [(z_max + eps_cut_val, bore_pts[-1][1])]
             fin_solid = _build_prism_bore(bore_rings, z_min, event_z, eps_cut_val, seam_eps, chord_tol)
-        circ_solid = solids.build_revolve_solid(circ_full, chord_tol)
-        bore_solid = booleans.fuse(circ_solid, fin_solid, tol.fuzzy(chord_tol))
+            circ_solid = solids.build_revolve_solid(circ_full, chord_tol)
+            bore_solid = booleans.fuse(circ_solid, fin_solid, tol.fuzzy(chord_tol))
     elif bore_rings:
         bore_solid = _build_prism_bore(bore_rings, z_min, z_max, eps_cut_val, eps_cut_val, chord_tol)
     else:
@@ -400,7 +429,10 @@ def _run(args) -> int:
                 "bore": "mixed" if (bore_rings and bore_pts) else
                          ("prism" if bore_rings else "revolve"),
             },
-            topology_events_z_mm=[event_z] if event_z is not None else [],
+            topology_events_z_mm=(
+                [event_fore, event_aft] if event_fore is not None
+                else ([event_z] if event_z is not None else [])
+            ),
         )
     return 0
 
