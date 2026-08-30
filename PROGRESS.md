@@ -18,7 +18,9 @@
 - Milestone: **M4 PASSES** — `pass:true, progress:1.0`, all 13 checks green (volume_err_pct
   0.0127%, surface_deviation_max_mm 0.653, topo_event_z 1.28e-5mm, face_count_max 44,
   gmsh min_quality 0.265 vs gate 0.1). M1/M2/M3 all still `pass:true, progress:1.0`.
-- **M5: progress 0.0556 -> 0.9476 this iteration, 13/14 checks pass, only `gmsh_tet` fails.**
+- **M5: progress 0.0556 -> 0.9481 (iter 21 nudged 0.9476 -> 0.9481), 13/14 checks pass, only
+  `gmsh_tet` fails. Iter 21 root-caused the sliver's exact location — see the dedicated bullet
+  right after "What's left for M5" below before touching this again.**
   M5 needed a genuinely new topology shape M4 didn't have: fins that stop *before* the aft end
   (at the aft dome shoulder), so the bore is circular -> non-circular (star) -> circular again —
   two topology events sandwiching one prism run, not the single event M4's code assumed.
@@ -78,15 +80,58 @@
      budget it: pick ONE precision value (start with 0.25 = `chord_tol`) and wire it into
      `export.finalize()` (needs a new `chord_tol` parameter threaded from `cli.py`'s call site),
      rerun the real scorer once, read `out/score.m5.json`. Don't sweep interactively again.
-- **Next milestone step:** try wiring `ShapeFix_Shape.SetPrecision(chord_tol)` into
-  `export.finalize()` (threading `chord_tol` through from `cli.py`) as the next single change,
-  verify with the real scorer (`harness/score.py --milestone M5`), not an ad hoc gmsh probe at a
-  different hmax. If that doesn't clear `gmsh_tet`, the next idea is snapping `circ_fore`/
-  `circ_aft`'s boundary radius to the SAME value the fin ring's arc-fit uses at the seam (both
-  ultimately fit the same physical R_bore; forcing them numerically identical removes the
-  near-tangent mismatch at its source instead of papering over it with tolerances). `pytest
-  tests/ --ignore=tests/test_selftest.py` is 15/15 green throughout this iteration's changes;
-  M1-M4 all still `pass:true, progress:1.0`.
+- **Iter 21 findings — both ideas from the paragraph above were tried; neither clears the gate,
+  but the second one located the sliver EXACTLY. Read this before touching the seam again:**
+  1. `ShapeFix_Shape.SetPrecision(chord_tol)` in `export.finalize()`: **zero effect** — the
+     shape is already `BRepCheck_Analyzer`-valid going in, so the fixer has nothing to do
+     regardless of precision; `gmsh_tet`'s min_quality came back bit-identical
+     (0.005706777190469922) with or without it. Don't retry this lever on this bug — it only
+     matters when the fixer is actually closing gaps, not as a general "heal slivers" knob.
+     Left the (harmless, opt-in) plumbing in place in case a future shape genuinely needs it.
+  2. Snapping the fin ring's own main-bore arc onto `bore_radius` (the accurate, least-squares
+     circle-fit radius from the flanking circular stations) instead of its own noisy 3-point
+     exact fit: implemented in `solids.py::build_prism_solid` (new `bore_radius` param) +
+     `cli.py::_build_prism_bore` (forwards it) + the three M4/M5 call sites (passes the known
+     accurate radius — average of both sides for the M5 sandwich, since one `fin_solid` spans
+     both seams). Two bugs surfaced and were fixed along the way (see the iter-21 log entries
+     above for both): a `list`-vs-`ndarray` crash in `fit_circle`, and a wire-closure gap from
+     snapping a run's start point without also updating the *previous* run's bridge edge to
+     match (fixed by precomputing all runs' endpoints before building any edges). Also had to
+     snap to the ORIGIN, not each run's own fitted center (~0.4-0.9 mm off-axis noise per run),
+     or adjacent runs land on different-but-same-radius circles and produce a NaN
+     `surface_deviation_max_mm` (a real regression, caught and fixed before settling on this).
+     **Net result: progress 0.9476 -> 0.9481, `gmsh_tet` min_quality 0.005706... -> 0.006636...**
+     — a real but tiny move, NOT the dominant cause. Radius-mismatch confirmed real but minor.
+  - **The actual sliver location, found via a direct gmsh probe on the pipeline's own STEP
+    output (`/tmp/find_sliver.py` pattern — get the element tags with the 5 lowest
+    `getElementQualities(..., "minSICN")`, then `getElement(tag)` + `getNode(nid)` for each to
+    dump vertex coordinates, not just the centroid):** every worst tet has 3 of its 4 vertices
+    sitting at r=299.95-299.96 (right on the bore surface) with z EXACTLY 5999.74997996 or
+    6000.24997996 — i.e. precisely the `event_fore ± seam_eps` boundary planes of the fuse
+    overlap band — and the 4th vertex out at r~382-391 (a genuinely new, unexpected radius,
+    not the bore's 300 nor any fillet's ~40+466/660 offset — likely a fuse-introduced
+    intersection-curve vertex between the fin cutter's boundary and the circular cutter's
+    cylindrical face within that band). **Conclusion: the sliver is not primarily a radius-fit
+    mismatch — it's the fuse overlap band itself being only `2*seam_eps` = 0.5 mm thick (vs.
+    gmsh's own `Mesh.MeshSizeMin` = hmax/10 = 10 mm at the M5 gate), so gmsh is forced to tet a
+    slab ~20x thinner than its own minimum element size, using a topologically real (not
+    degenerate) intersection vertex at r~382-391 as one corner of a nearly flat tet.** This
+    reframes the "do not retry" notes above: sweeping `seam_eps` UP (already tried, breaks the
+    aft seam) or radius-snapping (now tried, marginal) both miss the point — the fix likely
+    needs either (a) a LOCAL mesh size constraint at the seam (gmsh `Field` API /
+    `Mesh.CharacteristicLengthFromCurvature` or an explicit small `MeshSizeMin` restricted to
+    that geometric region, if that's allowed without touching the scorer's own gmsh
+    invocation — check whether the scorer calls gmsh on OUR step file only, meaning we can't
+    inject gmsh options ourselves, only shape geometry) or (b) eliminating the thin overlap
+    slab entirely — e.g. building the fin/circ boundary as one CONTIGUOUS wire/face at exactly
+    `event_fore`/`event_aft` (a true shared-edge join, zero overlap) instead of two independent
+    solids fused across a small overlap band, which is what actually causes BRepAlgoAPI_Fuse to
+    manufacture the r~382 intersection vertex in the first place. (b) is architecturally bigger
+    (needs building fin_solid and circ_fore/aft as faces sharing a common boundary wire rather
+    than as independently-extruded/revolved solids booleaned together) but attacks the true root
+    cause instead of the overlap-width symptom.
+  `pytest tests/ --ignore=tests/test_selftest.py` is 15/15 green throughout this iteration's
+  changes; M1-M4 all still `pass:true, progress:1.0`.
   `pytest tests/ --ignore=tests/test_selftest.py` → 15 passed (the ignored test has the
   same pre-existing argparse/conftest issue as every prior iteration, not a regression).
 - M4 required a genuinely new pipeline path: a *mixed* bore — a plain circular bore fore of
