@@ -40,6 +40,49 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 42 (M6): a fifth `gmsh_tet` attempt (least-squares-fitted + exactly-scaled fillet arc
+  edges, replacing the polygon in the loft wires) also falsified and reverted — no net change,
+  still 0.9384. Important new finding: the failure is NOT fit-residual amplification.** Root
+  cause was pinned down first: the current straight-polygon loft has 142/154 ring segments
+  shorter than gmsh's `hmin=10mm` mesh floor (measured directly — `d0.min()=2.57mm`,
+  `(d0<10).sum()=142`), and these short segments sit on ~10000mm-long ribbon faces (the loft
+  spans the whole cylinder length), so gmsh is forced to connect a ~3mm-wide boundary edge to a
+  ~50-100mm interior mesh — a systemic sliver-tet generator, confirmed by dumping every tet
+  below the quality gate: 19339/169514 (11%), spread continuously across the FULL z=0..10000
+  range and the FULL bore radius band (260-650mm), not one isolated spot. Two things were ruled
+  out as levers before trying arcs again: (1) raising `_drop_close_ring_points`'s `min_gap`
+  (currently `5.0*chord_tol=2.5mm`, barely above nothing) to actually clear 10mm regresses
+  `surface_deviation_p99_mm` past its 0.4mm gate at even 4mm (`8.0*chord_tol`) — swept
+  8/10/12/14/16×chord_tol, all fail p99 (0.449-0.537mm) — so point-spacing thinning has no
+  headroom at all, confirming/extending the iter-41 face_count-vs-deviation "windows don't
+  overlap" finding to this axis too. (2) axial subdivision (`n_sections`) was already proven
+  infeasible in iter 41 (face count blows the 200 gate). So the only lever left matching the
+  iter-41 "Takeaway" (a true analytic fillet representation, not more polygon points) was tried:
+  `pipeline/solids.py::build_ruled_loft_solid` was changed to collapse each `detect_arc_runs`
+  fillet run into ONE circular-arc edge, fit via `fitting.fit_circle` (least-squares over every
+  point in the run, not 3 raw points) on the near/`pts0` end only, then the SAME fitted circle's
+  center and radius scaled by the exact `pts1/pts0` norm ratio (median, ~1.4993, matching the
+  spec's linear-scale prediction) to build the far end's arc at the identical angular parameter
+  — chosen specifically because it removes the independent-noisy-refit amplification the
+  iter-41 attempt was blamed for. **Measured fit quality was excellent** (12 arcs found, 6 tips
+  r=30.03-30.04mm maxres 0.018-0.025mm, 4 valleys r=39.41mm maxres 0.002mm, 2 valleys r=38.46mm
+  maxres 0.242mm — all near-zero) — yet `surface_deviation_max_mm` still regressed to 3.207mm
+  (gate 1.0mm) at z=10000 (the far/scaled end), landing within 0.14mm of one of OUR OWN fitted
+  arcs (`valley2`, scaled) at the reported failure point — i.e. the built geometry is
+  self-consistent with its own (very accurate) circle fit, but that fit still lands ~3.2mm from
+  where the TRUTH surface actually is, nearly identical in magnitude to iter 41's naive-3-point
+  attempt (3.25mm). Since fit accuracy was proven excellent this time and the error didn't
+  shrink, **the true cause is not fit noise — it's something structural about how
+  `BRepOffsetAPI_ThruSections(isRuled=True)` interpolates between two ARC edges** (vs. two
+  straight-line edges, where the same points/scaling give <0.5mm max deviation everywhere).
+  Not root-caused further this iteration (time-boxed); see "Do not retry" for the precise
+  falsified construction and what should be tried differently next (e.g. inspect whether OCCT's
+  ruled-surface parametrization between two Geom_Circle-based edges actually samples the
+  claimed angle-linear correspondence, or whether the true fix is to keep the polygon
+  representation but attack the mesh-conditioning problem from the gmsh side of the boundary —
+  e.g. does `Mesh.MeshSizeFromCurvature` or a per-edge `SetSize` override change anything, since
+  the milestone spec/gate can't be touched but gmsh's *meshing strategy* on the given geometry
+  might have unexplored knobs).
 - **iter 41 (M6): four independent attempts at fixing `gmsh_tet` (0.0077 vs gate 0.1), all
   falsified, all reverted — a stray uncommitted WIP from an interrupted earlier session
   (`dd2ac8a`, n_sections=8 axial subdivision) was also found sitting on disk/HEAD and reverted
@@ -1175,6 +1218,25 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **M6 `gmsh_tet`: a 5th mitigation (iter 42) — collapsing each fillet run into ONE
+  least-squares-fitted circular-arc edge (`fit_circle` over the whole run, not 3 raw points),
+  with the far end's circle derived by exactly scaling the near end's fitted center/radius
+  (same `pts1/pts0` ratio the polygon points themselves use) rather than independently
+  re-fitting — do not retry this exact construction.** It was specifically designed to rule out
+  "fit noise amplified by scale" (the explanation iter 41 gave for the earlier 3-raw-point arc
+  failure) and it worked: fit residuals were <0.25mm everywhere (most <0.03mm), and the built
+  arc at the failure point was within 0.14mm of the *intended* fitted-and-scaled circle. It
+  still regressed `surface_deviation_max_mm` to 3.207mm (gate 1.0mm) at the far (scaled) end —
+  almost exactly iter 41's 3.25mm from a much worse fit. Conclusion: **the amplification
+  explanation was wrong, or at least incomplete** — swapping straight polygon edges for ARC
+  edges in this specific `BRepOffsetAPI_ThruSections(isRuled=True)` two-wire loft reproducibly
+  loses ~3mm of accuracy at the far end regardless of how good the arc fit is, while the exact
+  same points/scaling as a plain straight polygon hold <0.5mm everywhere. Do not retry "make the
+  arc fit better" as a direction — two independent fit-quality levels (raw 3-point vs.
+  least-squares-refit) gave the same-order failure. If arcs are tried again, first verify
+  OCCT's actual ruled-surface correspondence between two `Geom_Circle`-derived edges (dump
+  interior loft cross-sections at a few intermediate z and compare their true shape against the
+  angle-linear correspondence assumed here) before spending more iterations on the fit itself.
 - **M6 `gmsh_tet` (min SICN vs gate 0.1): four independently-tried mitigations, all falsified in
   iter 41 — do not retry any of them as-designed.**
   1. *Dense per-section polygon subdivision* (`n_sections=8` intermediate wires in
@@ -1314,6 +1376,48 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 42 — M6 — sonnet/medium — 2026-08-30T16:28
+- Score before: iter 41, `out/score.local.json` progress=0.9384, first failure `gmsh_tet` min
+  SICN 0.0076691465167256665 (gate 0.1), all other checks pass.
+- Change: none kept (reverted). First root-caused `gmsh_tet` directly: dumped every sub-gate
+  tet from `harness/meshcheck.py`'s gmsh run against `out/M6.step` — 19339/169514 (11%) tets
+  below minSICN 0.1, spread continuously across z=0..10000 and r=260..650mm, not one isolated
+  sliver. Cross-referenced against the loft cutter's ring points: 142/154 polygon segments in
+  the reference ring are <10mm (gmsh's `hmax/10` mesh floor), each becoming a ~10000mm-long,
+  <10mm-wide ribbon face — a systemic mesh-conditioning problem, matching
+  `_drop_close_ring_points`'s own docstring rationale but showing its current `5.0*chord_tol=
+  2.5mm` floor is far too small to matter (min segment measured 2.57mm, barely above it).
+  Tried raising that floor to actually clear 10mm: swept `min_gap` = 8/10/12/14/16 × chord_tol
+  (4-8mm) via `harness/score.py --milestone M6` — `surface_deviation_p99_mm` fails at every
+  value tested (0.449-0.537mm vs 0.4mm gate), confirming iter 41's "windows don't overlap"
+  finding extends to point-spacing too, not just point-count. Then tried the iter-41-recommended
+  direction (true analytic fillet representation): rewrote `build_ruled_loft_solid` to collapse
+  each `detect_arc_runs` fillet run into one `fit_circle`-least-squares arc edge, with the far
+  end's circle derived by exactly scaling the near end's fitted center/radius (not an
+  independent refit) at matching angular parameter — full details and the falsified result are
+  in "Do not retry" above. Reverted `pipeline/cli.py` and `pipeline/solids.py` to `e66d380`
+  (verified clean `git diff --stat` after revert).
+- Score after: unchanged, `progress=0.9384`, same `gmsh_tet` first failure. M1-M5 not
+  re-verified this iteration (no code change landed) but baseline is byte-identical to the
+  last-verified `e66d380` commit.
+- Learned: the amplification story for arc-based loft wires (iter 41's explanation) does not
+  hold up — a provably accurate (<0.25mm residual) fitted-and-exactly-scaled arc still lands
+  ~3.2mm from truth at the far end, same order as a naive 3-raw-point arc. Something about
+  `BRepOffsetAPI_ThruSections(isRuled=True)`'s actual ruled correspondence between two
+  `Geom_Circle`-derived edges does not reproduce the intended angle-linear ruling the way the
+  same construction does for straight polygon edges. Next attempt should verify this directly
+  (sample an intermediate loft cross-section's true shape from the built solid, don't just trust
+  the parametrization assumption) before trying another arc-fit variant.
+- Next: two directions not yet tried — (1) root-cause the ThruSections arc correspondence
+  itself (see "Do not retry" above) so a future arc-based attempt isn't the 6th blind variant;
+  (2) attack gmsh's meshing strategy directly instead of the geometry, since the geometry/gate
+  budgets are proven boxed-in on three fronts now (face_count_max, surface_deviation, point
+  spacing) — e.g. `Mesh.MeshSizeFromCurvature`, `Mesh.MeshSizeExtendFromBoundary`, or a
+  per-curve `gmsh.model.mesh.setSize` override on just the short fillet segments, called from
+  `pipeline/export.py` if it controls the STEP's own tessellation hints, or investigate whether
+  `meshcheck.py`'s `optimize("Netgen")` pass has an untried option/iteration-count knob that
+  cleans up short-edge slivers better than its current default.
 
 ### iter 41 — M6 — sonnet/medium — 2026-08-30T16:x
 - Score before: iter 40, `out/score.local.json` progress=0.9384, first failure `gmsh_tet` min
