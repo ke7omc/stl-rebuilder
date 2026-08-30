@@ -146,14 +146,25 @@ def _densify_dome_chords(outer_pts, z_lo, z_hi, at_start: bool, min_dz: float, r
     real improvement) while volume_err_pct improves too (0.0756% -> well under 0.05%). Tried an
     R-uniform (equal-R-step, closed-form quadratic solve for z) variant to concentrate samples
     at the steep pinch end more cheaply than raising n_samples further; at n_samples=14 it
-    regressed (volume_err_pct 0.088%, worse than n_samples=20 uniform-in-z) -- reverted, not
-    re-tuned further this iteration for lack of remaining time/cost budget. Next iteration:
-    either raise n_samples further (may hit face_count_max=40 -- untested this run) or retry the
-    R-uniform sampling at a higher n_samples / hybrid density near the pinch specifically."""
+    regressed (volume_err_pct 0.088%, worse than n_samples=20 uniform-in-z) -- reverted.
+
+    iter 17: switched from uniform-in-z to uniform-in-*arc-length* along the (z, R) meridian
+    curve. Chord-vs-arc deviation for a fixed number of chords is governed by how much the curve
+    bends per chord, which arc length tracks directly (unlike z, which ignores how much R moves)
+    -- equal arc-length steps put more points exactly where dR/dz is steepest (the pinch tip)
+    without the closed-form-solve fragility that sank the uniform-in-R attempt. Arc length is
+    estimated from a fine (500-point) uniform-in-z evaluation of the same validated quadratic
+    model, then re-sampled at n_samples evenly spaced arc-length stations via interpolation."""
     z0, coef, _ = _fit_r2_quadratic(outer_pts, at_start, min_dz, resid_tol)
     z_end = z_lo if at_start else z_hi
     lo, hi = (z_end, window_z) if at_start else (window_z, z_end)
-    zs = np.linspace(lo, hi, n_samples)
+    fine_z = np.linspace(lo, hi, 500)
+    fine_r = np.array([_eval_r2_quadratic(z0, coef, z) for z in fine_z])
+    seg = np.hypot(np.diff(fine_z), np.diff(fine_r))
+    s = np.concatenate([[0.0], np.cumsum(seg)])
+    s_targets = np.linspace(0.0, s[-1], n_samples)
+    zs = np.interp(s_targets, s, fine_z)
+    zs[0], zs[-1] = lo, hi
     return [(float(z), _eval_r2_quadratic(z0, coef, z)) for z in zs]
 
 

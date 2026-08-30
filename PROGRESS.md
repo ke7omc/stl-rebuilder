@@ -311,6 +311,15 @@
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
 
+### iter 17 (in progress) — M2 — sonnet/medium
+- Testing: switched `_densify_dome_chords` from uniform-in-z to uniform-in-arc-length sampling
+  of the same validated quadratic-in-R^2 model (see updated docstring in `pipeline/cli.py`),
+  n_samples still 20. Expect `surface_deviation_max_mm` to drop below the 0.6mm gate (more
+  points concentrated at the steep pinch tip) without regressing `volume_err_pct` (same model,
+  same window) or blowing `face_count_max=40` (still only 20 samples per gap, same as iter 16
+  which never even reached the face-count check). Running
+  `.venv/bin/python harness/score.py --milestone M2 --out out/score.local.json` to verify.
+
 ### iter 16 — M2 — sonnet/medium — 2026-08-29T19:48
 - Score before: `M2 progress=0.4788`, first failure `volume_err_pct=0.0756%` (gate 0.05%).
 - Diagnosis: per-band volume probe (trimesh `slice_plane` on truth vs the pipeline's own
