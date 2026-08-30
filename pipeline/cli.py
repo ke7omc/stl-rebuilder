@@ -1,11 +1,13 @@
 """CLI entry point. Contract in MISSION.md §5.3.
 
-Implements two paths (§5.2 step 6): an axisymmetric revolve for a circular, axis-centered
-envelope/bore chain (M1, M2), and a prismatic extrude for a bore whose cross-section is
-non-circular but constant along z (M3's star bore) — selected per-part from what the station
-loop actually measures, not from the milestone name. The outer envelope must still be a
-circular, axis-centered cylinder. Multiple hole chains and topology events (chain birth/death,
-M4/M5) are not yet implemented.
+Implements three bore paths (§5.2 step 6), selected per-part from what the station loop
+actually measures, not from the milestone name: an axisymmetric revolve for a circular,
+axis-centered bore chain (M1, M2); a prismatic extrude for a bore whose cross-section is
+non-circular but constant along z (M3's star bore); and a "mixed" path — a circular revolve
+fused with a prismatic extrude at a bisected topology-event z — for a single bore chain that
+switches from circular to non-circular partway along z (M4/M5's fin-slot birth plane). The
+outer envelope must still be a circular, axis-centered cylinder. Multiple independent hole
+chains (more than one interior loop per station) are not yet implemented.
 """
 import argparse
 import math
@@ -166,6 +168,39 @@ def _densify_dome_chords(outer_pts, z_lo, z_hi, at_start: bool, min_dz: float, r
     return [(float(z), _eval_r2_quadratic(z0, coef, z)) for z in zs]
 
 
+def _hole_classification(hole_pts, chord_tol: float):
+    """Classify a closed hole ring as an axis-centered circle or not, using the same test the
+    station loop uses. Returns (is_circular, R)."""
+    cx, cy, R, max_resid, _ = fit_circle(hole_pts)
+    is_circ = max_resid <= tol.circle_max_resid(chord_tol) and _axis_centered(cx, cy, R, chord_tol)
+    return is_circ, R
+
+
+def _bisect_topology_event(mesh, z_a: float, z_b: float, chord_tol: float, circ_at_a: bool,
+                            n_iter: int = 50, min_dz: float = 1e-4) -> float:
+    """Localize the z where a single bore hole's cross-section switches between circular and
+    non-circular (M4/M5's fin-slot birth plane, MISSION §6's `topo_event_z` gate): `z_a` is a
+    station known to be `circ_at_a`, `z_b` is known to be `not circ_at_a` (order doesn't
+    matter). Bisects by re-slicing the mesh at the midpoint each step; a degenerate/ambiguous
+    midpoint slice (e.g. landing exactly on the flat fin-root wall) is treated as still matching
+    the `z_a` side so the bracket keeps shrinking rather than stalling. Returns the midpoint of
+    the final bracket, accurate to `min_dz`."""
+    for _ in range(n_iter):
+        if abs(z_b - z_a) <= min_dz:
+            break
+        zm = 0.5 * (z_a + z_b)
+        polys, zz = slice_station(mesh, zm, chord_tol)
+        is_circ = circ_at_a
+        if len(polys) == 1 and len(polys[0].interiors) == 1:
+            hole = np.asarray(polys[0].interiors[0].coords)
+            is_circ, _ = _hole_classification(hole, chord_tol)
+        if is_circ == circ_at_a:
+            z_a = zm
+        else:
+            z_b = zm
+    return 0.5 * (z_a + z_b)
+
+
 def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_cut_val: float,
                        chord_tol: float):
     """Build the cutter solid for a non-circular but axially-constant bore (e.g. M3's star):
@@ -246,11 +281,24 @@ def _run(args) -> int:
         else:
             bore_pts.append((zz, Ri))
 
+    event_z = None
+    circ_before = None
     if bore_rings and bore_pts:
-        print("rebuild.py: hole loop topology is inconsistent across stations "
-              "(mixes circular and non-circular sections) — not yet implemented",
-              file=sys.stderr)
-        return 4
+        # M4/M5: a plain circular bore fore of `fin_z_start`, fin slots (non-circular combined
+        # bore+slot ring) aft of it — a genuine, single topology event, not an unsupported case.
+        # Anything else (circular and non-circular stations interleaved) is not modeled here.
+        bore_pts.sort(key=lambda p: p[0])
+        bore_rings.sort(key=lambda p: p[0])
+        circ_before = bore_pts[-1][0] < bore_rings[0][0]
+        circ_after = bore_pts[0][0] > bore_rings[-1][0]
+        if not (circ_before or circ_after):
+            print("rebuild.py: hole loop topology is inconsistent across stations "
+                  "(circular and non-circular sections are interleaved, not one contiguous "
+                  "transition) — not yet implemented", file=sys.stderr)
+            return 4
+        z_a, z_b = (bore_pts[-1][0], bore_rings[0][0]) if circ_before \
+            else (bore_rings[-1][0], bore_pts[0][0])
+        event_z = _bisect_topology_event(mesh, z_a, z_b, chord_tol, circ_at_a=circ_before)
 
     # Envelope spans the true axial extent. Extrapolate the outer radius to it from the two
     # nearest fitted stations (linear secant) rather than copying the nearest station's R flat —
@@ -300,7 +348,21 @@ def _run(args) -> int:
     outer_full = sorted(start_pt + fore_gap + middle_pts + aft_gap + end_pt, key=lambda p: p[0])
     outer_solid = solids.build_revolve_solid(outer_full, chord_tol, curve_windows=curve_windows)
 
-    if bore_rings:
+    if bore_rings and bore_pts:
+        # Two bore cutters, one per side of the topology event, extended past it by eps_cut so
+        # their fuse has a robust overlap (same margin `_build_prism_bore`/the pure-revolve path
+        # already use past the part's true ends).
+        if circ_before:
+            circ_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
+                + [(event_z + eps_cut_val, bore_pts[-1][1])]
+            fin_solid = _build_prism_bore(bore_rings, event_z, z_max, eps_cut_val, chord_tol)
+        else:
+            circ_full = [(event_z - eps_cut_val, bore_pts[0][1])] + bore_pts \
+                + [(z_max + eps_cut_val, bore_pts[-1][1])]
+            fin_solid = _build_prism_bore(bore_rings, z_min, event_z, eps_cut_val, chord_tol)
+        circ_solid = solids.build_revolve_solid(circ_full, chord_tol)
+        bore_solid = booleans.fuse(circ_solid, fin_solid, tol.fuzzy(chord_tol))
+    elif bore_rings:
         bore_solid = _build_prism_bore(bore_rings, z_min, z_max, eps_cut_val, chord_tol)
     else:
         bore_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
@@ -322,8 +384,12 @@ def _run(args) -> int:
             args.report,
             n_stations=len(zs),
             stations_z_mm=list(zs),
-            paths_used={"outer": "revolve", "bore": "prism" if bore_rings else "revolve"},
-            topology_events_z_mm=[],
+            paths_used={
+                "outer": "revolve",
+                "bore": "mixed" if (bore_rings and bore_pts) else
+                         ("prism" if bore_rings else "revolve"),
+            },
+            topology_events_z_mm=[event_z] if event_z is not None else [],
         )
     return 0
 
