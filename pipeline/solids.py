@@ -181,8 +181,10 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
     exact fit (`GC_MakeArcOfCircle` through raw, chord-tessellated mesh points) is noisy at the
     ~1 mm level even though the true radius is constant; a run whose whole-run circle fit lands
     within 10% of `bore_radius` is the main-bore arc, and its 3 construction points are
-    re-projected onto the exact circle (fitted center, `bore_radius`) before building the arc
-    edge. This removes the near-tangent radius mismatch between this prism's bore arc and the
+    re-projected onto the exact circle (origin-centered, radius `bore_radius` — the bore is
+    axis-centered by construction, so the origin is shared ground truth rather than each run's
+    own noisy fitted center) before building the arc edge. This removes the near-tangent radius
+    mismatch between this prism's bore arc and the
     circular cutters it seams against, which otherwise leaves a knife-edge sliver volume at the
     seam that gmsh can't tet cleanly (see PROGRESS.md M5 log, `gmsh_tet` failure)."""
     pts = [p for p in xy_pts]
@@ -217,14 +219,22 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
             if bore_radius is not None and len(run) >= 3:
                 sub = np.asarray([pts[j] for j in run])
                 cx, cy, rfit, _resid, _ = fit_circle(sub)
+                # Snap to the ORIGIN, not this run's own noisy fitted center: the main bore is
+                # axis-centered by construction (same invariant `_axis_centered` checks
+                # elsewhere), so every bore-arc run should share one common center. Snapping
+                # each run to its own ~0.4-0.9 mm-off fitted center only fixed the radius, not
+                # the between-run centering noise, and left adjacent arc segments/faces subtly
+                # inconsistent enough to produce a degenerate sliver face (measured: introduced
+                # a NaN `surface_deviation_max_mm` at the seam instead of the pre-fix 0.358 mm —
+                # a regression, reverted in favor of this origin-centered snap).
                 if abs(rfit - bore_radius) < 0.1 * bore_radius:
-                    def _snap(pt, cx=cx, cy=cy):
-                        dx, dy = pt[0] - cx, pt[1] - cy
+                    def _snap(pt):
+                        dx, dy = pt[0], pt[1]
                         d = math.hypot(dx, dy)
                         if d < 1e-9:
                             return pt
                         s = bore_radius / d
-                        return (cx + dx * s, cy + dy * s)
+                        return (dx * s, dy * s)
                     sx0, sy0 = _snap(pts[run[0]])
                     sxm, sym = _snap(pts[run[len(run) // 2]])
                     sx1, sy1 = _snap(pts[run[-1]])

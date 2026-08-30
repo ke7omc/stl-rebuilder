@@ -456,7 +456,21 @@
   `run_endpoints[(i+1) % n_arcs][0]` for the bridge edge's target instead of re-deriving it from
   raw points. Confirmed fixed with the same standalone repro (both `bore_radius=None` and
   `bore_radius=<seam value>` now build successfully). `pytest tests/ --ignore=test_selftest.py`
-  still 15/15 green. Running the real M5 scorer next.
+  still 15/15 green.
+- Ran the real M5 scorer with the crash fixed: **regression** — progress dropped from 0.9476 to
+  0.6667, `surface_deviation_max_mm` came back `nan` at z=5979.4 (`fore_cylinder`, right at the
+  fore seam), plus a `trimesh/triangles.py: invalid value encountered in divide` warning during
+  the check (degenerate/near-zero-area triangle in the re-tessellated result). Root cause:
+  snapping each bore-arc run's 3 construction points onto a circle centered at THAT run's own
+  fitted center (up to ~0.4-0.9 mm off true origin, per the earlier debug probe) fixed the
+  radius but not the between-run centering noise — adjacent bore-arc runs (there are 8 of them
+  around the ring) ended up on slightly different circles (same radius, different center),
+  producing a subtly inconsistent/degenerate face at the seam. Fix: since the bore is
+  axis-centered by construction (the same invariant `_axis_centered` already checks elsewhere
+  in `cli.py`), snap to the ORIGIN instead of each run's own fitted center — one shared circle
+  for all 8 runs, not 8 slightly-different ones. `pytest tests/ --ignore=test_selftest.py`
+  still 15/15 green; standalone wire-build repro still succeeds. Running the real M5 scorer
+  again next with the origin-centered snap.
 
 ### iter 19 — M4 — sonnet/medium — 2026-08-29
 - Score before: M4 not attempted yet (`pipeline/cli.py` only handled a single bore, either
