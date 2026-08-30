@@ -15,6 +15,51 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 33 (M0, round 2): `harness/generators.py::_make_m12` implemented — the near-end-of-burn
+  cavity decomposition (M5 capsule minus cavity dilated by web=250: bore R=550 through, 8 obround
+  slots half-width 290, outer r 950, z=[5750,9750], end fillets r=250; aft slots break through the
+  dome past z~9656).** Reuses M8's exact construction (`_capsule_outer_shape` + `_straight_bore`
+  fused with `n_slots` `_obround_slot_cutter` wedges, then `BRepAlgoAPI_Cut`) unchanged — the
+  wedge-slot cutter is already general in r/z/angle, and the "breakthrough" the spec calls out
+  falls out for free: the slot cutter's outer radius (950) exceeds the aft dome's local envelope
+  radius near z=9656+ (dome center z=9500, semi-axis 500 → envelope radius there is well under
+  950), so the boolean cut naturally opens the slots through the dome surface, no special-case
+  geometry needed. Volume = 1.5370275927692137e10 mm^3.
+  - **One real fix needed**: copying M8's `r0 = R_bore - 50` overlap constant verbatim raised
+    `RuntimeError("M8 slot meridian fillet construction failed")` — M12's larger fillet radius
+    (250 vs M8's 150) needs the slot's radial edge (`r1 - r0`) to be at least `2*fr` for
+    `BRepFilletAPI_MakeFillet2d` to place both corner fillets on that edge without them
+    overlapping; M8's fixed 450mm overlap (`850-400`) was already tight for `2*150=300` and
+    broke outright for `2*250=500`. Fixed by sizing the overlap from `fr` instead of a constant:
+    `r0 = min(R_bore - 50, r1 - 2*fr - 50)` (a 50mm safety margin beyond the fillet minimum).
+  - Registered `_make_m12` in `generators._MAKERS`; added `selftest._make_bore_filled_m12`
+    (same pattern as `_make_bore_filled_m8`/`_m5`: fuse the bare capsule with a straight bore
+    that adds no volume, purely to route the shape through a boolean op so OCCT's ShapeFix heals
+    the bare revolve's periodic-seam STEP-roundtrip quirk) and registered it in `_BORE_FILLERS`.
+    No `score.py`/`milestones.py`/`selftest.py::check_milestone` changes needed — M12's
+    `station_bands={"fore_wall":10,"breakthrough":10}` and `topo_events_z_mm` are both already
+    handled generically by the machinery iter 32 built for M8 (label-keyed densification in
+    `_ideal_report`, list-driven `topo_events` mutation tests).
+  - **Verified:** `selftest.py --milestone M12` (with gmsh): all 8 checks PASS, including the
+    2b/2c mutation suite (too-few-dome-stations, no/too-many topo events, one-bad-region p99)
+    and 3/4/5 (scaled copy fails volume_err_pct at 3.03%, bore-filled copy fails at 98.2%, gmsh
+    meshes the truth at min_quality=0.077/n_tet=93371 — below the score.py `gmsh_min_sicn=0.1`
+    gate's mesh resolution but that standalone diagnostic check only asserts `ok=True`, not a
+    quality threshold; `score.py`'s own gmsh call inside "truth STEP passes all gates" uses a
+    different mesh sizing (spec `chord_tol`-derived) and passed clean). Full `selftest.py` (no
+    `--milestone`): 4 failures left (M9, M10, M13, MR — all still-unbuilt generators; M8/M12
+    both gone from the failure list vs iter 32's baseline of 6). `score.py --milestone M1..M5`
+    against the real `rebuild.py`: unchanged, all `pass: true, progress: 1.0` (regression gate).
+    `pytest tests/` (16 tests): all pass, 282s.
+  - **Next:** M9 or M13 need `harness/voxelize.py` (marching-cubes surface generation with
+    noise/skew/unweld/flip-facet/island perturbations per MISSION §7.2's `InputSpec` — not built
+    yet) before their generators can run, since both reuse M8/M12's truth params but swap the
+    input STL for a synthetic-scan surface. M10 is still blocked on resolving `truth.bbox`'s
+    frame convention for `frame_axis_err_deg`/`axial_extent_err_mm` (iter 30's open note,
+    unaffected by M12). Recommend `harness/voxelize.py` next since it unblocks two milestones
+    (M9, M13) at once and is pure-Python (no OCCT), then M9's generator (thin wrapper: M8 truth +
+    `voxelize.make_input(...)`), then M10's frame-convention fix, then M13.
+
 - **iter 32 (M0, round 2): `harness/generators.py::_make_m8` implemented — the dilated-cavity
   mid-burn grain (bore R=450 through + 8 obround slots, half-width 190, outer r 850,
   z=[5850,9650], end-loops filleted r=150), registered in `_MAKERS` and `_BORE_FILLERS`.**

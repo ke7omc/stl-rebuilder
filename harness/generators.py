@@ -617,6 +617,49 @@ def _make_m8() -> Truth:
     return _finish("M8", cut.Shape())
 
 
+def _make_m12() -> Truth:
+    """Near-end-of-burn cavity decomposition: same dilated-cavity construction as M8 (straight
+    bore fused with `n_slots` wedge-revolve obround slots), but with M12's larger params (wider
+    bore, wider/taller slots) that push the slot cutter's outer radius past the aft dome's local
+    envelope radius — the boolean cut naturally opens the slots through the dome surface there
+    (the "breakthrough" the spec's params/description call out), no special-case geometry needed:
+    `_obround_slot_cutter` and `_capsule_outer_shape` are already general in z and r.
+    """
+    spec = ms.get("M12")
+    p = spec.params
+    L = p["L"]
+    outer = _capsule_outer_shape(L, p["R_o"], p["dome_semi_axial"])
+    cutter = _straight_bore(p["R_bore"], L)
+
+    n_slots = p["n_slots"]
+    hw = p["slot_half_width"]
+    r1 = p["slot_outer_r"]
+    z0 = p["slot_z_lo"]
+    z1 = p["slot_z_hi"]
+    fr = p["slot_fillet"]
+    # `_obround_slot_cutter`'s 2-D fillet needs each corner's radius to clear half of both
+    # adjacent edge lengths, so the radial edge (r1-r0) must be >= 2*fr with margin. M8's fixed
+    # `R_bore - 50` overlap (radial edge 450) was already tight for its fr=150 (2*fr=300); M12's
+    # fr=250 (2*fr=500) would make that same 450 overlap self-intersect the two corner fillets on
+    # the radial edge, which is exactly the "M8 slot meridian fillet construction failed" OCCT
+    # error hit when this was first tried unchanged. Size the overlap into the bore explicitly
+    # from fr instead of copying M8's constant.
+    r0 = min(p["R_bore"] - 50.0, r1 - 2.0 * fr - 50.0)
+    for k in range(n_slots):
+        slot = _obround_slot_cutter(r0, r1, hw, z0, z1, fr, 2.0 * math.pi * k / n_slots)
+        fuse = BRepAlgoAPI_Fuse(cutter, slot)
+        fuse.Build()
+        if not fuse.IsDone():
+            raise RuntimeError(f"M12 cutter fuse failed on slot {k}")
+        cutter = fuse.Shape()
+
+    cut = BRepAlgoAPI_Cut(outer, cutter)
+    cut.Build()
+    if not cut.IsDone():
+        raise RuntimeError("M12 boolean cut failed")
+    return _finish("M12", cut.Shape())
+
+
 # ---------------------------------------------------------------------------
 # M11: 3 disjoint annular BATES segments (gapped, flat ends) -> one compound of 3 solids
 # ---------------------------------------------------------------------------
@@ -659,6 +702,7 @@ _MAKERS = {
     "M7": _make_m7,
     "M8": _make_m8,
     "M11": _make_m11,
+    "M12": _make_m12,
 }
 
 

@@ -319,11 +319,32 @@ def _make_bore_filled_m8(spec, work_dir: Path) -> Path:
     return path
 
 
+def _make_bore_filled_m12(spec, work_dir: Path) -> Path:
+    """M12 with neither central bore nor obround slots: the plain domed capsule outer shape —
+    should badly fail volume_err_pct against the near-burnout dilated-cavity truth.
+
+    Fused (not bare) with a straight bore, same trick as `_make_bore_filled_m8`/`_m5`: heals the
+    bare revolve's periodic-seam STEP round-trip quirk without changing the volume.
+    """
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+
+    L = spec.params["L"]
+    outer = generators._capsule_outer_shape(L, spec.params["R_o"], spec.params["dome_semi_axial"])
+    bore = generators._straight_bore(spec.params["R_bore"], L)
+    fuse = BRepAlgoAPI_Fuse(outer, bore)
+    fuse.Build()
+    if not fuse.IsDone():
+        raise RuntimeError("M12 bore-filler fuse failed")
+    path = work_dir / "M12_bore_filled.step"
+    generators._write_step(fuse.Shape(), path)
+    return path
+
+
 _BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2,
                   "M3": _make_bore_filled_m3, "M4": _make_bore_filled_m4,
                   "M5": _make_bore_filled_m5, "M6": _make_bore_filled_m6,
                   "M7": _make_bore_filled_m7, "M8": _make_bore_filled_m8,
-                  "M11": _make_bore_filled_m11}
+                  "M11": _make_bore_filled_m11, "M12": _make_bore_filled_m12}
 
 
 def check_milestone(name: str, work_dir: Path, skip_gmsh: bool = False) -> None:
