@@ -34,6 +34,8 @@ from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
 from OCP.BRepTools import BRepTools
 
 from harness import milestones as ms
+from harness import metrics
+from harness import voxelize
 
 TRUTH_DIR = Path(__file__).parent / "truth"
 CHORD_TOL = ms.CHORD_TOL  # mm
@@ -626,6 +628,43 @@ def _make_m8() -> Truth:
     return _finish("M8", _capsule_slot_cavity_shape(spec.params, "M8"))
 
 
+def _make_m9() -> Truth:
+    """M8's exact solid, but the truth STL fed to the pipeline is a noisy, skewed
+    marching-cubes surface on an anisotropic grid (MISSION §6.2/§7.2 M9), synthesised by
+    `harness/voxelize.py` from a clean fine tessellation of this same solid. `truth.shape`/
+    `V_truth`/`A_truth`/`bbox`/`step_path` stay exact (M8's analytic geometry) so every
+    check that compares against them (volume_err_pct, deviation, bbox) is unaffected by the
+    pathology; only `truth.stl_path` -- the file `score.py` copies to `input.stl` and also
+    uses for `input_watertight` -- points at the pathological mesh."""
+    spec = ms.get("M9")
+    shape = _capsule_slot_cavity_shape(spec.params, "M9")
+    V, A = _volume_area(shape)
+    bbox = _bbox(shape)
+    step_path = TRUTH_DIR / "M9.step"
+    stl_path = TRUTH_DIR / "M9.stl"
+    _write_step(shape, step_path)
+
+    # Clean, fine reference tessellation for voxelize.py's occupancy/SDF sampling -- never
+    # written to M9.stl itself, and far finer than the M9 input grid spacing (10,10,40 mm).
+    ref_path = TRUTH_DIR / "M9.ref.stl"
+    _write_stl(shape, ref_path, chord_tol=spec.chord_tol / 2.0)
+    ref_mesh = metrics.load_mesh(ref_path)
+
+    input_mesh = voxelize.synthesize_voxel_input(ref_mesh, spec.input, seed=7)
+    stl_path.parent.mkdir(parents=True, exist_ok=True)
+    input_mesh.export(str(stl_path))
+
+    return Truth(
+        milestone="M9",
+        shape=shape,
+        V_truth=V,
+        A_truth=A,
+        bbox=bbox,
+        step_path=step_path,
+        stl_path=stl_path,
+    )
+
+
 def _place_in_frame(shape: TopoDS_Shape, frame: "ms.Frame", scale: float = 1.0) -> TopoDS_Shape:
     """Rotate the canonical +z-axis shape onto `frame.axis`, uniformly scale about the origin
     (about the origin so it commutes with the rotation), then translate to `frame.origin_mm`.
@@ -786,6 +825,7 @@ _MAKERS = {
     "M6": _make_m6,
     "M7": _make_m7,
     "M8": _make_m8,
+    "M9": _make_m9,
     "M10": _make_m10,
     "M11": _make_m11,
     "M12": _make_m12,

@@ -15,6 +15,55 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 36 (M0, round 2): `harness/generators.py::_make_m9` implemented — wires `harness/voxelize.py`
+  (built iter 34, unused until now) into a truth generator for the first `kind="voxel"`
+  `InputSpec` (MISSION §7.2 M9: noisy skewed marching-cubes surface on a 10x10x40mm anisotropic
+  grid over M8's dilated-cavity solid).** Registered in `_MAKERS`; `harness/selftest.py::
+  _make_bore_filled_m9` added and registered in `_BORE_FILLERS` (identical trick to M8's — M9's
+  spec params are `dict(m8.params)`, an exact copy).
+  - **No new `Truth`/cache fields needed.** Re-read `score.py` before assuming MISSION's
+    `input_stl_path` field was required: `truth.stl_path` already serves double duty as (a) what
+    `score.py` copies to `input.stl` for the pipeline and (b) the mesh `input_watertight` checks
+    — both are exactly what M9 wants the *pathological* mesh to be. Every other check
+    (`volume_err_pct`, `bbox_err_pct`, deviation) reads `truth.V_truth`/`truth.shape`/
+    `truth.step_path`, which stay the exact analytic M8 solid untouched by the voxel pathology.
+    So `_make_m9` builds the exact shape as usual (`_capsule_slot_cavity_shape`, `_volume_area`,
+    `_bbox`, `_write_step`), then *separately* tessellates it fine (`chord_tol/2 = 0.25mm`, far
+    below the 10/40mm grid spacing) into a scratch `M9.ref.stl`, feeds that reference mesh to
+    `voxelize.synthesize_voxel_input(ref_mesh, spec.input, seed=7)`, and exports the pathological
+    result straight over `M9.stl` via trimesh — a ~25-line generator, no `_finish`/`_finish_framed`
+    changes, no new dataclass fields. Added `from harness import metrics, voxelize` imports to
+    `generators.py` (no circular import: `metrics.py` only imports OCP/trimesh/scipy).
+  - **Verified**: `selftest.py --milestone M9` 9/9 PASS (closed-form n/a, truth-passes-all-gates,
+    dome-stations/topo-event/spurious-event/region-p99 2b mutations, 1.01x-scaled volume,
+    bore-filled volume, gmsh mesh) — one full run took ~1160s (fine-tessellation + gmsh dominate,
+    same as M8). `score.py --milestone M9`: `pass:false`, `stage_reached:"validate"`,
+    `first_failure.check:"step_readable"` ("STEP file transferred 0 roots") — the *expected*
+    failure shape for M0 (contract-valid JSON, fails because `pipeline/` has no voxel/adaptive
+    handling yet, not because the harness is broken). `score.py --milestone M1..M5`: all still
+    `pass: true`, run individually — **do not run multiple `score.py`/`selftest.py` invocations
+    concurrently against the same repo**: `score.py::_run_pipeline`'s `_truth_hidden()` renames
+    the shared `harness/truth/` dir aside for the subprocess call and restores it after, so two
+    concurrent scorers racing on that rename corrupt each other's run (`FileNotFoundError` /
+    stale hidden dirs, not a real code bug) — learned this the hard way mid-iteration when a
+    5-way parallel M1..M5+M9 `score.py` batch produced a bogus M9 failure and, later, a
+    concurrent full-`pytest`-vs-subset-`pytest` race produced 6 bogus `test_meshcheck`/
+    `test_metrics` failures that vanished when rerun serially. A clean serial `pytest tests/`
+    got through `test_meshcheck`/`test_metrics`/`test_score`/`test_selftest` (15/24, all green)
+    then stalled on `test_voxelize.py`'s first test for 18+ min with 100% CPU but no progress —
+    killed at the time budget's edge without a root cause. `test_voxelize.py` is untouched this
+    iteration (last touched iter 34, where it passed 8/8 in 286s) and the targeted subset run
+    above (`test_meshcheck.py`+`test_metrics.py`, 9/9 in 8s) plus every individual
+    `score.py --milestone M1..M5,M9` run this iteration all passed cleanly, so this reads as
+    machine load from the many concurrent scorer/selftest processes spawned earlier in this same
+    iteration rather than a regression — **worth a clean-machine `pytest tests/test_voxelize.py`
+    rerun next iteration before trusting it**, since it was never actually isolated.
+  - **Next**: M13 — same voxel wiring as M9 but over M12's near-burnout cavity at a finer/taller
+    grid (250x250x1250mm per MISSION's budget note) and MR's real-STL ingestion path. Given M9's
+    voxelize step added negligible time to the truth build (marching cubes on a ~sphere-scale
+    grid is fast; gmsh/fine-tessellation still dominate), a `Truth` JSON/STEP-hash cache is
+    probably not load-bearing yet — benchmark M13's actual grid size once built before adding one.
+
 - **iter 35 (M0, round 2): `harness/generators.py::_make_m10` implemented — frame normalisation
   truth (M8 scaled x1/40, rotated to +x axis, translated, STL written in inches, MISSION §6.2
   M10).** Registered in `_MAKERS`; `harness/selftest.py::_make_bore_filled_m10` added and
