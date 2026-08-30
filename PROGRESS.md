@@ -15,6 +15,56 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 34 (M0, round 2): `harness/voxelize.py` built — narrow-band exact-SDF marching-cubes
+  input synthesis for M9/M13's `kind="voxel"` `InputSpec`s (MISSION §7.2), plus
+  `tests/test_voxelize.py` (8 tests, all passing).** Not yet wired into `generators.py` — that's
+  the next step, see below.
+  - `signed_distance_narrow_band(mesh, spacing_mm, seed)`: builds a grid over `mesh.bounds`
+    padded by `2h+spacing` (`h=max(spacing)`); occupancy per z-plane via `mesh.section` +
+    `to_2D` + `shapely.contains_xy` (same section-then-project pattern as
+    `pipeline/slicing.py`, with a small z-jitter retry for a tangent-plane miss);
+    `scipy.ndimage.distance_transform_edt` (anisotropic `sampling=spacing`) on that boolean
+    grid picks which points fall within the `|d|<=2h` narrow band; only those get an *exact*
+    distance via `metrics.point_mesh_distance` (the same bounded-memory KD-tree helper the
+    scorer already uses — no new OOM risk); everything else is far field at `+-2h`. Sign:
+    inside positive.
+  - `marching_cubes_surface`: `skimage.measure.marching_cubes(phi, level=0, spacing=...)`.
+    **Finding**: got inward-facing normals (negative mesh volume) with the seemingly-matching
+    `gradient_direction="descent"` (skimage's docstring says descent = "object greater than
+    exterior", which is my sign convention) — empirically `gradient_direction="ascent"` is what
+    actually produces outward normals with this sign convention. Verified against a sphere
+    (`trimesh.creation.icosphere` standing in for the harness's own truth mesh): reconstructed
+    radii within 0.1·h of the true R (MISSION's own suggested test bound), `is_watertight` and
+    `volume>0`.
+  - Pathology stages (`synthesize_voxel_input`, fixed order noise → flip → islands → unweld,
+    matching `InputSpec` field order/MISSION §7.2), unit scale applied separately by the caller
+    via `scale=`: `_add_normal_noise` (vertex-normal Gaussian), `_flip_facets` (reverse winding
+    on a random fraction), `_add_islands` (small disconnected tetrahedra at interior points via
+    `trimesh.sample.volume_mesh`, rejection-sampling fallback if the reference isn't
+    watertight), `_unweld_and_jitter` (per-face private vertex copies + uniform jitter — this
+    alone triples vertex count, `len(vertices)==3*len(faces)`, verified in tests). Every stage
+    takes an `np.random.default_rng`-derived RNG advanced in sequence, so the whole thing is
+    deterministic for a given seed (asserted in tests).
+  - **Verified**: `pytest tests/` — 24 passed (16 prior + 8 new), 286 s, no regressions. Did not
+    run the full milestone-scale grid (M9's 200×200×250, M13's 250×250×1250 per MISSION's own
+    budget note) this iteration — only the sphere-scale unit tests — since `voxelize.py` isn't
+    wired into `generators.py`/`milestones.py` yet and nothing calls it at that scale. `score.py
+    --milestone M1..M5` unaffected (no existing file touched).
+  - **Next**: wire this into `harness/generators.py` — `_m9`/`_m13`'s `_MAKERS` entries need to
+    (a) build the M8/M12 truth solid as today, (b) tessellate it at `chord_tol/2` for a clean
+    truth mesh (`trimesh.load` the STEP-derived STL, or mesh directly from the OCP shape) to
+    feed `synthesize_voxel_input` as the *reference* — never the pathology output — and (c)
+    write the result to a `Mk.input.stl` path distinct from the analytic `Mk.stl`. This also
+    needs the truth-cache / `Truth.input_stl_path` fields MISSION §7.2 describes (not built yet
+    — `Truth` in `generators.py` currently only has `step_path`/`stl_path`, no JSON cache, no
+    `--warm`); either build that cache now as part of the M9 wiring, or add `input_stl_path` as
+    a plain extra field first and defer full caching (M9/M13 truth generation will be slow
+    without it — MISSION's own estimate is 3-8 min for M13 at full resolution — worth
+    benchmarking M9's smaller grid first to see if caching is load-bearing before M13). Run
+    `score.py --milestone M9` once wired (expect a *failing* score — `pipeline/` has no
+    adaptive-station support yet — same "contract-valid JSON, fails at pipeline_exit or later"
+    pattern as M6-M8's current state).
+
 - **iter 33 (M0, round 2): `harness/generators.py::_make_m12` implemented — the near-end-of-burn
   cavity decomposition (M5 capsule minus cavity dilated by web=250: bore R=550 through, 8 obround
   slots half-width 290, outer r 950, z=[5750,9750], end fillets r=250; aft slots break through the
@@ -850,6 +900,20 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 34 — M0 (round 2) — sonnet/medium — 2026-08-30T09:55
+- Score before: selftest FAILED, 4 checks (M9/M10/M13/MR generator not implemented)
+- Change: built `harness/voxelize.py` (narrow-band exact-SDF marching-cubes input synthesis
+  per MISSION §7.2) and `tests/test_voxelize.py`; not yet wired into `generators.py`
+- Score after: `pytest tests/` 24/24 passed (286s), no regression; selftest unchanged (voxelize
+  isn't called by anything yet, so M9/M10/M13/MR still fail the same way)
+- Learned: `skimage.measure.marching_cubes`'s `gradient_direction="descent"` docstring
+  ("object greater than exterior" for outward normals) is backwards for an inside-positive phi
+  convention in practice — `"ascent"` is what actually gave outward normals here, verified
+  against a sphere's positive volume
+- Next: wire `voxelize.synthesize_voxel_input` into `generators.py::_make_m9`/`_make_m13`
+  (needs a clean ct/2 truth mesh as the reference input, and a `Truth.input_stl_path`/cache —
+  see `## Current state` above for the full plan)
 
 ### iter 28 — M0 (round 2) — sonnet/medium — 2026-08-30T04:54
 - Score before: iter 27's last driver evaluation — selftest FAILED 36/44 checks (M7-M13/MR
