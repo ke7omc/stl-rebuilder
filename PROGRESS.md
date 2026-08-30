@@ -404,6 +404,17 @@
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
 
+### iter 21 (WIP, testing) — M5 — sonnet/medium — 2026-08-29T19:52
+- Testing: threaded `chord_tol` into `export.finalize()` and call `ShapeFix_Shape.SetPrecision
+  (chord_tol)` before `fixer.Perform()` (this is exactly the lever iter-20's log flagged as
+  "unexplored, worth pursuing" for the fore-seam gmsh sliver — previous ad hoc probe at prec=0.25
+  on a coarse hmax=30 mesh got min_quality ~0.025, up from 0.006, but was never checked at the
+  real gate hmax and the sweep 0.5/1.0 never finished). `pytest tests/ --ignore=test_selftest.py`
+  still 15/15 green after the change (default `chord_tol=None` keeps old behavior for any other
+  caller). Expected result: `harness/score.py --milestone M5` progress moves from 0.9476 either
+  to 1.0 (gmsh_tet clears) or partially up (SICN improves but still < 0.1 gate) — running the
+  real scorer next, takes a few minutes for gmsh.
+
 ### iter 19 — M4 — sonnet/medium — 2026-08-29
 - Score before: M4 not attempted yet (`pipeline/cli.py` only handled a single bore, either
   fully circular or fully non-circular per §5.2's existing paths; M4's bore is circular fore

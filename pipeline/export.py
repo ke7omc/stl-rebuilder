@@ -11,7 +11,7 @@ from OCP.gp import gp_Trsf
 from OCP.TopoDS import TopoDS_Shape
 
 
-def finalize(shape: TopoDS_Shape):
+def finalize(shape: TopoDS_Shape, chord_tol: float = None):
     """ShapeFix -> UnifySameDomain -> validity check. Returns (shape, is_valid).
 
     UnifySameDomain occasionally breaks manifoldness instead of just simplifying face count —
@@ -20,8 +20,16 @@ def finalize(shape: TopoDS_Shape):
     step (merges coincident-domain faces/edges, changes no geometry), a shape it invalidates is
     worse than the one going in, so fall back to the pre-unify shape rather than propagate the
     corruption; the only cost is a few extra faces (`face_count_max` is a generous anti-
-    tessellation guard, not a style gate)."""
+    tessellation guard, not a style gate).
+
+    `chord_tol`, if given, is passed to `ShapeFix_Shape.SetPrecision` before fixing — on M5's
+    near-tangent fore seam (two independently circle-fit boundaries meeting at almost, but not
+    exactly, the same radius) the default OCCT precision leaves a knife-edge sliver that gmsh
+    can't tet cleanly (min_quality ~0.006 vs the 0.1 gate); widening the fixer's working
+    precision lets it heal that sliver instead of preserving it exactly."""
     fixer = ShapeFix_Shape(shape)
+    if chord_tol is not None:
+        fixer.SetPrecision(chord_tol)
     fixer.Perform()
     shape = fixer.Shape()
     if not BRepCheck_Analyzer(shape).IsValid():

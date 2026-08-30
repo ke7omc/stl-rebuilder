@@ -422,7 +422,7 @@ def _run(args) -> int:
         bore_solid = solids.build_revolve_solid(bore_full, chord_tol)
 
     shape = booleans.cut(outer_solid, bore_solid, tol.fuzzy(chord_tol))
-    shape, valid = export.finalize(shape)
+    shape, valid = export.finalize(shape, chord_tol)
     if not valid:
         print("rebuild.py: final solid failed BRepCheck_Analyzer validity check", file=sys.stderr)
         return 5
