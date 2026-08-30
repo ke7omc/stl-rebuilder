@@ -79,11 +79,17 @@ def _ideal_report(spec, truth) -> dict:
         if "dome" in rb.label:
             z0, z1 = z_min + rb.z_frac_lo * span, z_min + rb.z_frac_hi * span
             stations += [z0 + (z1 - z0) * i / 9.0 for i in range(10)]
+    # topo_events_z_mm (M7/M8/M9/M12/M13, harness/milestones.py) is the general Round 2 list of
+    # expected events; the older topo_event_z_tolerance_mm gate (M4/M5) only ever expects one, at
+    # fin_z_start. Emit whichever the spec actually declares — a milestone with both would emit
+    # the union, but no spec does today.
+    events = list(spec.topo_events_z_mm) or (
+        [spec.params["fin_z_start"]] if "fin_z_start" in spec.params else [])
     return {
         "n_stations": len(stations),
         "stations_z_mm": sorted(stations),
         "paths_used": {"outer": "revolve", "bore": "revolve"},
-        "topology_events_z_mm": [spec.params["fin_z_start"]] if "fin_z_start" in spec.params else [],
+        "topology_events_z_mm": events,
     }
 
 
@@ -246,6 +252,39 @@ def _make_bore_filled_m11(spec, work_dir: Path) -> Path:
     return path
 
 
+def _make_m11_mass_shifted(spec, work_dir: Path) -> Path:
+    """M11 with the SAME total volume as truth (so volume_err_pct alone can't catch it) but mass
+    shifted between segments A and C: A's bore shrunk, C's bore grown by the matching amount.
+    A and C share R_o, R_i and length, so shrinking A's cross-section area by `shift` and growing
+    C's by `shift` leaves the sum exactly unchanged while each segment is off by
+    shift/base_area (1%) — this is what per_solid_volume_err_pct exists to catch."""
+    from OCP.BRep import BRep_Builder
+    from OCP.TopoDS import TopoDS_Compound
+
+    R_o = spec.params["R_o"]
+    segs = {s["name"]: s for s in spec.params["segments"]}
+    base_area = R_o**2 - segs["A"]["R_i"]**2
+    # Must stay well under segs["A"]["R_i"]**2 (90000) or R_i_new**2 = R_i**2 - shift goes
+    # negative; 1% of base_area (9100) is comfortably inside that and still >> the 0.05% gate.
+    shift = 0.01 * base_area
+
+    compound = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(compound)
+    for seg in spec.params["segments"]:
+        if seg["name"] == "A":
+            r_i = (R_o**2 - (base_area + shift)) ** 0.5
+        elif seg["name"] == "C":
+            r_i = (R_o**2 - (base_area - shift)) ** 0.5
+        else:
+            r_i = seg["R_i"]
+        solid = generators._annular_segment(R_o, r_i, seg["z_lo"], seg["z_hi"])
+        builder.Add(compound, solid)
+    path = work_dir / "M11_mass_shifted.step"
+    generators._write_step(compound, path)
+    return path
+
+
 _BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2,
                   "M3": _make_bore_filled_m3, "M4": _make_bore_filled_m4,
                   "M5": _make_bore_filled_m5, "M6": _make_bore_filled_m6,
@@ -284,6 +323,12 @@ def check_milestone(name: str, work_dir: Path, skip_gmsh: bool = False) -> None:
          "too few dome stations"),
         ("topo_event_z_tolerance_mm", "topo_event_z",
          lambda r: {**r, "topology_events_z_mm": []}, "no topology event"),
+        ("topo_events", "topo_events",
+         lambda r: {**r, "topology_events_z_mm": []}, "no topology events reported"),
+        ("topo_events", "topo_events",
+         lambda r: {**r, "topology_events_z_mm": r["topology_events_z_mm"]
+                    + [r["topology_events_z_mm"][0] + 37.0] * 20},
+         "too many spurious topology events"),
         ("adaptive_efficiency", "adaptive_efficiency",
          lambda r: {**r, "n_stations": 100_000}, "station count not adaptive"),
     ):
@@ -320,6 +365,16 @@ def check_milestone(name: str, work_dir: Path, skip_gmsh: bool = False) -> None:
         ok = (not result["pass"]) and result["first_failure"] is not None \
             and result["first_failure"]["check"] == "surface_deviation_p99_by_region"
         _report(ok, f"{name}: one bad region fails on surface_deviation_p99_by_region",
+                f"first_failure={result['first_failure']}")
+
+    # 2d. per_solid_volume_err_pct must bite when mass is shifted between solids but the total
+    # is preserved (so the plain volume_err_pct check alone would pass this shape).
+    if "per_solid_volume_err_pct" in spec.gates and name == "M11":
+        shifted_path = _make_m11_mass_shifted(spec, work_dir)
+        result = _score_with_step(name, shifted_path, truth)
+        ok = (not result["pass"]) and result["first_failure"] is not None \
+            and result["first_failure"]["check"] == "per_solid_volume_err_pct"
+        _report(ok, f"{name}: mass-shifted-but-same-total copy fails on per_solid_volume_err_pct",
                 f"first_failure={result['first_failure']}")
 
     # 3. scaled copy fails on volume_err_pct

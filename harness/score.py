@@ -24,10 +24,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from OCP.BRepCheck import BRepCheck_Analyzer
+from OCP.BRepGProp import BRepGProp
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
+from OCP.GProp import GProp_GProps
 from OCP.StlAPI import StlAPI_Writer
 from OCP.TopAbs import TopAbs_FACE, TopAbs_SOLID
-from OCP.TopExp import TopExp
+from OCP.TopExp import TopExp, TopExp_Explorer
+from OCP.TopoDS import TopoDS
 from OCP.TopTools import TopTools_IndexedMapOfShape
 
 from harness import generators, metrics
@@ -41,6 +44,20 @@ def _n_shapes_of_type(shape, shape_type) -> int:
     return m.Size()
 
 
+def _solids_with_volume_z(shape) -> list:
+    """Each TopAbs_SOLID sub-shape's (volume mm³, centroid z mm), ascending by centroid z."""
+    out = []
+    exp = TopExp_Explorer(shape, TopAbs_SOLID)
+    while exp.More():
+        solid = TopoDS.Solid_s(exp.Current())
+        props = GProp_GProps()
+        BRepGProp.VolumeProperties_s(solid, props)
+        out.append((props.Mass(), props.CentreOfMass().Z()))
+        exp.Next()
+    out.sort(key=lambda t: t[1])
+    return out
+
+
 # Checks that are *always* run, in evaluation order, followed by the gate-conditional ones.
 # `progress` is (index of first failure + partial) / len(plan), so the denominator must be the
 # full plan — not the number of checks that happened to run before fail-fast stopped, which
@@ -51,11 +68,13 @@ _GATED = [  # (check name, gate key that enables it) — order = evaluation orde
     ("n_solids", "n_solids"),
     ("brep_valid", "brep_valid"),
     ("volume_err_pct", "volume_err_pct"),
+    ("per_solid_volume_err_pct", "per_solid_volume_err_pct"),
     ("bbox_err_pct", "bbox_err_pct"),
     # Report-derived checks are a JSON parse plus arithmetic — they belong ahead of the
     # 100k-sample deviation metric in the cheap→expensive ladder.
     ("dome_stations_min", "dome_stations_min"),
     ("topo_event_z", "topo_event_z_tolerance_mm"),
+    ("topo_events", "topo_events"),
     ("adaptive_efficiency", "adaptive_efficiency"),
     ("surface_deviation_max_mm", "surface_deviation_max_mm"),
     ("surface_deviation_p99_mm", "surface_deviation_p99_mm"),
@@ -68,10 +87,11 @@ _GATED = [  # (check name, gate key that enables it) — order = evaluation orde
 # Direction matters for the partial credit term. For a lower-is-better check, being closer to
 # the threshold means threshold/value → 1; for a higher-is-better one (gmsh SICN) that formula
 # is inverted and saturates at 1, so a *failing* gmsh check scored the same as a passing one.
-_LOWER_IS_BETTER = {"volume_err_pct", "bbox_err_pct", "surface_deviation_max_mm",
+_LOWER_IS_BETTER = {"volume_err_pct", "per_solid_volume_err_pct", "bbox_err_pct",
+                    "surface_deviation_max_mm",
                     "surface_deviation_p99_mm", "surface_deviation_p99_by_region",
                     "face_count_max", "step_roundtrip",
-                    "topo_event_z", "adaptive_efficiency"}
+                    "topo_event_z", "topo_events", "adaptive_efficiency"}
 _HIGHER_IS_BETTER = {"gmsh_tet", "dome_stations_min"}
 
 # The deviation metric compares two *tessellations*, so each side carries its own chordal error.
@@ -388,6 +408,33 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
                           hint=f"result volume differs from truth by {volume_err_pct:.4f}% "
                                f"(gate < {threshold}%)")
 
+        # --- check: per_solid_volume_err_pct (MISSION §6.2 M11: N disjoint solids) ------------
+        if "per_solid_volume_err_pct" in spec.gates:
+            threshold = spec.gates["per_solid_volume_err_pct"]
+            truth_vols = spec.per_solid_closed_form_volumes
+            result_solids = _solids_with_volume_z(result_shape)
+            if not truth_vols or len(truth_vols) != len(result_solids):
+                add("per_solid_volume_err_pct", False, value=None, threshold=threshold,
+                    reason=f"expected {len(truth_vols) if truth_vols else 0} per-solid truth "
+                           f"volumes, found {len(result_solids)} result solid(s)")
+                fail_here("per_solid_volume_err_pct", threshold=threshold,
+                          hint="n_solids matched but per-solid truth volumes are unavailable or "
+                               "mismatched in count — this is a harness bug if n_solids already "
+                               "passed")
+            per_solid_errs = [abs(v - vt) / abs(vt) * 100.0
+                               for (v, _z), vt in zip(result_solids, truth_vols)]
+            worst_err = max(per_solid_errs)
+            worst_idx = per_solid_errs.index(worst_err)
+            metrics_out["per_solid_volume_err_pct"] = per_solid_errs
+            ok = worst_err < threshold
+            add("per_solid_volume_err_pct", ok, value=worst_err, threshold=threshold,
+                per_solid=per_solid_errs)
+            if not ok:
+                fail_here("per_solid_volume_err_pct", value=worst_err, threshold=threshold,
+                          location={"z_mm": result_solids[worst_idx][1]},
+                          hint=f"solid #{worst_idx} (z-ordered) volume differs from truth by "
+                               f"{worst_err:.4f}% (gate < {threshold}%)")
+
         # --- check: bbox_err_pct ----------------------------------------------------
         if "bbox_err_pct" in spec.gates:
             bbox_err = _bbox_err_pct(result_shape, truth.bbox)
@@ -459,6 +506,41 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
                           hint=f"no topology event detected within {threshold} mm of "
                                f"z={expected_z} (reported: {events}); the fin slots are born at "
                                "that plane — bisect on loop-count change to localize it")
+
+        # --- check: topo_events (MISSION §6.2 M7/M8/M9/M12/M13: N expected events, each --------
+        # matched within tolerance, and no more than topo_events_max reported (anti-gaming: a
+        # pipeline that reports an event at every station would trivially "match" every expected
+        # z without actually detecting anything)) --------------------------------------------
+        if "topo_events" in spec.gates:
+            threshold = spec.gates["topo_events"]
+            expected = spec.topo_events_z_mm
+            events = report.get("topology_events_z_mm") if report else None
+            events = [float(z) for z in events] if isinstance(events, list) else None
+            if events is None:
+                add("topo_events", False, value=None, threshold=threshold,
+                    reason=_report_hint("topology_events_z_mm"))
+                fail_here("topo_events", threshold=threshold,
+                          hint=_report_hint("topology_events_z_mm"))
+            metrics_out["topology_events_z_mm"] = events
+            per_expected_err = [min((abs(z - ez) for z in events), default=math.inf)
+                                 for ez in expected]
+            worst_err = max(per_expected_err) if per_expected_err else 0.0
+            all_matched = all(e <= threshold for e in per_expected_err)
+            count_ok = spec.topo_events_max is None or len(events) <= spec.topo_events_max
+            ok = all_matched and count_ok
+            add("topo_events", ok, value=worst_err, threshold=threshold,
+                n_expected=len(expected), n_reported=len(events), n_max=spec.topo_events_max)
+            if not ok:
+                if not all_matched:
+                    hint = (f"no reported topology event within {threshold} mm of one or more "
+                             f"expected events {expected} (reported: {events})")
+                else:
+                    hint = (f"reported {len(events)} topology events but at most "
+                             f"{spec.topo_events_max} are expected (reported: {events}) — a "
+                             "spurious event per station suggests events aren't being classified, "
+                             "just counted")
+                fail_here("topo_events", value=worst_err, threshold=threshold,
+                          location={"z_mm": expected[0] if expected else None}, hint=hint)
 
         # --- check: adaptive_efficiency (MISSION §6 M5) -----------------------------------
         if "adaptive_efficiency" in spec.gates:

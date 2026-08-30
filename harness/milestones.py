@@ -78,6 +78,9 @@ class MilestoneSpec:
     n_solids: int = 1
     optional: bool = False       # True only for MR: pass:true,"skipped" when no input is present
     input_glob: Optional[str] = None   # e.g. "real_inputs/*.stl" for MR
+    # Per-solid closed-form volumes (mm³) in ascending z-centroid order, for milestones with
+    # n_solids > 1 (M11). None when n_solids == 1 or no closed form exists per-solid.
+    per_solid_closed_form_volumes: Optional[Tuple[float, ...]] = None
 
 
 def _m1() -> MilestoneSpec:
@@ -518,6 +521,8 @@ def _m11() -> MilestoneSpec:
         closed_form_volume=sum(solid_volumes),
         chord_tol=ct,
         n_solids=3,
+        # segments is already ascending by z_lo (A, B, C), matching solid_volumes' order.
+        per_solid_closed_form_volumes=tuple(solid_volumes),
     )
 
 

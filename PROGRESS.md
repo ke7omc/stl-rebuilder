@@ -15,6 +15,60 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 30 (M0, round 2): `harness/score.py` extended with two of the missing §7.2 gates —
+  `topo_events` (M7/M8/M9/M12/M13) and `per_solid_volume_err_pct` (M11).** Both were declared
+  in `milestones.py` gates but silently skipped (not in `score.py`'s `_GATED` list) since iter
+  27/29 landed their generators — this is the "score.py extension" step iter 29's log flagged
+  as the biggest lever.
+  - `topo_events`: gate key differs from the older single-event `topo_event_z_tolerance_mm`
+    (M4/M5). Checks EVERY z in `spec.topo_events_z_mm` has a reported event within the gate's
+    tolerance (min-distance match, not positional), AND `len(reported) <= spec.topo_events_max`
+    — the count cap exists so a pipeline can't cheat the match by reporting an event at every
+    station (an "event per station" would trivially contain every expected z). Added to
+    `_GATED`/`_LOWER_IS_BETTER`, placed right after `topo_event_z` in evaluation order.
+  - `per_solid_volume_err_pct`: new `MilestoneSpec.per_solid_closed_form_volumes` field (tuple,
+    ascending z-centroid order) — set for M11 only (`(V_A, V_B, V_C)`, already ascending since
+    `segments` is ascending by `z_lo`). `score.py` adds `_solids_with_volume_z()` (walks
+    `TopExp_Explorer(shape, TopAbs_SOLID)`, `BRepGProp.VolumeProperties_s` per solid, sorts by
+    `GProp_GProps.CentreOfMass().Z()`) and pairs z-ordered result solids with the truth tuple —
+    catches a pipeline that gets the AGGREGATE volume right (passes `volume_err_pct`) but
+    misdistributes it between solids, which the old aggregate-only check could never see.
+    Placed right after `volume_err_pct` in `_GATED` (both order lists and `_LOWER_IS_BETTER`).
+  - `harness/selftest.py`: fixed `_ideal_report()` to emit `spec.topo_events_z_mm` (it only ever
+    emitted `[fin_z_start]` before, which is empty for M7 — would have made "M7: truth STEP
+    passes all gates" fail against a truth STEP with no gate-related defect at all, a
+    harness bug not a pipeline one). Added two 2b report-mutation cases for `topo_events` (no
+    events reported → fails on the match; 20 spurious near-duplicate events appended → fails on
+    the count cap, a DIFFERENT failure mode than the first, both asserted to land on the
+    `topo_events` check). Added a new 2d case only for M11/`per_solid_volume_err_pct`:
+    `_make_m11_mass_shifted()` shifts 1% of segment A's cross-section area into segment C (A and
+    C share `R_o`/`R_i`/length so the shift is exactly volume-neutral in total — this is the
+    shape `volume_err_pct` alone cannot catch) and asserts the new check is what fails, not the
+    old aggregate one. (First attempt used a 10% shift and produced a negative `R_i²`, i.e. a
+    complex radius — `TypeError` from OCP's cylinder constructor; the fix was recognizing the
+    shift must stay under `R_i²` itself, so 1% is comfortably inside while still 20x past the
+    0.05% gate.)
+  - **Verified:** `--milestone M7 --skip-gmsh` and `--milestone M11 --skip-gmsh` (~12s each) —
+    every check PASS including the 3 new mutation cases, with correct hints/first_failure. Full
+    `selftest.py --skip-gmsh` (~168s): 45 PASS, the same 6 FAIL as iter 29 (M8/M9/M10/M12/M13/MR
+    generators still unimplemented — expected). `score.py --milestone M{1..7}` on the untouched
+    real pipeline reproduces the exact same verdicts as iter 29 (M1-M5 pass, M6 fails
+    volume_err_pct 0.72% > 0.2%, M7 fails pipeline_exit on unsupported multi-hole topology) —
+    the new checks are additive, none of them were reached by the real pipeline yet, so this is
+    a pure regression check. `pytest tests/` (16 tests, ~209s): all pass.
+  - **Next:** `n_stations_max`/`station_bands` (generalizes `dome_stations_min` to named region
+    bands with per-region minimums, M8/M9/M10/M12/M13) is the next report-derived gate worth
+    wiring — same shape as `dome_stations_min`'s existing code, just keyed by `spec.station_bands`
+    dict instead of hardcoded "dome" labels. `frame_axis_err_deg`/`axial_extent_err_mm` (M10/M13)
+    are a separate, bigger unit: they need the frame's *axis* and *extent* recovered from the
+    result shape and compared against `spec.frame`, which touches how `bbox_err_pct` currently
+    assumes a canonical mm/+z frame (`generators._bbox` vs `truth.bbox` — need to check whether
+    `truth.bbox` for M10/M13 is stored in the CANONICAL frame or the rotated/scaled input frame
+    before writing this gate, it wasn't necessary to determine that for today's two gates).
+    `min_edge_mm` (M12/M13) and `n_stations_max`/`station_bands` remain unwired; M8's generator
+    (dilated-cavity fillet cut) is still the next new-generator milestone per the original build
+    order, now that M6/M7/M11 all have working generators AND graded gates.
+
 - **iter 29 (M0, round 2): `harness/generators.py::_make_m11` implemented — third Round 2
   generator built (first `n_solids>1` case).** M11 is 3 disjoint annular BATES segments (A
   R_i=300 z[0,3000], B R_i=450 z[3500,6500], C R_i=300 z[7000,10000]), each built by
