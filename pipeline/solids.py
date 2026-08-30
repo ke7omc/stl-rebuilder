@@ -314,8 +314,7 @@ def _arc_line_wire(pts, z, arcs):
     return mkwire.Wire()
 
 
-def build_ruled_loft_solid(z0, pts0, z1, pts1, r_fillet_thresh: float = None,
-                            n_sections: int = 1) -> TopoDS_Shape:
+def build_ruled_loft_solid(z0, pts0, z1, pts1, r_fillet_thresh: float = None) -> TopoDS_Shape:
     """Ruled loft cutter solid between two cross-sections that are the SAME shape uniformly
     scaled (MISSION §6.2 M6: a star bore whose profile scales linearly in z, `Cylinder minus a
     ruled loft`). `pts0`/`pts1` must be point-for-point correspondents -- same count, same order,
@@ -323,29 +322,17 @@ def build_ruled_loft_solid(z0, pts0, z1, pts1, r_fillet_thresh: float = None,
     `pipeline/cli.py::_build_bore_prism_or_loft`, which is the only caller and guarantees this.
 
     Unlike `build_prism_solid` (one cross-section, extruded -- correct only when the bore is
-    axially *constant*, M3), this builds wires and lofts between them with
+    axially *constant*, M3), this builds TWO wires and lofts between them with
     `BRepOffsetAPI_ThruSections(isSolid=True, isRuled=True)`, which is exactly the construction a
     linearly-scaling profile needs: straight-line generators between corresponding boundary
     points reproduce a true ruled surface (matching the closed-form frustum-generalization volume
     MISSION.md gives for M6), not a station-density-limited polyline approximation. The arc/line
-    split (`detect_arc_runs`) is computed ONCE on `pts0` and reused verbatim for every intermediate
-    wire (`_arc_line_wire`) so all wires have identical edge topology/order -- `docs/research/04`
+    split (`detect_arc_runs`) is computed ONCE on `pts0` and reused verbatim for `pts1`
+    (`_arc_line_wire`) so both wires have identical edge topology/order -- `docs/research/04`
     flags mismatched multi-edge wires across loft sections as a twist/correspondence trap;
     `CheckCompatibility(False)` then tells OCCT to trust that correspondence instead of guessing
     its own (which risks silently reordering/splitting edges and picking the wrong vertex
-    pairing -- a twisted rather than straight ruled lateral surface).
-
-    `n_sections` (>=1) adds `n_sections - 1` interior wires evenly spaced in z between z0/z1, each
-    a linear interpolation of pts0/pts1 (`pts0 + t*(pts1-pts0)`, exact for a profile that scales
-    linearly in z per MISSION §6.2 -- no new geometry is introduced, this is the same point on the
-    same straight generator line). This is the fix for the M6 `gmsh_tet` failure diagnosed in
-    PROGRESS.md iter 40: at n_sections=1 the two true ends can be far enough apart in z that the
-    skew-ruled lateral quads (corresponding wire0/wire1 edges are not coplanar once the profile is
-    scaled) twist a lot over their full length, and gmsh's tet mesher forms near-flat slivers
-    connecting long, twisted quads at the star's small-fillet valleys (measured min SICN 0.0077,
-    gate 0.1). Chopping the same ruled surface into several shorter axial strips bounds the twist
-    per strip without moving the true surface at all (each interior wire's points lie exactly on
-    the original two-section ruled surface), fixing the mesh conditioning at zero accuracy cost."""
+    pairing -- a twisted rather than straight ruled lateral surface)."""
     pts0 = [tuple(p) for p in pts0]
     pts1 = [tuple(p) for p in pts1]
     if len(pts0) > 1 and math.hypot(pts0[0][0] - pts0[-1][0], pts0[0][1] - pts0[-1][1]) < 1e-9:
@@ -356,17 +343,12 @@ def build_ruled_loft_solid(z0, pts0, z1, pts1, r_fillet_thresh: float = None,
         raise ValueError("loft ring point counts must match (same reference ring, scaled)")
 
     arcs = detect_arc_runs(pts0, r_fillet_thresh)
-    arr0 = np.asarray(pts0, dtype=float)
-    arr1 = np.asarray(pts1, dtype=float)
+    wire0 = _arc_line_wire(pts0, z0, arcs)
+    wire1 = _arc_line_wire(pts1, z1, arcs)
 
     loft = BRepOffsetAPI_ThruSections(True, True)
-    n_sections = max(1, int(n_sections))
-    for i in range(n_sections + 1):
-        t = i / n_sections
-        z_i = z0 + t * (z1 - z0)
-        pts_i = arr0 + t * (arr1 - arr0)
-        wire_i = _arc_line_wire(pts_i, z_i, arcs)
-        loft.AddWire(wire_i)
+    loft.AddWire(wire0)
+    loft.AddWire(wire1)
     loft.CheckCompatibility(False)
     loft.Build()
     if not loft.IsDone():

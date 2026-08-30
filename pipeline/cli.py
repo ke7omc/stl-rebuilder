@@ -305,8 +305,7 @@ def _build_bore_prism_or_loft(bore_rings, z_min: float, z_max: float, eps_cut_va
     s_hi = math.sqrt(a_hi_t / ref_area)
     pts_lo = ref_pts * s_lo
     pts_hi = ref_pts * s_hi
-    return solids.build_ruled_loft_solid(z_lo_t, pts_lo, z_hi_t, pts_hi, r_fillet_thresh=0.0,
-                                          n_sections=8)
+    return solids.build_ruled_loft_solid(z_lo_t, pts_lo, z_hi_t, pts_hi, r_fillet_thresh=0.0)
 
 
 def _run(args) -> int:

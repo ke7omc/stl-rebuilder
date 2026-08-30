@@ -40,6 +40,19 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 41 (M6): four independent attempts at fixing `gmsh_tet` (0.0077 vs gate 0.1), all
+  falsified, all reverted — a stray uncommitted WIP from an interrupted earlier session
+  (`dd2ac8a`, n_sections=8 axial subdivision) was also found sitting on disk/HEAD and reverted
+  back to the true last-good `c550c49`. Progress remains 0.9384, unchanged from iter 40.**
+  Confirmed baseline reproduces exactly (`out/score.local.json`: progress=0.9384, first failure
+  `gmsh_tet` min SICN 0.0076691465167256665, all other checks pass); M1–M5 regression-verified
+  still 1.0/pass. See the iter 41 log entry below for the four falsified approaches and why each
+  one hit a *different* gate's wall — the current 2-wire straight-polygon ruled-loft design looks
+  structurally boxed in between `face_count_max`, `surface_deviation_*_mm`, and `gmsh_tet`, not
+  just under-tuned. A future attempt should not retry any of: dense per-section polygon
+  subdivision, epsilon-only point-count tuning, valley-targeted point thinning, global periodic
+  spline rings, or per-layer curve interpolation replacing the 3-point arc fit — all four are now
+  proven infeasible as currently structured (see "Do not retry").
 - **iter 40 (M6): ruled-loft bore path for the linearly-scaling star (fixes `volume_err_pct`
   0.72%→0.001%, `surface_deviation_p99_mm` unblocked); `gmsh_min_sicn` still fails
   (0.0077 vs gate 0.1) — the one remaining blocker.** M6's cutter is a ruled loft between two
@@ -1162,6 +1175,50 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **M6 `gmsh_tet` (min SICN vs gate 0.1): four independently-tried mitigations, all falsified in
+  iter 41 — do not retry any of them as-designed.**
+  1. *Dense per-section polygon subdivision* (`n_sections=8` intermediate wires in
+     `build_ruled_loft_solid`, each a linear interpolation of the two end rings): bounds twist per
+     strip, but each axial layer costs a full ring's worth of faces (~154 pts, `r_fillet_thresh=
+     0.0`) — measured **1047 faces** (gate 200). Even `n_sections=2` gave **311 faces**, still over.
+  2. *Shrinking ring point count via a larger RDP epsilon to fit `face_count_max`, then using
+     `n_sections>1`*: the point-count window needed for `face_count_max` (<=~98 pts) and the
+     window needed for `surface_deviation_p99_mm<0.4mm` (>=~106 pts) **do not overlap** — swept
+     eps 0.6/0.7/0.72/0.75/0.78/0.8/0.85/0.9/1.0, confirmed empirically, not just reasoned.
+  3. *Valley-targeted point thinning* (apply a coarser minimum point-spacing floor only to points
+     below a radius percentile, sparing the rest of the ring): made `surface_deviation_p99_mm`
+     WORSE, not better (0.449 at 146 pts vs 0.321 baseline at 154 pts) — the valley is the *most*
+     deviation-sensitive part of the ring, not a safe place to sacrifice resolution.
+  4. *Global periodic B-spline through the ring* (`GeomAPI_Interpolate`, replacing the straight
+     polygon/arc wire): Runge-type overshoot at the star's sharp tip/valley corners regressed
+     `volume_err_pct` to **5.1979%** (gate 0.2%). Same failure class as M2's dome-meridian spline
+     reverted at iter 15 — do not retry a global closed spline through a shape with sharp corners.
+  5. *Per-layer exact-point curve interpolation* (build each of wire0/wire1 as its own
+     interpolating curve through its own points, instead of a 3-point arc fit) was tried
+     specifically to fix the iter-40-documented arc-fit regression, on the theory that exact
+     interpolation must be strictly better than a 3-point circle approximation. It is **not**:
+     regressed `surface_deviation_max_mm` to **3.254 mm** (gate 1.0), essentially identical to the
+     iter-40 arc-fit failure (3.25 mm). This means the failure is not about how well a curve fits
+     its own layer's points — it is about cross-layer parametrization correspondence: two
+     independently-parametrized curves at different z (even if each is exact for its own points)
+     don't guarantee "same parameter value" means "same relative position around the ring," which
+     breaks `ThruSections`' assumption that wire0/wire1 vertices at the same index are the true
+     ruling-line partners.
+  - **Takeaway for a future attempt**: the current 2-wire straight-polygon ruled-loft design is
+    boxed in between three gates (`face_count_max`, `surface_deviation_*_mm`, `gmsh_tet`), not
+    just under-tuned — every direction tried so far improves one gate by directly worsening
+    another. A genuinely different approach (e.g. a true curved/analytic non-planar fillet
+    surface representation instead of any polygon/spline/interpolation over discrete sample
+    points, or restructuring the cutter so the mesh-size floor `hmax/10` doesn't collide with
+    fillet-curvature point spacing) is likely needed rather than another variant of point-set
+    massaging.
+  - **Also found and fixed this iteration**: a stray uncommitted-then-auto-committed WIP
+    (`dd2ac8a`, "subdivide ruled loft into 8 axial sections") had landed on `HEAD` from an
+    interrupted earlier session and was silently worse (`face_count_max` 1047, fails outright)
+    than the true last-good `c550c49`. Reverted `pipeline/cli.py`/`pipeline/solids.py` back to
+    `c550c49` exactly (`git show c550c49:<file>`, diffed clean). **Lesson: always diff against the
+    last known-good milestone commit by hash, not blindly against `HEAD` — `HEAD` can itself be an
+    uncommitted-WIP auto-commit from a prior interrupted session.**
 - **M6 (or any bore loft between two differently-scaled cross-sections): do not fit exact fillet
   arcs (`detect_arc_runs`) on the loft's end wires, even on an RDP-simplified (clean-classifying)
   reference ring.** A 3-point `GC_MakeArcOfCircle` through a simplified run's first/middle/last
@@ -1257,6 +1314,22 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 41 — M6 — sonnet/medium — 2026-08-30T16:x
+- Score before: iter 40, `out/score.local.json` progress=0.9384, first failure `gmsh_tet` min
+  SICN 0.0077 (gate 0.1), all other checks pass.
+- Change: none kept. Tried and reverted four independent fixes for `gmsh_tet` — dense per-section
+  polygon subdivision (`n_sections`), epsilon-driven point thinning to fit `face_count_max`,
+  valley-targeted point thinning, global periodic B-spline ring, and per-layer exact curve
+  interpolation replacing the 3-point arc fit. Each regressed a *different* gate below its
+  threshold (details + numbers in "Do not retry"). Also discovered `HEAD` (`dd2ac8a`) was itself
+  an uncommitted WIP subdivision experiment from an earlier interrupted session, worse than the
+  true baseline (`face_count_max` 1047 vs gate 200) — reverted both `pipeline/cli.py` and
+  `pipeline/solids.py` to `c550c49` exactly.
+- Score after: `out/score.local.json` progress=0.9384 (unchanged), first failure still `gmsh_tet`
+  min SICN 0.0076691465167256665. M1–M5 regression-verified: all progress=1.0, pass=true.
+- Verdict: no net progress this iteration; findings documented so the next attempt doesn't retry
+  the same four falsified directions. `gmsh_tet` remains the sole M6 blocker.
 
 ### iter 39 — M0 (round 2) — opus/high — review-harness — 2026-08-30T14:54
 - Score before: iter 38 driver evaluation — selftest PASSED, 92/92 checks, 8 min, peak RSS 12.4 GB
