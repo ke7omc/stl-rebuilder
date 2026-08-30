@@ -15,6 +15,9 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 23 fixed the M4 regression (see log below): M1–M5 ALL PASS `pass:true, progress:1.0`
+  on HEAD, `harness/selftest.py` also passes.** The driver's regression gate should re-advance
+  past M4 to M5/HANDOFF on the next evaluation.
 - **Milestone: M5 PASSES — `pass:true, progress:1.0`, all 14 checks green** (iter 22; see the
   iter-22 log entry for the fix). `gmsh_tet` min_quality 0.234 vs gate 0.1 (was 0.00664, the
   long-standing blocker). volume_err_pct 0.0059%, surface_deviation_max_mm 0.358mm (gate 0.6),
@@ -462,6 +465,49 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 23 — M4 (regression fix) — sonnet/medium — 2026-08-29T20:19
+- Score before: `harness/score.py --milestone M4` -> `pass:false, progress:0.7143`, first
+  failure `surface_deviation_max_mm` = NaN at z=6015.5 (fin_zone). Driver's iter-22 regression
+  sweep had demoted the milestone back to M4 for this (M5 itself still `pass:true, progress:1.0`).
+- Root cause (found by reproducing outside the harness): re-tessellated the pipeline's own M4
+  output STEP the same way `score.py::_mesh_from_step` does and dumped `mesh.area_faces` — 6
+  exactly-zero-area (degenerate/collapsed) triangles cluster right at z=5999.75-6000.25, i.e. the
+  `event_z=6000` seam between the circular fore bore and the fin-slot aft bore. A zero-area
+  triangle makes trimesh's `triangles.py` closest-point projection divide by zero -> NaN, which
+  is what `metrics.point_mesh_distance` (called from `surface_deviation`) then propagates into
+  `surface_deviation_max_mm`, matching the "why NaN and not just a large number" question left
+  open. Traced further: commit `3d475d1` (iter 21, WIP M5) added `bore_radius=` snapping to the
+  `circ_before`/`else` single-event branches of `pipeline/cli.py::_run` (previously only the M5
+  sandwich path used it) — this snaps `fin_solid`'s own bore arc onto the exact origin-centered
+  `bore_radius`, making it land almost exactly tangent to `circ_solid`'s independently-fitted
+  radius at the seam. That tangency, fused with the old symmetric `tol.fuzzy(chord_tol)`
+  overlap band, squeezes into a near-zero-thickness sliver face that `BRepMesh_IncrementalMesh`
+  degenerates into zero-area triangles. Exactly the same failure mode iter 21-22 diagnosed and
+  fixed for M5's `gmsh_tet` sliver — this iteration was the same fix, never ported to M4's
+  single-event branches when `3d475d1` first introduced `bore_radius` there.
+- Change: applied M5's two-part fix to the `circ_before`/`else` branches of `pipeline/cli.py::
+  _run` (previously untouched — only the M5 sandwich `if pts_before and pts_after:` branch had
+  them): (1) fuse with `seam_eps` (0.5*chord_tol) instead of the 10x-bigger `tol.fuzzy(chord_tol)`
+  — fixed the NaN outright (surface_deviation_max_mm back to a normal value, well under gate);
+  (2) `circ_overlap = 80*seam_eps` / `fin_overlap = 0.02*seam_eps` asymmetric seam extension
+  (widen only the circular cutter's overlap into fin territory — a geometric no-op since circle
+  is always a subset of the star/fin cross-section there — while shrinking the fin cutter's own
+  extension near zero) — needed because step (1) alone left `gmsh_tet` failing at min_quality
+  0.0074 (gate 0.1), the identical sliver-too-thin-to-mesh symptom M5 hit. Both changes are a
+  straight port of the M5 fix (see iter 21/22 log entries and `pipeline/cli.py`'s M5-branch
+  comments) applied symmetrically to the two single-event branches.
+- Score after (local): `harness/score.py --milestone M4` -> `pass:true, progress:1.0`, all
+  checks green (surface_deviation_max_mm back to normal, gmsh_tet min_quality clears 0.1).
+  Regression-swept M1/M2/M3/M5 too (not just M4) since this touches shared seam-fuse logic:
+  all four still `pass:true, progress:1.0`. `harness/selftest.py` -> PASSED (85 s). No harness/
+  files touched (frozen); only `pipeline/cli.py` and this file.
+- Next: nothing outstanding on M4/M5 — all five milestones pass on HEAD as of this commit. The
+  driver's regression gate should re-promote past M4 on the next evaluation; if it goes on to
+  attempt `HANDOFF.md`, that's the correct next step (no more milestones defined beyond M5 per
+  MISSION.md). If a future change touches `pipeline/cli.py`'s bore/seam logic again, re-run this
+  same M1-M5 regression sweep before committing — this bug's lesson is that a fix scoped to one
+  milestone's code path can silently break a sibling path sharing the same function.
 
 ### iter 22 — M5 — sonnet/medium — 2026-08-29T20:07
 - Score before: `harness/score.py --milestone M5` -> `pass:false, progress:0.9481`, first

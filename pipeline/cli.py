@@ -430,19 +430,34 @@ def _run(args) -> int:
             bore_solid = booleans.fuse(circ_fore_solid, fin_solid, seam_eps)
             bore_solid = booleans.fuse(bore_solid, circ_aft_solid, seam_eps)
         elif circ_before:
+            # Same asymmetric-overlap fix as the M5 sandwich path above (`circ_overlap`/
+            # `fin_overlap`), applied to M4's single-event seam: the bore_radius snap makes
+            # fin_solid's own bore arc land almost exactly tangent to circ_solid's, so a
+            # symmetric `seam_eps`-wide overlap band squeezes the intersection edge between
+            # them into a sub-gmsh-element-size sliver (min_quality ~0.007, gate 0.1) — and,
+            # before this fix, into a near-zero-thickness sliver so thin BRepMesh tessellated
+            # it into zero-area triangles, which is what turned `surface_deviation_max_mm` into
+            # NaN (division by zero in trimesh's closest-point-on-triangle) instead of a normal
+            # failure value. Widening only the circular cutter's overlap is a geometric no-op
+            # (circle is always a subset of the star/fin cross-section), so it moves the
+            # intersection edge into a meshable band with zero effect on the final cut geometry.
+            circ_overlap = 80.0 * seam_eps
+            fin_overlap = 0.02 * seam_eps
             circ_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
-                + [(event_z + seam_eps, bore_pts[-1][1])]
-            fin_solid = _build_prism_bore(bore_rings, event_z, z_max, seam_eps, eps_cut_val,
+                + [(event_z + circ_overlap, bore_pts[-1][1])]
+            fin_solid = _build_prism_bore(bore_rings, event_z, z_max, fin_overlap, eps_cut_val,
                                            chord_tol, bore_radius=bore_pts[-1][1])
             circ_solid = solids.build_revolve_solid(circ_full, chord_tol)
-            bore_solid = booleans.fuse(circ_solid, fin_solid, tol.fuzzy(chord_tol))
+            bore_solid = booleans.fuse(circ_solid, fin_solid, seam_eps)
         else:
-            circ_full = [(event_z - seam_eps, bore_pts[0][1])] + bore_pts \
+            circ_overlap = 80.0 * seam_eps
+            fin_overlap = 0.02 * seam_eps
+            circ_full = [(event_z - circ_overlap, bore_pts[0][1])] + bore_pts \
                 + [(z_max + eps_cut_val, bore_pts[-1][1])]
-            fin_solid = _build_prism_bore(bore_rings, z_min, event_z, eps_cut_val, seam_eps,
+            fin_solid = _build_prism_bore(bore_rings, z_min, event_z, eps_cut_val, fin_overlap,
                                            chord_tol, bore_radius=bore_pts[0][1])
             circ_solid = solids.build_revolve_solid(circ_full, chord_tol)
-            bore_solid = booleans.fuse(circ_solid, fin_solid, tol.fuzzy(chord_tol))
+            bore_solid = booleans.fuse(circ_solid, fin_solid, seam_eps)
     elif bore_rings:
         bore_solid = _build_prism_bore(bore_rings, z_min, z_max, eps_cut_val, eps_cut_val, chord_tol)
     else:
