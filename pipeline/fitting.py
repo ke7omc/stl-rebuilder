@@ -140,6 +140,202 @@ def detect_arc_runs(pts, r_thresh: float = None, window: int = 2, resid_tol: flo
     return [_trim_run_to_circle(arr, run, resid_tol) if len(run) >= 3 else run for run in runs]
 
 
+def _fit_line_tls(pts):
+    """Total-least-squares line through `pts` -> (point_on_line, unit_direction)."""
+    c = pts.mean(axis=0)
+    _, _, vt = np.linalg.svd(pts - c, full_matrices=False)
+    d = vt[0]
+    return c, d / np.linalg.norm(d)
+
+
+def _cross2(a, b):
+    return a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0]
+
+
+def fit_fillet_ring(pts, arc_spans, line_tol: float):
+    """Reconstruct a filleted-polygon cross-section (a star bore, a slotted bore) as EXACT
+    tangent fillets rather than as an arc fitted independently to each fillet's own sample points.
+
+    `pts` is the raw closed ring (x, y), `arc_spans` a list of `(i_first, i_last)` raw indices --
+    one per fillet, in ring order -- marking (approximately) where that fillet's points are;
+    consecutive spans are separated by a straight flank. Returns one dict per fillet
+    `{center, radius, t1, t2, mid}` (all (x, y) tuples / floats, ring order), where `t1`/`t2` are
+    the tangent points on the incoming/outgoing flank and `mid` is the arc's midpoint, or `None`
+    if the ring does not have this structure.
+
+    Why not fit each fillet's circle from its own points (iters 40/42/43, all falsified): the
+    per-point windowed curvature classification that produces `arc_spans` systematically
+    TRUNCATES each run -- measured on M6's star, the classified spans are 95.6 deg (tips) and
+    30.9 deg (valleys) against true spans of 123.68 / 63.68 deg. A 31 deg arc of a 50 mm circle
+    has a 1.8 mm sagitta, so the ~0.25 mm tessellation noise on the sample points moves the fitted
+    radius by ~2 mm, and the straight edge that replaces the unclassified remainder chords across
+    ~30 deg of real fillet (measured 1.16-2.74 mm of perpendicular error over a 250 mm flank).
+
+    The flanks are the well-conditioned features instead: ~250 mm long and exactly planar in the
+    solid, so a TLS line through the middle of each gap is ~100x better conditioned than the arc
+    fit. Intersecting adjacent flank lines gives the true (unfilleted) corner; the inscribed
+    fillet is then tangent to both flanks by construction, which leaves only its RADIUS free --
+    one 1-D least-squares parameter recovered from the arc points, and even a poor recovery moves
+    the surface by far less than a wrong centre would. The reconstructed arc spans the full fillet
+    (tangent point to tangent point), not the classified fragment.
+
+    `line_tol` is the perpendicular distance within which a gap point is accepted as belonging to
+    the flank when the fit is grown outward from the gap's middle; it must be well under the
+    fillet sagitta so leftover fillet points stay excluded."""
+    arr = np.asarray(pts, dtype=float)
+    n = len(arr)
+    m = len(arc_spans)
+    if m < 3 or n < 4 * m:
+        return None
+
+    lines = []
+    extra = [[] for _ in range(m)]   # gap points the flank fit rejected -> they are arc points
+    for i in range(m):
+        a = arc_spans[i][1]
+        b = arc_spans[(i + 1) % m][0]
+        idx = list(range(a, b + 1)) if b >= a else list(range(a, n)) + list(range(0, b + 1))
+        gap = arr[idx]
+        if len(gap) < 4:
+            return None
+        # Consensus fit seeded from every pair of gap points, scored by (inlier count, inlier
+        # span). The gap always carries points that belong to the neighbouring fillets -- the
+        # curvature classification truncates the arc runs by ~30 deg -- and they sit at the two
+        # ENDS, where they have the most leverage on a straight fit. Neither of the cheaper
+        # schemes survives that: seeding from the gap's middle third fails because the short gaps
+        # here hold only 12-14 points, and greedily peeling the worst residual can converge onto a
+        # locally-straight subset of the FILLET instead (measured on M6: 4 of 12 flanks came out
+        # with 2-3 inliers and up to 0.69 mm of error, which then dragged their corners and
+        # radii). The gap is small (<= ~30 points), so the exhaustive O(k^3) search is free, and
+        # since the flanks are exactly planar faces of the solid their true inliers agree to
+        # tessellation precision -- the largest consistent subset is unambiguous.
+        k = len(gap)
+        best_score, keep = None, None
+        for p in range(k - 1):
+            for q in range(p + 2, k + 1):
+                win = gap[p:q]
+                cc, dd = _fit_line_tls(win)
+                if np.abs(_cross2(win - cc, dd)).max() > line_tol:
+                    continue
+                proj = (win - cc) @ dd
+                score = (float(proj.max() - proj.min()), q - p)
+                if best_score is None or score > best_score:
+                    best_score, keep = score, win
+        if keep is None or len(keep) < 2:
+            return None
+        c, d = _fit_line_tls(keep)
+        lines.append((c, d))
+        # Every gap point the line rejected is a point of the fillet the classifier truncated:
+        # the ones at the head of the gap belong to fillet i, the ones at the tail to fillet i+1.
+        # Feeding them back roughly triples the sample the radius is fitted from and, more
+        # importantly, extends it over the full arc instead of its middle third.
+        off = np.abs(_cross2(gap - c, d)) > line_tol
+        h = 0
+        while h < len(off) and off[h]:
+            h += 1
+        t = len(off)
+        while t > h and off[t - 1]:
+            t -= 1
+        extra[i].extend(idx[:h])
+        extra[(i + 1) % m].extend(idx[t:])
+
+    out = []
+    for i in range(m):
+        c1, d1 = lines[(i - 1) % m]     # flank arriving at fillet i
+        c2, d2 = lines[i]               # flank leaving fillet i
+        den = _cross2(d1, d2)
+        if abs(den) < 1e-9:
+            return None
+        t = _cross2(c2 - c1, d2) / den
+        corner = c1 + t * d1
+        # unit directions pointing away from the corner, along each flank
+        e1 = d1 * (1.0 if np.dot(c1 - corner, d1) > 0 else -1.0)
+        e2 = d2 * (1.0 if np.dot(c2 - corner, d2) > 0 else -1.0)
+        bis = e1 + e2
+        nb = float(np.linalg.norm(bis))
+        if nb < 1e-9:
+            return None
+        u = bis / nb
+        cos_h = float(np.clip(np.dot(e1, u), -1.0, 1.0))
+        sin_h = math.sqrt(max(1e-12, 1.0 - cos_h ** 2))
+
+        a, b = arc_spans[i]
+        idx = list(range(a, b + 1)) if b >= a else list(range(a, n)) + list(range(0, b + 1))
+        ap = arr[sorted(set(idx) | set(extra[i]))]
+        if len(ap) < 2:
+            return None
+        # Centre lies at corner + s*u; the tangency constraint makes the radius s*sin_h, so the
+        # whole fillet is the single parameter s -- 1-D least squares on the arc's own points.
+        # Bracket s from the arc's closest approach to the corner, which for a true tangent
+        # fillet is exactly s*(1 - sin_h). Projecting the arc points' MEAN onto u instead
+        # underestimates s badly at wide corners (it lands near s*(1-sin_h), which is s/6.7 at
+        # M6's 116 deg valleys) and put the true value outside the search bracket.
+        d_min = float(np.min(np.linalg.norm(ap - corner, axis=1)))
+        s0 = d_min / max(1e-6, 1.0 - sin_h)
+        if not np.isfinite(s0) or s0 <= 0.0:
+            return None
+
+        def resid(s):
+            cen = corner + s * u
+            return float(np.sum((np.linalg.norm(ap - cen, axis=1) - s * sin_h) ** 2))
+
+        grid = np.linspace(max(1e-6, 0.2 * s0), 3.0 * s0, 201)
+        s = float(grid[int(np.argmin([resid(g) for g in grid]))])
+        step = float(grid[1] - grid[0])
+        for _ in range(60):
+            step *= 0.5
+            for cand in (s - step, s + step):
+                if cand > 1e-6 and resid(cand) < resid(s):
+                    s = cand
+        r = s * sin_h
+        cen = corner + s * u
+        tan_off = s * cos_h
+        out.append({
+            "center": (float(cen[0]), float(cen[1])),
+            "radius": float(r),
+            "t1": tuple(map(float, corner + e1 * tan_off)),
+            "t2": tuple(map(float, corner + e2 * tan_off)),
+            "mid": tuple(map(float, cen - r * u)),
+        })
+    return out
+
+
+def fillet_ring_deviation(pts, fillets):
+    """Max distance from every point of the raw ring `pts` to the piecewise arc/line curve
+    described by `fillets` (output of `fit_fillet_ring`). The self-check that decides whether the
+    reconstruction is trustworthy enough to loft, or whether to fall back to a dense polygon."""
+    arr = np.asarray(pts, dtype=float)
+    m = len(fillets)
+    best = np.full(len(arr), np.inf)
+    for i, f in enumerate(fillets):
+        cen = np.asarray(f["center"], dtype=float)
+        r = f["radius"]
+        t1 = np.asarray(f["t1"], dtype=float)
+        t2 = np.asarray(f["t2"], dtype=float)
+        mid = np.asarray(f["mid"], dtype=float)
+        # distance to the arc: radial if the point projects inside the arc's angular span,
+        # otherwise to the nearer endpoint.
+        v = arr - cen
+        nv = np.linalg.norm(v, axis=1)
+        nv = np.where(nv < 1e-12, 1e-12, nv)
+        proj = cen + v / nv[:, None] * r
+        inside = (np.linalg.norm(proj - mid, axis=1)
+                  <= max(np.linalg.norm(t1 - mid), np.linalg.norm(t2 - mid)))
+        d_arc = np.where(inside, np.abs(nv - r),
+                         np.minimum(np.linalg.norm(arr - t1, axis=1),
+                                    np.linalg.norm(arr - t2, axis=1)))
+        best = np.minimum(best, d_arc)
+        # straight flank from this fillet's t2 to the next fillet's t1
+        a = t2
+        b = np.asarray(fillets[(i + 1) % m]["t1"], dtype=float)
+        ab = b - a
+        den = float(np.dot(ab, ab))
+        if den < 1e-18:
+            continue
+        tt = np.clip(((arr - a) @ ab) / den, 0.0, 1.0)
+        best = np.minimum(best, np.linalg.norm(arr - (a + tt[:, None] * ab), axis=1))
+    return float(np.max(best))
+
+
 def simplify_closed_ring(pts, epsilon: float):
     """Douglas-Peucker simplification of a CLOSED 2D ring (`pts`: (x, y), no repeated
     first==last point). `rdp` above only handles an open polyline (fixed start/end anchors); a
