@@ -2,11 +2,23 @@
 
 `make(milestone_name)` is the public API. Truth files regenerate deterministically when missing.
 All units: mm.
+
+Truth cache (MISSION §7.2): `make()` hashes each milestone's `params`/`frame`/`input`/`chord_tol`
+and skips the (potentially expensive, e.g. M9/M13's voxelize step) rebuild when `Mk.json`'s
+stored hash matches and `Mk.step`/`Mk.stl` are still on disk -- it re-reads the shape from the
+STEP file instead (fast) and reuses the cached V_truth/A_truth/bbox. This matters because
+`score.py:score()` calls `generators.make(milestone)` fresh on every scoring pass, and a single
+`selftest.py` milestone check drives `score()` ~6 times (truth-passes-gates, several report-gate
+mutations, scaled copy, bore-filled copy) -- without the cache each of those reruns the full
+maker (fine tessellation + marching-cubes voxelize for M9/M13) from scratch. `--warm` (see
+`__main__`) pre-populates the cache for every milestone in one pass.
 """
+import hashlib
+import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 from OCP.BRepPrimAPI import (
     BRepPrimAPI_MakeCylinder,
@@ -875,8 +887,86 @@ _MAKERS = {
 }
 
 
-def make(milestone: str) -> Truth:
-    """Build (or rebuild) the analytic ground truth for *milestone* and return a Truth object."""
+# ---------------------------------------------------------------------------
+# Truth cache: Mk.json holds a hash of the spec fields that determine the geometry, plus the
+# cheap-to-store scalars (V_truth/A_truth/bbox). A hit re-reads the shape from the already-written
+# Mk.step instead of rerunning the maker.
+# ---------------------------------------------------------------------------
+
+_CACHE_VERSION = 1  # bump to invalidate every cached truth (e.g. after a generator bugfix)
+
+
+def _jsonable(obj):
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return {f.name: _jsonable(getattr(obj, f.name)) for f in fields(obj)}
+    if isinstance(obj, (list, tuple)):
+        return [_jsonable(v) for v in obj]
+    if isinstance(obj, dict):
+        return {k: _jsonable(v) for k, v in obj.items()}
+    return obj
+
+
+def _spec_hash(spec: "ms.MilestoneSpec") -> str:
+    payload = {
+        "version": _CACHE_VERSION,
+        "params": _jsonable(spec.params),
+        "chord_tol": spec.chord_tol,
+        "frame": _jsonable(spec.frame),
+        "input": _jsonable(spec.input),
+    }
+    blob = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def _cache_path(milestone: str) -> Path:
+    return TRUTH_DIR / f"{milestone}.json"
+
+
+def _load_cached(milestone: str, spec_hash: str) -> Optional[Truth]:
+    cache_path = _cache_path(milestone)
+    step_path = TRUTH_DIR / f"{milestone}.step"
+    stl_path = TRUTH_DIR / f"{milestone}.stl"
+    if not (cache_path.exists() and step_path.exists() and stl_path.exists()):
+        return None
+    try:
+        meta = json.loads(cache_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    if meta.get("hash") != spec_hash:
+        return None
+    try:
+        shape, _ = metrics.read_step(step_path)
+    except (RuntimeError, OSError):
+        return None
+    return Truth(
+        milestone=milestone,
+        shape=shape,
+        V_truth=meta["V_truth"],
+        A_truth=meta["A_truth"],
+        bbox=tuple(meta["bbox"]),
+        step_path=step_path,
+        stl_path=stl_path,
+    )
+
+
+def _save_cache(milestone: str, spec_hash: str, truth: Truth) -> None:
+    cache_path = _cache_path(milestone)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps({
+        "hash": spec_hash,
+        "V_truth": truth.V_truth,
+        "A_truth": truth.A_truth,
+        "bbox": list(truth.bbox),
+    }))
+
+
+def make(milestone: str, force: bool = False) -> Truth:
+    """Build (or rebuild) the analytic ground truth for *milestone* and return a Truth object.
+
+    `force=True` bypasses the truth cache (see module docstring) and always reruns the maker,
+    e.g. for `--warm` or when a caller specifically needs a freshly-built (not STEP-round-tripped)
+    `truth.shape`.
+    """
     if milestone not in ms.MILESTONES:
         raise KeyError(f"Unknown milestone {milestone!r}. Valid: {list(ms.MILESTONES)}")
     if milestone not in _MAKERS:
@@ -884,4 +974,40 @@ def make(milestone: str) -> Truth:
         # NotImplementedError (not KeyError) so selftest.py's per-milestone catch reports this
         # as a FAIL for that milestone instead of crashing the whole selftest run.
         raise NotImplementedError(f"generator for {milestone!r} not yet implemented")
-    return _MAKERS[milestone]()
+
+    spec = ms.get(milestone)
+    spec_hash = _spec_hash(spec)
+    if not force:
+        cached = _load_cached(milestone, spec_hash)
+        if cached is not None:
+            return cached
+    truth = _MAKERS[milestone]()
+    _save_cache(milestone, spec_hash, truth)
+    return truth
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+    import time
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--warm", action="store_true",
+                         help="build/refresh the truth cache for every milestone with a "
+                              "registered generator and exit (does not run any checks)")
+    parser.add_argument("--force", action="store_true",
+                         help="with --warm, rebuild every truth even if the cache is fresh")
+    args = parser.parse_args()
+
+    if args.warm:
+        for name in ms.MILESTONES:
+            if name not in _MAKERS:
+                print(f"[SKIP] {name}: no generator yet", flush=True)
+                continue
+            t0 = time.time()
+            make(name, force=args.force)
+            print(f"[OK]   {name}: {time.time() - t0:.1f}s", flush=True)
+        sys.exit(0)
+
+    parser.print_help()
+    sys.exit(1)

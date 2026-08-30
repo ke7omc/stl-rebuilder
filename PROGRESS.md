@@ -40,6 +40,73 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 38 (M0, round 2): `harness/generators.py` truth cache — the first of Brady's 12:15
+  ordered asks, and the biggest lever on selftest wall clock.** Root cause confirmed before
+  building anything: `score.py::score()` calls `generators.make(milestone)` fresh on every
+  call, and `selftest.py::check_milestone` calls `_score_with_step` (-> `score()`) ~6 times per
+  milestone (truth-passes-gates, 4 report-gate mutations, one-bad-region, scaled copy,
+  bore-filled copy). For M9/M13 each of those 6 calls reran the *entire* maker from scratch —
+  fine tessellation at chord_tol/2 plus `voxelize.synthesize_voxel_input`'s marching-cubes pass
+  over a quarter-million-cell grid — which is exactly the 2–3 min/check cost Brady's note
+  measured, not something in the scorer's own metric code.
+  - **Fix**: `generators.make(milestone, force=False)` now hashes `spec.params`/`spec.frame`/
+    `spec.input`/`spec.chord_tol` (sha256 of a sorted-key JSON dump, dataclasses walked via a
+    small `_jsonable` helper, version-tagged via `_CACHE_VERSION` so a generator bugfix can
+    invalidate old caches by bumping one constant) and writes it alongside the existing
+    `Mk.step`/`Mk.stl` as `harness/truth/Mk.json` (`{hash, V_truth, A_truth, bbox}`, all
+    gitignored like the rest of `truth/`). On a hit (hash matches + step/stl files present) it
+    skips the maker entirely and re-reads the shape from `Mk.step` via `metrics.read_step`
+    (already used elsewhere in the harness) — geometrically identical, no OCP boolean/tessellate/
+    voxelize work. `truth.shape` is only ever used for a scale transform (`selftest.py:149`)
+    and as the reference solid — no code depends on shape *identity*, so a STEP-round-tripped
+    shape is a safe substitute. `force=True` bypasses the cache (used by `--warm`).
+  - **`--warm` CLI added**: `.venv/bin/python -m harness.generators --warm` (or run as a script)
+    builds/refreshes every registered milestone's truth once, `--force` to rebuild even a fresh
+    cache. Not wired into the driver/selftest yet — meant for a human/CI to pre-populate
+    `truth/` before a scoring run; `make()`'s own cache check makes selftest/score runs
+    self-warming regardless.
+  - **Measured**: `generators.make('M13', force=True)` (cold rebuild) = 145.3s;
+    `generators.make('M13')` right after (cache hit) = 0.038s — **~3800x**. V_truth/A_truth/bbox
+    identical between the two (exact equality, not just close). `selftest.py --milestone M13
+    --skip-gmsh` (which was the dominant cost in Brady's 12:15 timing, ~15 min for M9's block
+    alone) now runs in **94.4s** total across all 9 checks, each check now paying only its own
+    scorer-side metric cost, not a full voxelize rebuild. `selftest.py --milestone M1`: 21.3s,
+    unaffected/still correct (cache warms on first check, hits on the rest). All mutation-gate
+    checks for M13 still correctly FAIL-as-expected with the cached truth (dome_stations_min,
+    topo_events x2, surface_deviation_p99_by_region, scaled/bore-filled volume_err_pct) — the
+    cache changes *speed*, not the geometry, so this is exactly the outcome expected.
+  - **Full unnarrowed `selftest.py` (all 13 milestones + MR + determinism) run TWICE end-to-end
+    to separate cold-cache from warm-cache cost:**
+    - **Run 1** (cold — no `Mk.json` yet for any milestone; every truth pays its build cost once,
+      but only once, since the cache is written on that first build and every later `score()`
+      call within the same `check_milestone` hits it): **630.7s** (10.5 min). 91/92 checks PASS,
+      the 1 FAIL is the expected/known `MR: generator implemented` (MR has no generator yet —
+      not a regression, the one remaining M0 blocker).
+    - **Run 2** (truly warm — every `Mk.json` already fresh from run 1): **480.7s (8.0 min)**,
+      identical 91/92 result. This is essentially at MISSION §7.2's "≤8 min warm" target (0.7s
+      over — noise) and a **~6x** reduction from the pre-cache full-run estimate of ~2700–3200s
+      in Brady's 12:15 note, with huge margin under the driver's 3600s hard cap.
+    - The residual 480s warm floor is legitimate, not a cache miss: each of the ~6 `score()`
+      calls per milestone still does real scoring work (loading/deviating the actual mesh,
+      gmsh meshing once per milestone — gmsh is outside `generators.make()` so the cache doesn't
+      touch it) even when the truth geometry itself is cache-hit. Further speedup from here would
+      mean optimizing the metric/gmsh code paths, not the truth cache — a different, separate
+      effort; not pursuing it now since the target is already met.
+    - `pytest tests/` (full suite, run serially, nothing else running concurrently): **24/24
+      PASS in 518.7s**, including `test_voxelize.py` — the "18-minute 100%-CPU stall" flagged in
+      iter 36 did NOT reproduce; it ran cleanly as part of this normal-length full suite,
+      confirming Brady's 12:15 suspicion that it was machine load from concurrent
+      scorer/selftest processes in that iteration, not a real performance bug. No further action
+      needed on it.
+  - **Net effect of this iteration**: the §7.2 wall-clock risk flagged at 12:15 is resolved —
+    full selftest is safely under both the 8-min soft target and the 3600s hard cap, with a
+    comfortable margin (3600/480 ≈ 7.5x headroom) even accounting for machine-load variance.
+  - **Next**: fix `selftest.py`'s stale "1500 s" printed footer (Brady flagged it — actual cap
+    is `SCORE_TIMEOUT_S=3600s`; cosmetic only, doesn't affect correctness) if a spare cycle
+    allows, then MR — the one remaining M0 blocker: `score.py` needs `spec.optional`/`input_glob`
+    wiring for `pass:true,"skipped"` when `real_inputs/` is empty, `selftest.py` needs a `[SKIP]`
+    path for it instead of routing through `check_milestone`'s `generators.make()` flow.
+
 - **iter 37 (M0, round 2): `harness/generators.py::_make_m13` implemented + fixed a real
   `score.py` bug it exposed. M1–M13 (every non-MR milestone) now generate and pass their full
   `selftest.py --milestone Mk` suite individually.**
