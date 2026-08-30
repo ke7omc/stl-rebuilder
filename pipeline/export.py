@@ -12,17 +12,28 @@ from OCP.TopoDS import TopoDS_Shape
 
 
 def finalize(shape: TopoDS_Shape):
-    """ShapeFix -> UnifySameDomain -> validity check. Returns (shape, is_valid)."""
+    """ShapeFix -> UnifySameDomain -> validity check. Returns (shape, is_valid).
+
+    UnifySameDomain occasionally breaks manifoldness instead of just simplifying face count —
+    observed on M5's double-fuse (two topology-event seams close together): the fixed,
+    pre-unify shape was valid, unify's output was not. Since unify is a pure simplification
+    step (merges coincident-domain faces/edges, changes no geometry), a shape it invalidates is
+    worse than the one going in, so fall back to the pre-unify shape rather than propagate the
+    corruption; the only cost is a few extra faces (`face_count_max` is a generous anti-
+    tessellation guard, not a style gate)."""
     fixer = ShapeFix_Shape(shape)
     fixer.Perform()
     shape = fixer.Shape()
+    if not BRepCheck_Analyzer(shape).IsValid():
+        return shape, False
 
     unify = ShapeUpgrade_UnifySameDomain(shape, True, True, True)
     unify.Build()
-    shape = unify.Shape()
+    unified = unify.Shape()
 
-    valid = BRepCheck_Analyzer(shape).IsValid()
-    return shape, bool(valid)
+    if BRepCheck_Analyzer(unified).IsValid():
+        return unified, True
+    return shape, True
 
 
 def undo_axis_transform(shape: TopoDS_Shape, R: np.ndarray) -> TopoDS_Shape:

@@ -380,6 +380,18 @@ def _run(args) -> int:
             # M5 sandwich: two internal seams (event_fore, event_aft), no true end on either
             # side of the fin-slot prism, so both its extensions use the small seam margin —
             # same eps_cut-bleed reasoning as the single-event case above, just on both sides.
+            # The fuzzy tolerance passed to `booleans.fuse` matters independently of the seam
+            # overlap length: using the full `tol.fuzzy(chord_tol)` here let BOPAlgo snap/merge
+            # vertices across the whole overlap band, distorting the circular bore radius right
+            # at the seam by up to ~1 mm (measured: surface_deviation_max_mm 0.68 vs the 0.6 mm
+            # gate, entirely inside the supposedly-plain-circular fore_cylinder region). Using
+            # `seam_eps` itself (much smaller) as the fuzzy value fixed that (0.36 mm, well under
+            # gate). (Tried also widening the *fin_solid*'s own seam extension to fatten the
+            # overlap volume for gmsh — that reintroduces the exact eps_cut-bleed bug from M4:
+            # the fin/star cutter then removes star-shaped material from genuinely-circular
+            # territory, measured 4.0 mm deviation at the widened amount. Only the *circular*
+            # cutter's overlap may be widened — circle is always a subset of the star cross-
+            # section, so extending it further into fin territory is a no-op there.)
             circ_fore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before \
                 + [(event_fore + seam_eps, pts_before[-1][1])]
             circ_aft_full = [(event_aft - seam_eps, pts_after[0][1])] + pts_after \
@@ -388,8 +400,8 @@ def _run(args) -> int:
                                            chord_tol)
             circ_fore_solid = solids.build_revolve_solid(circ_fore_full, chord_tol)
             circ_aft_solid = solids.build_revolve_solid(circ_aft_full, chord_tol)
-            bore_solid = booleans.fuse(circ_fore_solid, fin_solid, tol.fuzzy(chord_tol))
-            bore_solid = booleans.fuse(bore_solid, circ_aft_solid, tol.fuzzy(chord_tol))
+            bore_solid = booleans.fuse(circ_fore_solid, fin_solid, seam_eps)
+            bore_solid = booleans.fuse(bore_solid, circ_aft_solid, seam_eps)
         elif circ_before:
             circ_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
                 + [(event_z + seam_eps, bore_pts[-1][1])]
