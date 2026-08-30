@@ -15,9 +15,12 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
-- Milestone: **M2**, in progress. Local score: `pass:false, progress:0.4788`, first failure
-  `volume_err_pct` 0.0756% (gate 0.05%) — down from 0.1381% at the top of iter 15, still ~1.5x
-  over gate. No crash, no timeout — the pipeline runs end-to-end.
+- Milestone: **M2**, in progress. Local score: `pass:false, progress:0.6535`, first failure
+  `surface_deviation_max_mm` 1.314 mm at z=9965.2 (aft_dome, right at the pinch end; gate
+  0.6 mm) — up from progress 0.4788 (volume_err_pct 0.0756%) at the top of iter 16. No crash,
+  no timeout — the pipeline runs end-to-end. `volume_err_pct` is now comfortably under its
+  0.05% gate (see iter 16 log). M1 still `pass:true, progress:1.0`; `pytest tests/` still
+  15 passed / 1 pre-existing unrelated failure (see iter 16 log).
 - **Iter 15 summary (read this before touching `pipeline/cli.py` or `pipeline/solids.py`
   again):** the 0.138% volume error left by iter 14 was NOT dominated by the pinch-endpoint
   radius itself (that was already snapped to the bore's fitted radius, which is accurate). It
@@ -307,6 +310,53 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 16 — M2 — sonnet/medium — 2026-08-29T19:48
+- Score before: `M2 progress=0.4788`, first failure `volume_err_pct=0.0756%` (gate 0.05%).
+- Diagnosis: per-band volume probe (trimesh `slice_plane` on truth vs the pipeline's own
+  tessellated STL, in 24 mm z-bands) showed the dominant error was NOT the ~100 mm
+  excluded-residual pinch gap (already fixed in iter 15) — it was chord-vs-arc bias across the
+  *real* dome station-to-station gaps deeper in each dome (up to -2.1% local deficit around
+  mid-dome, where dR/dz is steepest and raw station spacing is 100+ mm), totaling ~75% of the
+  whole-part volume_err_pct even though every individual station's circle fit was accurate.
+- Change: added `_densify_dome_chords()` to `pipeline/cli.py`. It REPLACES (not appends to) the
+  raw circle-fit stations inside the "validated dome window" — from the pinch endpoint through
+  `window_z`, the last station `_fit_r2_quadratic`'s growing-window fit actually validated —
+  with a clean, evenly-spaced-in-z resample of that same quadratic-in-R^2 model
+  (`n_samples=20`). Wired into `_run()`'s pinch handling: `fore_gap`/`aft_gap` now come from
+  `_densify_dome_chords` instead of `_fill_pinch_gap`, and `middle_pts` drops any raw station
+  inside the window so `build_revolve_solid`'s RDP simplification sees only the clean resample
+  there, not a mix of noisy real stations plus inserted model points.
+- Tuning history (why n_samples=20, not something else): appending densified points to the raw
+  stations (rather than replacing) fixed volume (~0.01%) and deviation but blew
+  `face_count_max` to 67 (gate 40). Switching to replace-only with n_samples=24 (uniform in z)
+  passed both volume and deviation but still had face_count=50. n_samples=14 dropped
+  face_count to 29 (passing) but surface_deviation_max_mm regressed to 2.47 mm — too few points
+  to resolve the steep curvature right at the pinch. n_samples=20 is the compromise landed on
+  this iteration: `surface_deviation_max_mm=1.314` at z=9965.2 (aft_dome, right at the pinch
+  end) — improved from the n=14 failure but still over the 0.6 mm gate; face_count_max itself
+  was never reached this run (scorer fails fast at the deviation check, which comes first).
+- Also tried and reverted: sampling uniform-in-R instead of uniform-in-z (closed-form solve of
+  the R^2-quadratic for z at each target R, meant to cluster samples where dR/dz is steepest
+  without raising n_samples) — at n_samples=14 this regressed volume_err_pct to 0.088%, worse
+  than the uniform-in-z n=20 result. Not re-tuned (e.g. at higher n_samples) for lack of
+  remaining budget this iteration; worth retrying with more n_samples or restricted to just the
+  final steep segment near the pinch rather than the whole window.
+- Verified: M1 unaffected (`pass:true, progress:1.0`). `pytest tests/` 15 passed, 1 failed
+  (`test_every_m1_check_passes_and_missing_generators_block_the_freeze` — confirmed via
+  `git stash` this fails identically on the unmodified iter-15 baseline; an argparse
+  conftest/CLI issue unrelated to this change, not a regression).
+- Score after: `M2 progress=0.6535`, first failure `surface_deviation_max_mm=1.314mm` at
+  z=9965.2 (gate 0.6mm). `volume_err_pct` no longer the limiting check.
+- Next iteration: get `surface_deviation_max_mm`/`surface_deviation_p99_mm` under gate without
+  exceeding `face_count_max=40`. The failure is concentrated right at the pinch endpoint in
+  both domes (steepest curvature), so options: (a) push n_samples higher and check where
+  face_count_max actually lands (untested — the deviation gate always failed first before that
+  check could run); (b) resume the uniform-in-R idea but apply it only to the last ~1-2 real
+  station gaps nearest the pinch (steepest region) while keeping uniform-in-z (or the raw
+  window) elsewhere, so extra density is spent only where curvature demands it; (c) revisit
+  whether RDP's `chord_tol`-derived epsilon in `build_revolve_solid` is too coarse for this
+  region specifically rather than tuning the input point density.
 
 ### iter 15 — M2 — sonnet/medium — 2026-08-29T17:29
 - Score before: driver verdict `M2 progress=0.4601`, first failure `volume_err_pct=0.1381%`
