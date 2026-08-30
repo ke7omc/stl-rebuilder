@@ -15,6 +15,43 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 28 (M0, round 2): `harness/generators.py::_make_m7` implemented — second Round 2
+  generator built.** Added `_satellite_cylinder(radius, r_center, angle, z0, z1, margin=20)`
+  (positions a `BRepPrimAPI_MakeCylinder` via `gp_Ax2` at the polar offset, overshooting past
+  `z0` by `margin/2` for a robust fuse but stopping *exactly* at `z1` — that flat stop is the
+  milestone's chain-death topology event, unlike `_straight_bore`'s through-cut which overshoots
+  both ends). `_make_m7` fuses `_straight_bore(R_bore=300, L)` with 6 satellite cutters
+  (R=100, r=600, 60° apart, z=[0,7000]) into one cutter solid, then cuts it from a plain
+  `R_o=1000` flat-ended cylinder. Registered in `_MAKERS` and `harness/selftest.py::_BORE_FILLERS`
+  (`_make_bore_filled_m7`: plain solid cylinder, same pattern as M3/M4/M6).
+- **Verified, `--milestone M7 --skip-gmsh` (~12s):** all M7 selftest checks PASS — truth STEP
+  round-trips, the 1.01×-scaled copy fails `volume_err_pct` (3.03% vs 0.1% gate — M7's is the
+  tightest volume gate yet), the bore-filled copy fails harder (15.21%). Truth volume matches
+  the closed form **exactly** (`π(1000²−300²)·10000 − 6π·100²·7000` = 27269024233.16 mm³, 0.0%
+  error — booleans of pure cylinders have no floating-point residue, same as M1). gmsh meshes
+  the truth cleanly: 133,473 tets, min_quality 0.244 (gate 0.1). `score.py --milestone M7` on
+  the untouched real pipeline exits 1 with contract-valid JSON, `pass:false`, failing at
+  `pipeline_exit` (exit 4: "got 1 outer / 7 holes (unsupported topology)") — the pipeline's
+  axisymmetric fast path correctly refuses non-single-hole stations, exactly the expected M0
+  outcome (a real failure, not a crash).
+  **Regression check: `score.py --milestone M{1..6}` all still `pass:true`/`pass:false` as
+  before** (M1-M5 `pass:true`, M6 `pass:false` on `volume_err_pct` — unchanged from iter 27; no
+  touch to any M1-M6 maker or shared helper). `pytest tests/` → 16/16 passed (194s).
+- **Note:** M7's `gates` dict uses the new §7.2 key `topo_events` (not the M4/M5-era
+  `topo_event_z_tolerance_mm`), and `score.py`'s `_GATED` dispatch list only recognizes the old
+  key — so the `topo_events` gate currently does not execute at all (silently absent from the
+  evaluation plan, not a crash). This is expected at this stage of M0's build order (§7.2 step 3,
+  not yet started) but means M7's chain-death detection isn't actually exercised by `score.py`
+  yet. Flagging so the next `score.py` iteration knows to wire `topo_events` (+
+  `topo_events_z_mm`/`topo_events_max` from the spec, not from `gates`) into `_GATED`, matching
+  how `topo_event_z_tolerance_mm` already reads `spec.gates[...]` as the threshold.
+- **Next:** either M11 (three disjoint segments — first `n_solids>1` structural case, still no
+  new score.py machinery needed since `n_solids` is already a gate) to keep stacking generators
+  cheaply, OR start `score.py`'s §7.2 extension (per-spec `chord_tol`/frame mapping, the new
+  key-gated checks including `topo_events`) since M6 and M7 are now both blocked on it for a
+  *meaningful* (not just contract-valid) score. Prompt's suggested order says M7 then M11 before
+  score.py, so M11 first, then score.py once M6/M7/M11's generators all exist to test against.
+
 - **iter 27 (M0, round 2): `harness/generators.py::_make_m6` implemented — first Round 2
   generator built.** Added `_star_wire()` (the M3 filleted-star profile, refactored to build its
   wire directly in an arbitrary z-plane and return the wire via `BRepTools.OuterWire_s`, instead
@@ -570,6 +607,31 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 28 — M0 (round 2) — sonnet/medium — 2026-08-30T04:54
+- Score before: iter 27's last driver evaluation — selftest FAILED 36/44 checks (M7-M13/MR
+  generators not implemented); `score.py --milestone M6` progress=0.4852 (expected, no loft
+  support in pipeline).
+- Change: `harness/generators.py` — added `_satellite_cylinder()` helper and `_make_m7()` (see
+  `## Current state` above for the full geometry description), registered in `_MAKERS`.
+  `harness/selftest.py` — added `_make_bore_filled_m7`, registered in `_BORE_FILLERS`.
+- Score after (local): `selftest.py --milestone M7 --skip-gmsh` → all checks PASS in 11.5s.
+  Truth volume vs closed form: 0.0% error (exact). gmsh: 133,473 tets, min_quality 0.244 (gate
+  0.1). `score.py --milestone M7` on real pipeline → exit 1, contract-valid, `pass:false`,
+  first_failure=pipeline_exit (exit 4, unsupported topology) — expected M0 outcome.
+  Regression: `score.py --milestone M{1..6}` unchanged (M1-M5 pass:true, M6 pass:false as
+  before). `pytest tests/` → 16/16 passed (194s).
+- Learned: `BRepPrimAPI_MakeCylinder(gp_Ax2(...), R, H)` is the clean way to place an
+  off-axis, z-offset cylinder — no separate transform step needed, unlike `_straight_bore`'s
+  translate-after-build pattern. A cutter that must die into a flat internal wall (not pass
+  through an outer face) should overshoot only its *open* end, matching the M4 fin-fore-wall
+  precedent but inverted (fins overshoot at their far end past L; M7 satellites overshoot at
+  z=0 and stop exactly at their flat wall z=7000).
+- Next: M7's `gates["topo_events"]` key isn't in `score.py::_GATED` yet, so that gate is a
+  silent no-op right now (see the flag in `## Current state`) — not blocking, since M0's
+  contract only requires a contract-valid JSON, not every gate wired. Continue the generator
+  ladder (M11, first `n_solids>1` case) before starting the `score.py` §7.2 extension, per the
+  prompt's suggested build order.
 
 ### iter 26 — M0 (round 2 start) — sonnet/medium — 2026-08-30T04:29
 - Score before: round 2 just started; `harness/` still exactly Round 1 (M1-M5 only, frozen tag

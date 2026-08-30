@@ -498,6 +498,47 @@ def _make_m6() -> Truth:
     return _finish("M6", cut.Shape())
 
 
+# ---------------------------------------------------------------------------
+# M7: central bore through + 6 satellite perforations dying into a flat wall at z=7000
+# ---------------------------------------------------------------------------
+
+def _satellite_cylinder(radius: float, r_center: float, angle: float, z0: float, z1: float,
+                        margin: float = 20.0) -> TopoDS_Shape:
+    """A cylinder of `radius` centred at (r_center*cos(angle), r_center*sin(angle)), spanning
+    z in [z0, z1]. Overshoots past z0 by margin/2 (an open end, fused onto other cutters/the
+    fore face) but stops exactly at z1 (the intentional flat end wall / chain death — no
+    overshoot there, unlike `_straight_bore`'s through-cut)."""
+    x = r_center * math.cos(angle)
+    y = r_center * math.sin(angle)
+    ax = gp_Ax2(gp_Pnt(x, y, z0 - margin / 2.0), gp_Dir(0.0, 0.0, 1.0))
+    return BRepPrimAPI_MakeCylinder(ax, radius, (z1 - z0) + margin / 2.0).Shape()
+
+
+def _make_m7() -> Truth:
+    spec = ms.get("M7")
+    L = spec.params["L"]
+    outer = BRepPrimAPI_MakeCylinder(spec.params["R_o"], L).Shape()
+    cutter = _straight_bore(spec.params["R_bore"], L)
+
+    n_sat = spec.params["n_sat"]
+    R_sat = spec.params["R_sat"]
+    r_sat = spec.params["r_sat"]
+    sat_z_end = spec.params["sat_z_end"]
+    for k in range(n_sat):
+        sat = _satellite_cylinder(R_sat, r_sat, 2.0 * math.pi * k / n_sat, 0.0, sat_z_end)
+        fuse = BRepAlgoAPI_Fuse(cutter, sat)
+        fuse.Build()
+        if not fuse.IsDone():
+            raise RuntimeError(f"M7 cutter fuse failed on satellite {k}")
+        cutter = fuse.Shape()
+
+    cut = BRepAlgoAPI_Cut(outer, cutter)
+    cut.Build()
+    if not cut.IsDone():
+        raise RuntimeError("M7 boolean cut failed")
+    return _finish("M7", cut.Shape())
+
+
 _MAKERS = {
     "M1": _make_m1,
     "M2": _make_m2,
@@ -505,6 +546,7 @@ _MAKERS = {
     "M4": _make_m4,
     "M5": _make_m5,
     "M6": _make_m6,
+    "M7": _make_m7,
 }
 
 
