@@ -39,7 +39,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
-from OCP.gp import gp_Pnt, gp_Trsf
+from OCP.gp import gp_Pnt, gp_Trsf, gp_Ax2, gp_Dir
 
 from harness import generators, metrics, meshcheck as mc
 from harness import milestones as ms
@@ -227,10 +227,29 @@ def _make_bore_filled_m7(spec, work_dir: Path) -> Path:
     return path
 
 
+def _make_bore_filled_m11(spec, work_dir: Path) -> Path:
+    """M11 with each segment's bore filled: 3 disjoint solid cylinders, same z-spans and gaps
+    (n_solids stays 3) — should badly fail volume_err_pct against the annular-segment truth."""
+    from OCP.BRep import BRep_Builder
+    from OCP.TopoDS import TopoDS_Compound
+
+    R_o = spec.params["R_o"]
+    compound = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(compound)
+    for seg in spec.params["segments"]:
+        ax = gp_Ax2(gp_Pnt(0.0, 0.0, seg["z_lo"]), gp_Dir(0.0, 0.0, 1.0))
+        solid = BRepPrimAPI_MakeCylinder(ax, R_o, seg["z_hi"] - seg["z_lo"]).Shape()
+        builder.Add(compound, solid)
+    path = work_dir / "M11_bore_filled.step"
+    generators._write_step(compound, path)
+    return path
+
+
 _BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2,
                   "M3": _make_bore_filled_m3, "M4": _make_bore_filled_m4,
                   "M5": _make_bore_filled_m5, "M6": _make_bore_filled_m6,
-                  "M7": _make_bore_filled_m7}
+                  "M7": _make_bore_filled_m7, "M11": _make_bore_filled_m11}
 
 
 def check_milestone(name: str, work_dir: Path, skip_gmsh: bool = False) -> None:

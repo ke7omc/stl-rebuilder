@@ -539,6 +539,38 @@ def _make_m7() -> Truth:
     return _finish("M7", cut.Shape())
 
 
+# ---------------------------------------------------------------------------
+# M11: 3 disjoint annular BATES segments (gapped, flat ends) -> one compound of 3 solids
+# ---------------------------------------------------------------------------
+
+def _annular_segment(R_o: float, R_i: float, z_lo: float, z_hi: float) -> TopoDS_Shape:
+    """A single annular cylinder segment spanning z in [z_lo, z_hi] (both ends flat, no
+    overshoot — each segment is a standalone solid, not fused to its neighbours)."""
+    ax = gp_Ax2(gp_Pnt(0.0, 0.0, z_lo), gp_Dir(0.0, 0.0, 1.0))
+    outer = BRepPrimAPI_MakeCylinder(ax, R_o, z_hi - z_lo).Shape()
+    bore = BRepPrimAPI_MakeCylinder(ax, R_i, z_hi - z_lo).Shape()
+    cut = BRepAlgoAPI_Cut(outer, bore)
+    cut.Build()
+    if not cut.IsDone():
+        raise RuntimeError("M11 segment boolean cut failed")
+    return cut.Shape()
+
+
+def _make_m11() -> Truth:
+    from OCP.BRep import BRep_Builder
+    from OCP.TopoDS import TopoDS_Compound
+
+    spec = ms.get("M11")
+    R_o = spec.params["R_o"]
+    compound = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(compound)
+    for seg in spec.params["segments"]:
+        solid = _annular_segment(R_o, seg["R_i"], seg["z_lo"], seg["z_hi"])
+        builder.Add(compound, solid)
+    return _finish("M11", compound)
+
+
 _MAKERS = {
     "M1": _make_m1,
     "M2": _make_m2,
@@ -547,6 +579,7 @@ _MAKERS = {
     "M5": _make_m5,
     "M6": _make_m6,
     "M7": _make_m7,
+    "M11": _make_m11,
 }
 
 

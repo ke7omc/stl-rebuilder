@@ -15,7 +15,40 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
-- **iter 28 (M0, round 2): `harness/generators.py::_make_m7` implemented — second Round 2
+- **iter 29 (M0, round 2): `harness/generators.py::_make_m11` implemented — third Round 2
+  generator built (first `n_solids>1` case).** M11 is 3 disjoint annular BATES segments (A
+  R_i=300 z[0,3000], B R_i=450 z[3500,6500], C R_i=300 z[7000,10000]), each built by
+  `_annular_segment(R_o, R_i, z_lo, z_hi)` (its own `gp_Ax2` origin at `z_lo` so each segment is
+  a standalone flat-ended annular cylinder, not fused to its neighbours — the gaps between
+  segments are genuinely empty, not shared walls), then assembled into one `TopoDS_Compound` via
+  `BRep_Builder.MakeCompound`/`.Add` (no new score.py machinery needed: `n_solids` was already a
+  generic gated check reading `TopExp.MapShapes_s(..., TopAbs_SOLID)`, which counts solids inside
+  a compound fine). Registered in `_MAKERS` and `harness/selftest.py::_BORE_FILLERS`
+  (`_make_bore_filled_m11`: same 3-segment compound but each segment solid-filled, no bore —
+  n_solids stays 3 so only `volume_err_pct` should trip).
+- **Verified, `--milestone M11 --skip-gmsh` (~12s):** all M11 selftest checks PASS — truth STEP
+  round-trips, 1.01×-scaled copy fails `volume_err_pct` (3.03% vs 0.05% gate), bore-filled copy
+  fails harder (14.61%). Truth volume matches the closed form **exactly** (sum of
+  `π(R_o²−R_i²)·(z_hi−z_lo)` per segment = 24669356312.31 mm³, rel err 1.5e-16 — booleans of
+  pure cylinders again have zero floating-point residue). `score.py --milestone M11` on the
+  untouched real pipeline exits 1, contract-valid JSON, `pass:false`, failing at `pipeline_exit`
+  (exit 3: "input mesh is not a single watertight body (watertight=True, body_count=3)") — the
+  pipeline correctly refuses multi-body input, the expected M0 outcome.
+  **Full selftest (`--skip-gmsh`, ~167s) run end-to-end: M1–M7 and M11 all pass every check**
+  (35 PASS); the only 6 FAILs are the still-unimplemented M8/M9/M10/M12/M13/MR generators,
+  exactly as expected at this stage. **Regression check: `score.py --milestone M{1..7}`** on the
+  untouched pipeline reproduces iter-28's verdicts exactly (M1–M5 `pass:true`, M6/M7
+  `pass:false`) — no shared helper (`_finish`, `_write_step`, `_write_stl`, `_volume_area`,
+  `_bbox`) was touched, only additive code.
+- **Next:** `score.py`'s §7.2 extension is now the biggest lever — M6, M7, and M11 all have
+  working generators but none of their milestone-specific gates execute yet (M6/M7 need
+  `topo_events`/`topo_events_z_mm`/`topo_events_max` wired from the spec instead of the dead
+  `topo_event_z_tolerance_mm` key; M11 needs `per_solid_volume_err_pct` wired, currently unused).
+  Alternatively keep stacking cheap generators first: M12 (dilated M5 cavity + fillets — needs
+  `BRepFilletAPI_MakeFillet`, more involved) or M8 (also a fillet case per the build-order note).
+  Prompt's suggested order was M7→M11→score.py, so score.py's extension is next up.
+
+### iter 28 (M0, round 2): `harness/generators.py::_make_m7` implemented — second Round 2
   generator built.** Added `_satellite_cylinder(radius, r_center, angle, z0, z1, margin=20)`
   (positions a `BRepPrimAPI_MakeCylinder` via `gp_Ax2` at the polar offset, overshooting past
   `z0` by `margin/2` for a robust fuse but stopping *exactly* at `z1` — that flat stop is the
