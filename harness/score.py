@@ -152,6 +152,15 @@ DEVIATION_DEFLECTION = ms.CHORD_TOL / 2.0
 # fails `pipeline_exit`, so a milestone with no report-derived gate is unaffected.
 REPORT_KEYS = ("n_stations", "stations_z_mm", "paths_used", "topology_events_z_mm")
 
+# Report contract v2 (MISSION §7.2). The Round 1 four above stay; these are additionally required
+# from Round 2 on and must be written on EVERY exit path, including failures, so a crashed run
+# still explains itself. Only the keys a milestone's gates actually read are enforced by a check
+# (that is what keeps the M1-M5 plans byte-identical) -- the rest are contract, and the hint below
+# names the whole set so a pipeline author sees the full obligation on the first failure.
+REPORT_KEYS_V2 = REPORT_KEYS + (
+    "status", "exit_code", "error", "stage_reached", "frame", "axial_extent_mm", "end_kinds",
+    "bodies", "stations", "chains", "timings", "warnings", "min_edge_mm")
+
 
 def _load_report(path: Path) -> dict | None:
     try:

@@ -53,7 +53,7 @@ _T_LAST = [_T0]
 def _report(ok: bool, label: str, detail: str = "") -> None:
     """Print one PASS/FAIL line prefixed with this check's elapsed time and the running total.
 
-    The timing is not decoration. The driver runs this file under a hard 1500 s SCORE_TIMEOUT_S
+    The timing is not decoration. The driver runs this file under a hard SCORE_TIMEOUT_S
     and keeps only the last 3000 characters of output, which OCC's STEP writer floods with banner
     noise. When selftest went over budget in iter 10 the tail therefore held no check lines at
     all, the overrun was misread as the environment killing the process, and the M0 gate stalled
@@ -72,7 +72,9 @@ def _report(ok: bool, label: str, detail: str = "") -> None:
 def _ideal_report(spec, truth) -> dict:
     """The report an ideal pipeline would write for `spec` (see score.REPORT_KEYS): dense stations
     in every dome band, a sparse pass elsewhere, and a topology event exactly at the fin plane."""
-    z_min, z_max = truth.bbox[2], truth.bbox[5]
+    # Stations live in the scorer's canonical axial coordinate, not raw world z: for M10/M13,
+    # whose motor axis is +x, raw z is a *radial* coordinate. Identical to the bbox for Round 1.
+    _mat, z_min, z_max = score_mod._canonical(spec, truth)
     span = z_max - z_min
     stations = [z_min + span * i / 11.0 for i in range(12)]
     station_bands = spec.station_bands or {}
@@ -99,7 +101,52 @@ def _ideal_report(spec, truth) -> dict:
         "stations_z_mm": sorted(stations),
         "paths_used": {"outer": "revolve", "bore": "revolve"},
         "topology_events_z_mm": events,
+        # Round 2 frame keys (MISSION §7.2). M10/M13 gate on these; for Round 1 they are simply
+        # the canonical identity frame and no gate reads them.
+        "frame": {
+            "axis": list(spec.frame.axis),
+            "origin_mm": list(spec.frame.origin_mm),
+            "units": spec.frame.units,
+            "scale_to_mm": spec.frame.scale_to_mm,
+        },
+        "axial_extent_mm": span,
     }
+
+
+def _stations_uniform(rep: dict, n: int) -> dict:
+    """Replace the report's stations with `n` uniformly spaced ones over the same axial extent,
+    keeping `n_stations` consistent so the mutation isolates the gate under test."""
+    zs = rep["stations_z_mm"]
+    lo, hi = min(zs), max(zs)
+    out = [lo + (hi - lo) * i / (n - 1) for i in range(n)]
+    return {**rep, "stations_z_mm": out, "n_stations": n}
+
+
+def _stations_cosine(rep: dict, n: int) -> dict:
+    """Round 1's cosine end-clustering warp, at `n` stations over the same axial extent.
+
+    This is the counter-example behind MISSION §6.2's claim that Round 1's station placement
+    cannot pass M8: clustering at both ends satisfies `dome_stations_min` while leaving the
+    mid-barrel feature bands nearly empty, so it must fail `station_bands` — and it does so from
+    *within* the `n_stations_max` budget, which is what makes the gate a real requirement for
+    feature-aware placement rather than something brute refinement can buy its way out of.
+    """
+    zs = rep["stations_z_mm"]
+    lo, hi = min(zs), max(zs)
+    out = [lo + (hi - lo) * (1.0 - np.cos(np.pi * i / (n - 1))) / 2.0 for i in range(n)]
+    return {**rep, "stations_z_mm": [float(z) for z in out], "n_stations": n}
+
+
+def _frame_axis_rotated(rep: dict, deg: float) -> dict:
+    """Tilt the report's frame axis by `deg` degrees about an arbitrary perpendicular."""
+    axis = np.asarray(rep["frame"]["axis"], dtype=float)
+    axis = axis / np.linalg.norm(axis)
+    seed = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    perp = np.cross(axis, seed)
+    perp = perp / np.linalg.norm(perp)
+    theta = np.radians(deg)
+    tilted = axis * np.cos(theta) + perp * np.sin(theta)
+    return {**rep, "frame": {**rep["frame"], "axis": [float(c) for c in tilted]}}
 
 
 def _score_with_step(milestone: str, step_src: Path, truth, report_mutate=None):
@@ -475,6 +522,29 @@ def check_milestone(name: str, work_dir: Path, skip_gmsh: bool = False) -> None:
          "too many spurious topology events"),
         ("adaptive_efficiency", "adaptive_efficiency",
          lambda r: {**r, "n_stations": 100_000}, "station count not adaptive"),
+        # --- Round 2 gates. Each mutation is the minimum lie that should trip exactly one gate;
+        # if a gate is ever unwired (as frame_axis_err_deg and axial_extent_err_mm were), the
+        # first_failure comes back as some *other* check and these checks fail loudly.
+        ("station_bands", "stations_consistent",
+         lambda r: {**r, "n_stations": len(r["stations_z_mm"]) + 7},
+         "n_stations disagrees with stations_z_mm"),
+        ("station_bands", "stations_consistent",
+         lambda r: {**r, "stations_z_mm": sorted(r["stations_z_mm"]) + [1e6],
+                    "n_stations": len(r["stations_z_mm"]) + 1},
+         "a station outside the axial extent"),
+        # MISSION §6.2's explicit claim, made testable: Round 1's cosine warp at n=80 is inside
+        # the station budget and satisfies the dome gate, yet starves the mid-barrel bands.
+        ("station_bands", "station_bands",
+         lambda r: _stations_cosine(r, 80),
+         "Round 1 cosine end-clustering at n=80 starves the feature bands"),
+        ("n_stations_max", "n_stations_max",
+         lambda r: _stations_uniform(r, 10_000),
+         "10 000 uniform stations blow the station budget"),
+        ("frame_axis_err_deg", "frame_axis_err_deg",
+         lambda r: _frame_axis_rotated(r, 5.0), "motor axis rotated 5 degrees"),
+        ("axial_extent_err_mm", "axial_extent_err_mm",
+         lambda r: {**r, "axial_extent_mm": r["axial_extent_mm"] - 50.0},
+         "axial extent short by 50 mm"),
     ):
         if gate not in spec.gates:
             continue
@@ -650,9 +720,9 @@ def main(argv=None) -> int:
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 
-    # The driver's SCORE_TIMEOUT_S is 1500 s and it restores harness/ from a tag once frozen, so
+    # The driver's SCORE_TIMEOUT_S is 3600 s and it restores harness/ from a tag once frozen, so
     # a selftest that creeps up on that budget is a latent permanent stall. Report the margin.
-    print(f"\ntotal {time.time() - _T0:.1f}s (driver SCORE_TIMEOUT_S = 1500 s)", flush=True)
+    print(f"\ntotal {time.time() - _T0:.1f}s (driver SCORE_TIMEOUT_S = 3600 s)", flush=True)
     if FAILURES:
         print(f"SELFTEST FAILED ({len(FAILURES)} check(s)):")
         for f in FAILURES:

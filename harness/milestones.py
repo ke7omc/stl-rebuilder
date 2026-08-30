@@ -10,6 +10,14 @@ from typing import Dict, List, Optional, Tuple
 
 CHORD_TOL = 0.5  # mm — default scoring/generation tolerance (passed to rebuild.py)
 
+#: Half-width (mm) of the `fore_wall` / `aft_wall` feature bands that `station_bands` gates.
+#: MISSION §6.2 sizes this deliberately: "at n=80 the Round 1 warp spaces mid-barrel stations
+#: ≈ 310 mm apart, so a 300 mm feature band gets 0–1 stations". A band must therefore be ~300 mm
+#: wide to force feature-aware placement. Defining `fore_wall` as *everything between the dome
+#: and the slots* — 5293 mm on M8 — made the gate toothless: cosine end-clustering at n=80 puts
+#: 32 stations in it and passes, which is exactly the algorithm M8 exists to reject.
+WALL_BAND_MM = 150.0
+
 
 @dataclass(frozen=True)
 class RegionBand:
@@ -375,9 +383,13 @@ def _m8() -> MilestoneSpec:
         ),
         regions=[
             RegionBand("fore_dome", 0.0, dome_h / L),
-            RegionBand("fore_wall", dome_h / L, slot_z_lo / L),
+            RegionBand("barrel", dome_h / L, (slot_z_lo - WALL_BAND_MM) / L),
+            RegionBand("fore_wall", (slot_z_lo - WALL_BAND_MM) / L,
+                       (slot_z_lo + WALL_BAND_MM) / L),
             RegionBand("slot_zone", slot_z_lo / L, slot_z_hi / L),
-            RegionBand("aft_wall", slot_z_hi / L, 1.0),
+            RegionBand("aft_wall", (slot_z_hi - WALL_BAND_MM) / L,
+                       (slot_z_hi + WALL_BAND_MM) / L),
+            RegionBand("aft_dome", (L - dome_h) / L, 1.0),
         ],
         rebuild_args=["--axis", "z", "--sections", "80", "--adaptive", "--chord-tol", str(ct)],
         gates=dict(
@@ -552,10 +564,14 @@ def _m12() -> MilestoneSpec:
         ),
         regions=[
             RegionBand("fore_dome", 0.0, dome_h / L),
-            RegionBand("fore_wall", dome_h / L, slot_z_lo / L),
+            RegionBand("barrel", dome_h / L, (slot_z_lo - WALL_BAND_MM) / L),
+            RegionBand("fore_wall", (slot_z_lo - WALL_BAND_MM) / L,
+                       (slot_z_lo + WALL_BAND_MM) / L),
             RegionBand("slot_zone", slot_z_lo / L, breakthrough_z / L),
-            RegionBand("breakthrough", breakthrough_z / L, slot_z_hi / L),
-            RegionBand("aft_dome", slot_z_hi / L, 1.0),
+            # MISSION §6.2 gates the breakthrough band as [9600, 9800]; the previous
+            # [breakthrough_z, slot_z_hi] = [9656, 9750] was a stricter 94 mm window.
+            RegionBand("breakthrough", 9_600.0 / L, 9_800.0 / L),
+            RegionBand("aft_dome", (L - dome_h) / L, 1.0),
         ],
         rebuild_args=["--axis", "z", "--sections", "120", "--adaptive", "--chord-tol", str(ct)],
         gates=dict(

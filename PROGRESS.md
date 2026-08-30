@@ -40,6 +40,28 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 39 (M0, round 2): the Round 2 harness review pass — the audit before the freeze.**
+  Five real defects fixed (full detail in the iter-39 log block): two dead gates
+  (`frame_axis_err_deg`, `axial_extent_err_mm`) plus a structural guard so an orphan gate key now
+  raises instead of being silently dropped; per-spec deviation deflection (`ct/2`) replacing a
+  global 0.25 mm that made **M10 unpassable at any pipeline quality**; a canonical-frame transform
+  so region/station gates use the axial coordinate rather than raw world z (**M10's raw z span is
+  the 50 mm diameter, not the 247.3 mm length** — every band on M10/M13 was a radial window); and
+  the headline one, **M8's `station_bands` gate was toothless** (a 5292.8 mm `fore_wall` band that
+  Round 1's cosine end-clustering passed with 32 stations, plus no `aft_dome` band at all), fixed
+  by narrow `WALL_BAND_MM` feature bands on M8 and M12.
+  - **Review item 6 (M1–M5 unchanged) verified explicitly**: pre-change baselines in
+    `out/score.M*.review.json` vs post-change `out/score.M*.after.json` — `pass` True→True,
+    `progress` 1.0→1.0, `plan_identical=True`, every metric bit-for-bit identical. The M1–M5 check
+    plans contain no Round 2 checks (all new checks are key-gated).
+  - **Review item 8 (the feature-aware station gate) is now genuinely provable**: the selftest's
+    cosine-n=80 counter-example fails on `station_bands`, and `n_stations` can no longer be
+    self-reported — `stations_consistent` requires `len(stations_z_mm) == n_stations` with every
+    station inside the axial extent.
+  - **What is still weak is written down, not glossed over** — see `## Open review findings`
+    above `## Do not retry`. The harness is honest enough to freeze; it is not yet everything
+    §7.2 asks for, and the next M0 iteration should work that list.
+
 - **iter 38 (M0, round 2): `harness/generators.py` truth cache — the first of Brady's 12:15
   ordered asks, and the biggest lever on selftest wall clock.** Root cause confirmed before
   building anything: `score.py::score()` calls `generators.make(milestone)` fresh on every
@@ -1049,6 +1071,40 @@
   and every one was logged as a stall (3 by iter 9, halt is at `STALL_MAX=12`). Advancing to M1
   resets it; if the driver still reports stalls on M1, that is a *real* signal.
 
+## Open review findings (iter 39 harness review — found, verified, NOT fixed)
+These are the audit items the review pass ran out of budget for. They are recorded so the next
+M0 iteration does not have to re-derive them; none of them blocks the freeze, but each is a place
+where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value first.
+- **`tests/test_score_round2.py` does not exist.** §7.2 requires it. The only structural test of
+  the plan is `tests/test_score.py`'s M1-plan-by-name.
+- **The report-on-failure path is never exercised.** §7.2 asks for a check that runs `rebuild.py`
+  on a deliberately non-watertight copy and asserts `report.json` exists with `status`, `error`
+  and partial `stations`. `selftest.py` monkeypatches `_run_pipeline` and so has never run a real
+  `rebuild.py` at all — the "written in a `finally`" contract is entirely unenforced.
+- **No truth-correctness checks for M6–M13.** Only milestones with a `closed_form_volume` are
+  cross-checked. §7.2 names specifically: M6 frustum volume, M7/M11 closed forms, M8/M12 offset
+  property, M9/M13 input triangle count + skew statistics, M10 bbox = scaled rotated M8. Today a
+  wrong *truth* would be scored against confidently and nothing would notice.
+- **`per_solid_volume_err_pct` is a z-sorted zip, not the Hungarian centroid match §7.2
+  specifies.** It happens to be right for M11's three collinear cylinders, but it is order-
+  dependent and will mis-pair the moment bodies are not separable along z.
+- **`not_truth_copy` is byte-hash only.** Defeated by re-exporting the truth STEP, or by a 1e-9
+  translation. A volume/centroid/hausdorff comparison against `harness/truth/Mk.step` would be
+  the real check.
+- **`_truth_hidden` leaks.** It renames the truth to a sibling `.truth_hidden_<pid>` (enumerable
+  from the temp cwd) and the milestone name is visible in argv, so a pipeline could simply
+  `import harness.generators` and rebuild the answer. Cheap hardening: move the truth outside the
+  pipeline's reachable tree for the duration, and pass a neutral job id rather than `Mk`.
+- **`MR` is gameable by deleting `real_inputs/*.stl`** — the skip path returns `pass: true`.
+  Review item 11 is satisfied only in the sense that the skip is *reachable* when the directory is
+  empty; nothing prevents the pipeline from emptying it.
+- **`topo_events` partial credit is non-monotone** when the failure is the count cap rather than a
+  missing event: reporting more spurious events can raise `progress` before it trips the cap.
+- **`min_edge_mm` has no sliver mutation** in the selftest, so it is wired-but-unproven.
+- **Determinism is checked for M1 only.**
+- **M9's `chord_tol` is 0.5** where the surrounding milestones and §6.2's table imply 5 — worth
+  re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
+
 ## Do not retry
 - Do not try to provoke `surface_deviation_p99_by_region` with a perturbed *shape*. To survive the
   global p99 the bad band must hold under 1 % of the pooled sample points, and no region band of
@@ -1069,6 +1125,17 @@
 - A stand-in pipeline in a test/selftest must **re-export** the truth shape, never
   `shutil.copyfile` it — the `not_truth_copy` check hashes the output against
   `harness/truth/Mk.step` and will (correctly) reject a byte-identical copy.
+- Do not renormalise the canonical axial coordinate to start at 0. `score._canonical` anchors at
+  the truth's own axial extent on purpose: M2/M5's bore breaks through the domes, so their truth
+  spans 23.03..9976.97, and Round 1's frozen region bands are anchored at 23.03. Sliding the fore
+  end to 0 moves every M2/M5 band by 23 mm — it looks like a tidy-up and is a silent regression.
+- Do not widen a `RegionBand` to "everything between two features". M8's `fore_wall` was defined
+  that way (5292.8 mm) and Round 1's cosine end-clustering — the exact algorithm M8 exists to
+  reject — passed `station_bands` with 32 stations in it. Feature bands must be narrow enough
+  (`WALL_BAND_MM`) that the density requirement means something.
+- Do not add a gate key to `milestones.py` without a matching entry in `score._GATED`.
+  `check_plan` now raises on an orphan gate rather than silently ignoring it — that error is the
+  guard working, not a bug to route around.
 - Do not run M5's fin slots to z=L the way M4's do. The aft dome's radius falls below
   `fin_r_outer`=700 at z≈9857, so full-length fins punch open slots straight through the dome
   wall — not a finocyl, and it contradicts `milestones._m5`'s `fin_zone` band, which ends at
@@ -1127,6 +1194,69 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 39 — M0 (round 2) — opus/high — review-harness — 2026-08-30T14:54
+- Score before: iter 38 driver evaluation — selftest PASSED, 92/92 checks, 8 min, peak RSS 12.4 GB
+- Change: the Round 2 harness review pass. Five real defects found and fixed, in
+  `harness/score.py` (committed `7a70638`), `harness/milestones.py`, `harness/selftest.py`:
+  1. **Two gates were dead.** `frame_axis_err_deg` and `axial_extent_err_mm` were declared in
+     M10/M13's `gates` dicts but had no entry in `_GATED`, and `check_plan` silently dropped
+     unknown gate keys — so both were never evaluated. Implemented both checks AND added a
+     structural guard: `check_plan` now raises on any gate key with no corresponding check, so
+     the whole failure class cannot recur.
+  2. **`DEVIATION_DEFLECTION` was global (0.25 mm) for every milestone.** M10's `chord_tol` is
+     0.0125, giving a p99 gate of 0.010 mm — a 12x tessellation noise floor, i.e. M10 was
+     *unpassable at any pipeline quality*. Replaced with `_deviation_deflection(spec) =
+     spec.chord_tol / 2` per MISSION §7.2 (M1–M5 unchanged at 0.25).
+  3. **Raw world z was being used as the axial coordinate.** Measured: M10's raw bbox z span is
+     **50 mm (the barrel diameter)**, not the 247.3 mm axial extent; M13's is 2000 vs 9835. Every
+     region band, `dome_stations_min` and station check on the rotated/off-origin milestones was
+     therefore operating on a *radial* window. Added `_canonical_matrix`/`_canonical` (Rodrigues
+     rotation of `frame.axis` onto +z, then translate by `-R·origin`) and transform both truth and
+     result meshes before binning/deviation.
+  4. **M8's `station_bands` gate — the whole point of M8 — was toothless.** Its `fore_wall` band
+     was defined as everything between the dome and the slots: **5292.8 mm wide**. Round 1's
+     cosine end-clustering at n=80 puts 32 stations in it and *passed*, which is exactly the
+     algorithm M8 exists to reject. M8 also had **no `aft_dome` band at all**, so
+     `dome_stations_min` only ever checked the fore dome. Added `WALL_BAND_MM = 150.0` and
+     restructured M8's and M12's regions into narrow feature bands (M12's `breakthrough` also
+     re-aligned to MISSION's 9600–9800, it was 9656–9750). Post-fix occupancy: M8 `fore_wall`
+     296.8 mm cos=1, `aft_wall` 296.8 mm cos=4; M12 `fore_wall` 295.1 mm cos=2, `breakthrough`
+     196.7 mm cos=5 — all need >= 10, so the counter-example now bites (review item 8).
+  5. Report contract v2 (`REPORT_KEYS_V2`) documented per §7.2; stale "1500 s" footer corrected
+     to the real `SCORE_TIMEOUT_S = 3600`.
+  Six new selftest mutations added, one per new gate (n_stations mismatch, station at 1e6,
+  cosine n=80, 10 000 uniform stations, axis rotated 5 deg, extent short by 50 mm), plus
+  `_ideal_report` now emits `frame` and `axial_extent_mm`.
+- Score after: full `harness/selftest.py` (no flags, warm caches) — **SELFTEST PASSED, 116 PASS /
+  0 FAIL / 1 SKIP in 547.2 s** (`out/selftest.round2.log`). Was 92 checks before this pass; the
+  25 new ones are the six Round 2 mutations instantiated across M8/M9/M10/M12/M13. The 1 SKIP is
+  `MR: no real_inputs/*.stl present` — review item 11's skip path, reachable exactly when the
+  directory is empty. Every new gate is proven to bite on every milestone that declares it:
+  `station_bands` (cosine n=80) and `n_stations_max` on M8/M9/M10/M12/M13, `stations_consistent`
+  (both the count-mismatch and the out-of-extent mutation) on the same five, and
+  `frame_axis_err_deg` + `axial_extent_err_mm` on M10 and M13.
+  Honest caveat: 547 s is **9.1 min, over §7.2's "under 8 minutes warm"** — iter 38 measured
+  480.7 s for 92 checks, so the 25 added checks cost ~67 s and the regression is purely the extra
+  coverage, not a slowdown. Still 6.6x under the driver's 3600 s hard cap. If the 8 min target is
+  to be held literally, the cheap lever is that M13's mutations pay ~10 s each in mesh load
+  (`[ 10.1s | ...]`) and could score against the clean reference mesh rather than the 44 MB
+  pathological input, which is not what those particular checks are testing.
+- Learned: **anchor the canonical axial coordinate at the truth's own extent, never renormalise
+  it to start at 0.** My first `_canonical` slid the fore end to z=0; verification showed M2/M5/M8
+  flipping to `identity=False` because their bore breaks through the domes, so their truth spans
+  23.03..9976.97, not 0..10000 — and Round 1's frozen bands are anchored at 23.03. Normalising
+  would have silently moved every M2/M5 band by 23 mm. Reverted and documented in the docstring.
+  Second lesson: a gate whose band is wide enough that the algorithm it exists to reject passes it
+  is worse than no gate — it reads as coverage while enforcing nothing. Always measure band
+  occupancy under the *specific* algorithm the milestone names.
+- Next: the review findings I did NOT fix are enumerated under `## Do not retry` /
+  `## Open review findings` below — the most load-bearing are the missing
+  `tests/test_score_round2.py` (§7.2 requires it), the missing report-on-failure check (selftest
+  monkeypatches `_run_pipeline` and never runs a real `rebuild.py`), the missing truth-correctness
+  checks (M6 frustum closed form, M8/M12 offset property, M9/M13 skew stats, M10 bbox), and
+  `per_solid_volume_err_pct` being a z-sorted zip rather than the Hungarian centroid match §7.2
+  specifies.
 
 ### iter 34 — M0 (round 2) — sonnet/medium — 2026-08-30T09:55
 - Score before: selftest FAILED, 4 checks (M9/M10/M13/MR generator not implemented)
