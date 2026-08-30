@@ -26,6 +26,8 @@ from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_Transform,
 )
 from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet2d
+from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+from OCP.BRepTools import BRepTools
 
 from harness import milestones as ms
 
@@ -252,6 +254,58 @@ def _star_bore_cutter(n_star: int, R_valley: float, R_tip: float, fillet_tip: fl
     return BRepBuilderAPI_Transform(prism, trsf, True).Shape()
 
 
+def _star_wire(n_star: int, R_valley: float, R_tip: float, fillet_tip: float,
+               fillet_valley: float, z: float) -> "TopoDS_Wire":
+    """The filleted star profile's outer wire (see `_star_bore_cutter`), built directly in the
+    z=`z` plane so it can be fed to `BRepOffsetAPI_ThruSections` as a loft section. Same vertex
+    order/orientation/seam (starts at angle 0) as every other call, so two calls at different
+    (radii, z) are directly loft-compatible without needing OCCT's twist-correction heuristic.
+    """
+    points = []
+    for i in range(2 * n_star):
+        angle = i * math.pi / n_star
+        r = R_tip if i % 2 == 0 else R_valley
+        points.append(gp_Pnt(r * math.cos(angle), r * math.sin(angle), z))
+
+    vertices = [BRepBuilderAPI_MakeVertex(p).Vertex() for p in points]
+    mkwire = BRepBuilderAPI_MakeWire()
+    for i in range(len(vertices)):
+        v1, v2 = vertices[i], vertices[(i + 1) % len(vertices)]
+        mkwire.Add(BRepBuilderAPI_MakeEdge(v1, v2).Edge())
+    if not mkwire.IsDone():
+        raise RuntimeError("M6 star profile wire construction failed")
+    face = BRepBuilderAPI_MakeFace(mkwire.Wire(), True).Face()
+
+    fillet = BRepFilletAPI_MakeFillet2d(face)
+    for i, v in enumerate(vertices):
+        r = fillet_tip if i % 2 == 0 else fillet_valley
+        fillet.AddFillet(v, r)
+    fillet.Build()
+    if not fillet.IsDone():
+        raise RuntimeError("M6 star profile fillet construction failed")
+    filleted_face = TopoDS.Face_s(fillet.Shape())
+    return BRepTools.OuterWire_s(filleted_face)
+
+
+def _star_loft_cutter(params: dict) -> TopoDS_Shape:
+    """Ruled loft between the M6 star profile at z=loft_z0 and its x1.5-scaled twin at
+    z=loft_z1, both spanning past [0, L] so the loft fully consumes the cylinder's ends."""
+    n_star = params["n_star"]
+    wire0 = _star_wire(n_star, params["R_valley0"], params["R_tip0"],
+                        params["fillet_tip0"], params["fillet_valley0"], params["loft_z0"])
+    wire1 = _star_wire(n_star, params["R_valley1"], params["R_tip1"],
+                        params["fillet_tip1"], params["fillet_valley1"], params["loft_z1"])
+
+    loft = BRepOffsetAPI_ThruSections(True, True)  # isSolid=True, ruled=True
+    loft.CheckCompatibility(False)  # sections built identically (same order/orientation/seam)
+    loft.AddWire(wire0)
+    loft.AddWire(wire1)
+    loft.Build()
+    if not loft.IsDone():
+        raise RuntimeError("M6 star loft construction failed")
+    return loft.Shape()
+
+
 # ---------------------------------------------------------------------------
 # M3: outer cylinder + 6-point star bore (filleted tips/valleys), full length
 # ---------------------------------------------------------------------------
@@ -427,12 +481,30 @@ def _make_m5() -> Truth:
     return _finish("M5", cut.Shape())
 
 
+# ---------------------------------------------------------------------------
+# M6: cylinder minus a ruled loft between two star cross-sections (linear scale in z)
+# ---------------------------------------------------------------------------
+
+def _make_m6() -> Truth:
+    spec = ms.get("M6")
+    L = spec.params["L"]
+    outer = BRepPrimAPI_MakeCylinder(spec.params["R_o"], L).Shape()
+    cutter = _star_loft_cutter(spec.params)
+
+    cut = BRepAlgoAPI_Cut(outer, cutter)
+    cut.Build()
+    if not cut.IsDone():
+        raise RuntimeError("M6 boolean cut failed")
+    return _finish("M6", cut.Shape())
+
+
 _MAKERS = {
     "M1": _make_m1,
     "M2": _make_m2,
     "M3": _make_m3,
     "M4": _make_m4,
     "M5": _make_m5,
+    "M6": _make_m6,
 }
 
 

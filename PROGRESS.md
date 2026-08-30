@@ -15,6 +15,34 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 27 (M0, round 2): `harness/generators.py::_make_m6` implemented — first Round 2
+  generator built.** Added `_star_wire()` (the M3 filleted-star profile, refactored to build its
+  wire directly in an arbitrary z-plane and return the wire via `BRepTools.OuterWire_s`, instead
+  of prism-extruding it like `_star_bore_cutter` does) and `_star_loft_cutter()`, which lofts
+  `BRepOffsetAPI_ThruSections(isSolid=True, ruled=True)` between the M6 spec's two star wires
+  (z=-10, 250/450/fillets 30/40 and z=L+10, 375/675/fillets 45/60) with `CheckCompatibility(False)`
+  — safe because both wires are built by the identical loop (same `n_star`, same angle order
+  starting at 0, same CCW winding), so OCCT's twist-correction heuristic isn't needed (per
+  `docs/research/02-brep-loft-step-gmsh.md` §2's robust-recipe note). `_make_m6` cuts that loft
+  from a plain `R_o=1000` cylinder, `_finish("M6", ...)`. Registered in `_MAKERS`. Also added
+  `_make_bore_filled_m6` (solid cylinder, no cut) to `harness/selftest.py::_BORE_FILLERS`.
+- **Verified, `--milestone M6` targeted (≈90s with gmsh, ≈80s with `--skip-gmsh`):** all 5 M6
+  selftest checks PASS — truth STEP passes all gates, the region-deviation-gate mutation bites,
+  the 1.01x-scaled copy fails `volume_err_pct` (3.03% vs 0.2% gate), the bore-filled copy fails
+  it harder (20.23%), and gmsh meshes the truth STEP (143,952 tets, min_quality=0.131, comfortably
+  above the 0.1 gate). M6 has `closed_form_volume=None` (filleted-star loft has no trivial closed
+  form, same as M3) so there's no closed-form check for it, matching the spec.
+  `score.py --milestone M6` on the real pipeline (untouched, no loft support) exits 0 with
+  contract-valid JSON and `pass:false` (`volume_err_pct` 0.72% vs 0.2% gate) — exactly the
+  expected M0-spec outcome (point 2: a real *failing* score, not a crash).
+  **Regression check: `score.py --milestone M{1..5}` on HEAD all still `pass:true`** (no touch to
+  M1-M5 makers, `score.py`, or their `_star_bore_cutter`/`_finocyl_cutter` call paths — only new
+  code was added). `pytest tests/` → 16/16 passed (183s).
+- **Next:** M7 (multi-cutter satellite-perforation chain deaths — no loft, straight bore +
+  `n_sat` satellite cylinders per `_finocyl_cutter`'s fuse pattern, flat end wall at z=7000 via
+  a short cylinder cut instead of full length) per the prompt's suggested order, then M11 (three
+  disjoint segments — first `n_solids>1` structural case).
+
 - **iter 26 (M0, round 2 start): `harness/milestones.py` extended with the round-2 ladder.**
   Added `Frame`/`InputSpec` dataclasses and `MilestoneSpec`'s new §7.2 fields (`chord_tol`,
   `frame`, `input`, `station_bands`, `n_stations_max`, `topo_events_z_mm`, `topo_events_max`,
