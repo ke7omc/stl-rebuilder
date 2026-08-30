@@ -438,6 +438,11 @@ _MAKERS = {
 
 def make(milestone: str) -> Truth:
     """Build (or rebuild) the analytic ground truth for *milestone* and return a Truth object."""
+    if milestone not in ms.MILESTONES:
+        raise KeyError(f"Unknown milestone {milestone!r}. Valid: {list(ms.MILESTONES)}")
     if milestone not in _MAKERS:
-        raise KeyError(f"Unknown milestone {milestone!r}. Valid: {list(_MAKERS)}")
+        # Registered in milestones.py (a real milestone) but its generator isn't built yet.
+        # NotImplementedError (not KeyError) so selftest.py's per-milestone catch reports this
+        # as a FAIL for that milestone instead of crashing the whole selftest run.
+        raise NotImplementedError(f"generator for {milestone!r} not yet implemented")
     return _MAKERS[milestone]()

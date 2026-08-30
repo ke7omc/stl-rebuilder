@@ -1,10 +1,12 @@
 """Milestone specs: geometry params, region labels, gate thresholds, rebuild.py args, runtime caps.
 
-One MilestoneSpec per milestone (M1–M5). All geometry in mm.
+One MilestoneSpec per milestone (M1–M13, MR). All geometry in mm unless a spec's `frame.units`
+says otherwise (the truth is still generated/stored in mm; `frame.units` describes what unit the
+milestone's *input STL* is written in, per MISSION §6.2/§7.2).
 """
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 CHORD_TOL = 0.5  # mm — default scoring/generation tolerance (passed to rebuild.py)
 
@@ -14,6 +16,40 @@ class RegionBand:
     label: str
     z_frac_lo: float  # inclusive, fraction of total axial length L
     z_frac_hi: float  # inclusive
+
+
+@dataclass(frozen=True)
+class Frame:
+    """Where the milestone's input STL sits relative to the truth's canonical mm/+z frame.
+
+    `axis` is the motor axis as a unit vector *in input coordinates* (Round 1 milestones are
+    all canonical: axis=+z, origin at 0, units mm). `scale_to_mm` converts a length in `units`
+    to mm (in=25.4, m=1000, mm=1).
+    """
+    axis: Tuple[float, float, float] = (0.0, 0.0, 1.0)
+    origin_mm: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    units: str = "mm"
+
+    @property
+    def scale_to_mm(self) -> float:
+        return {"mm": 1.0, "in": 25.4, "m": 1000.0}[self.units]
+
+
+@dataclass(frozen=True)
+class InputSpec:
+    """How the milestone's input STL is synthesised from the analytic truth solid.
+
+    kind="analytic": clean tessellation of the truth BRep at chord_tol (Round 1 behaviour).
+    kind="voxel": narrow-band exact-SDF marching-cubes surface (harness/voxelize.py), optionally
+    perturbed with noise / unwelded / flipped facets / disconnected islands, per MISSION §6.2.
+    """
+    kind: str = "analytic"                     # "analytic" | "voxel"
+    spacing_mm: Optional[Tuple[float, float, float]] = None  # voxel grid pitch (x,y,z), mm
+    noise_sigma_mm: float = 0.0                 # gaussian normal-direction noise, seed 7
+    unweld_jitter_mm: float = 0.0               # per-facet vertex jitter (unwelds the mesh)
+    flip_frac: float = 0.0                      # fraction of facets with reversed winding
+    islands: int = 0                            # disconnected noise islands to inject
+    watertight_expected: bool = True             # whether input_watertight gate should hold
 
 
 @dataclass(frozen=True)
@@ -29,6 +65,19 @@ class MilestoneSpec:
     # gmsh gets its own budget: meshing is the scorer's cost, not the pipeline's, and M5's
     # runtime_cap_s is a *product* requirement (< 120 s) that must not throttle the check.
     mesh_timeout_s: float = 300.0
+
+    # --- Round 2 additions (MISSION §7.2). Defaults reproduce Round 1 (M1-M5) behaviour exactly:
+    # canonical mm frame, clean analytic input, single solid, no station/topology count caps.
+    chord_tol: float = CHORD_TOL
+    frame: Frame = field(default_factory=Frame)
+    input: InputSpec = field(default_factory=InputSpec)
+    station_bands: Dict[str, int] = field(default_factory=dict)   # region label -> min station count
+    n_stations_max: Optional[int] = None
+    topo_events_z_mm: List[float] = field(default_factory=list)   # expected event z (truth frame)
+    topo_events_max: Optional[int] = None
+    n_solids: int = 1
+    optional: bool = False       # True only for MR: pass:true,"skipped" when no input is present
+    input_glob: Optional[str] = None   # e.g. "real_inputs/*.stl" for MR
 
 
 def _m1() -> MilestoneSpec:
@@ -211,8 +260,406 @@ def _m5() -> MilestoneSpec:
     )
 
 
+def _topo_tol(L: float, ct: float) -> float:
+    return max(4.0 * ct, L / 5_000.0)
+
+
+def _m6() -> MilestoneSpec:
+    """Per-window loft: cylinder minus a ruled loft between the M3 star at z=-10 and the
+    same star scaled x1.5 at z=L+10 (scale linear in z). MISSION §6.2 M6."""
+    L, R_o, ct = 10_000.0, 1_000.0, CHORD_TOL
+    R_valley0, R_tip0, fillet_tip0, fillet_valley0 = 250.0, 450.0, 30.0, 40.0
+    scale1 = 1.5
+    R_valley1, R_tip1 = R_valley0 * scale1, R_tip0 * scale1
+    fillet_tip1, fillet_valley1 = fillet_tip0 * scale1, fillet_valley0 * scale1
+    return MilestoneSpec(
+        name="M6",
+        description=(
+            "Cylinder minus a ruled loft between the M3 star (250/450, fillets 30/40) at "
+            "z=-10 and the same star scaled x1.5 (375/675, fillets 45/60) at z=L+10"
+        ),
+        params=dict(
+            L=L, R_o=R_o, n_star=6,
+            loft_z0=-10.0, loft_z1=L + 10.0,
+            R_valley0=R_valley0, R_tip0=R_tip0,
+            fillet_tip0=fillet_tip0, fillet_valley0=fillet_valley0,
+            R_valley1=R_valley1, R_tip1=R_tip1,
+            fillet_tip1=fillet_tip1, fillet_valley1=fillet_valley1,
+        ),
+        regions=[RegionBand("cylinder", 0.0, 1.0)],
+        rebuild_args=["--axis", "z", "--sections", "60", "--chord-tol", str(ct)],
+        gates=dict(
+            n_solids=1,
+            brep_valid=True,
+            volume_err_pct=0.2,
+            surface_deviation_p99_mm=0.8 * ct,
+            surface_deviation_max_mm=2.0 * ct,
+            face_count_max=200,
+            bbox_err_pct=0.1,
+            step_roundtrip_vol_err=1e-6,
+            gmsh_min_sicn=0.1,
+        ),
+        runtime_cap_s=300.0,
+        closed_form_volume=None,  # filleted-star cross-section area has no trivial closed form
+        chord_tol=ct,
+    )
+
+
+def _m7() -> MilestoneSpec:
+    """Central bore + 6 satellite perforations dying into a flat end wall at z=7000.
+    MISSION §6.2 M7 — loop classification + cross-station matching, N cutters."""
+    L, R_o, ct = 10_000.0, 1_000.0, CHORD_TOL
+    R_bore = 300.0
+    n_sat, R_sat, r_sat = 6, 100.0, 600.0
+    sat_z_end = 7_000.0
+    topo_tol = _topo_tol(L, ct)
+    V = math.pi * (R_o**2 - R_bore**2) * L - n_sat * math.pi * R_sat**2 * sat_z_end
+    return MilestoneSpec(
+        name="M7",
+        description=(
+            "Cylinder, flat ends; central bore R=300 through; 6 satellite perforations "
+            "R=100 at r=600 every 60 deg, z=0..7000, flat end wall (6 chain deaths at 7000)"
+        ),
+        params=dict(
+            L=L, R_o=R_o, R_bore=R_bore, n_sat=n_sat, R_sat=R_sat, r_sat=r_sat,
+            sat_z_end=sat_z_end,
+        ),
+        regions=[
+            RegionBand("satellite_zone", 0.0, sat_z_end / L),
+            RegionBand("bore_only", sat_z_end / L, 1.0),
+        ],
+        rebuild_args=["--axis", "z", "--sections", "60", "--chord-tol", str(ct)],
+        gates=dict(
+            n_solids=1,
+            brep_valid=True,
+            volume_err_pct=0.1,
+            surface_deviation_p99_mm=0.8 * ct,
+            surface_deviation_max_mm=1.2 * ct,
+            topo_events=topo_tol,
+            face_count_max=60,
+            bbox_err_pct=0.1,
+            step_roundtrip_vol_err=1e-6,
+            gmsh_min_sicn=0.1,
+        ),
+        runtime_cap_s=300.0,
+        closed_form_volume=V,
+        chord_tol=ct,
+        topo_events_z_mm=[sat_z_end],
+        topo_events_max=2,
+    )
+
+
+def _m8() -> MilestoneSpec:
+    """Feature-aware adaptive stations on a mid-burn grain: M5 cavity dilated by web w=150.
+    MISSION §6.2 M8."""
+    L, R_o, ct = 10_000.0, 1_000.0, CHORD_TOL
+    dome_h = R_o / 2.0
+    R_bore = 450.0
+    n_slots, slot_half_w, slot_outer_r = 8, 190.0, 850.0
+    slot_z_lo, slot_z_hi, slot_fillet = 5_850.0, 9_650.0, 150.0
+    topo_tol = _topo_tol(L, ct)
+    return MilestoneSpec(
+        name="M8",
+        description=(
+            "M5 capsule minus cavity dilated by web=150: bore R=450 through; 8 obround slots "
+            "half-width 190, outer r 850, z=[5850,9650], end fillets r=150"
+        ),
+        params=dict(
+            L=L, R_o=R_o, dome_semi_axial=dome_h, R_bore=R_bore,
+            n_slots=n_slots, slot_half_width=slot_half_w, slot_outer_r=slot_outer_r,
+            slot_z_lo=slot_z_lo, slot_z_hi=slot_z_hi, slot_fillet=slot_fillet,
+            dilation_w=150.0,
+        ),
+        regions=[
+            RegionBand("fore_dome", 0.0, dome_h / L),
+            RegionBand("fore_wall", dome_h / L, slot_z_lo / L),
+            RegionBand("slot_zone", slot_z_lo / L, slot_z_hi / L),
+            RegionBand("aft_wall", slot_z_hi / L, 1.0),
+        ],
+        rebuild_args=["--axis", "z", "--sections", "80", "--adaptive", "--chord-tol", str(ct)],
+        gates=dict(
+            n_solids=1,
+            brep_valid=True,
+            volume_err_pct=0.2,
+            surface_deviation_p99_mm=0.8 * ct,
+            surface_deviation_max_mm=2.0 * ct,
+            dome_stations_min=8,
+            station_bands=True,
+            n_stations_max=True,
+            topo_events=topo_tol,
+            face_count_max=300,
+            bbox_err_pct=0.1,
+            step_roundtrip_vol_err=1e-6,
+            gmsh_min_sicn=0.1,
+        ),
+        runtime_cap_s=600.0,
+        closed_form_volume=None,
+        chord_tol=ct,
+        station_bands={"fore_wall": 10, "aft_wall": 10},
+        n_stations_max=80,
+        topo_events_z_mm=[slot_z_lo, slot_z_hi],
+        topo_events_max=3,
+    )
+
+
+def _m9() -> MilestoneSpec:
+    """M8 truth, but the input STL is a noisy skewed marching-cubes surface on an anisotropic
+    grid (10,10,40) mm. MISSION §6.2 M9."""
+    m8 = _m8()
+    h_xy, h_z = 10.0, 40.0
+    return MilestoneSpec(
+        name="M9",
+        description="M8 truth reused; input is a noisy, skewed marching-cubes surface (grid 10x10x40mm)",
+        params=dict(m8.params),
+        regions=m8.regions,
+        rebuild_args=["--axis", "z", "--sections", "80", "--adaptive", "--chord-tol", "5"],
+        gates=dict(
+            n_solids=1,
+            brep_valid=True,
+            volume_err_pct=0.5,
+            surface_deviation_p99_mm=0.5 * h_xy,
+            surface_deviation_max_mm=0.75 * h_z,
+            dome_stations_min=8,
+            station_bands=True,
+            n_stations_max=True,
+            topo_events=h_z,
+            face_count_max=300,
+            bbox_err_pct=0.1,
+            step_roundtrip_vol_err=1e-6,
+            gmsh_min_sicn=0.1,
+        ),
+        runtime_cap_s=600.0,
+        closed_form_volume=None,
+        chord_tol=m8.chord_tol,
+        station_bands=m8.station_bands,
+        n_stations_max=m8.n_stations_max,
+        topo_events_z_mm=m8.topo_events_z_mm,
+        topo_events_max=m8.topo_events_max,
+        input=InputSpec(
+            kind="voxel", spacing_mm=(h_xy, h_xy, h_z), noise_sigma_mm=0.5,
+            watertight_expected=True,
+        ),
+    )
+
+
+def _m10() -> MilestoneSpec:
+    """Frame normalisation: M8 truth scaled x1/40, axis rotated to +x, off-origin, STL in
+    inches. MISSION §6.2 M10."""
+    m8 = _m8()
+    s = 1.0 / 40.0
+    ct = CHORD_TOL * s
+    scaled = {k: (v * s if isinstance(v, (int, float)) else v) for k, v in m8.params.items()}
+    frame = Frame(axis=(1.0, 0.0, 0.0), origin_mm=(254.0, -76.2, 101.6), units="in")
+    return MilestoneSpec(
+        name="M10",
+        description="M8 truth scaled x1/40, rotated to +x axis, translated, STL written in inches",
+        params=scaled,
+        regions=m8.regions,
+        rebuild_args=["--axis", "auto", "--units", "in", "--sections", "80", "--adaptive",
+                      "--chord-tol", str(ct)],
+        gates=dict(
+            n_solids=1,
+            brep_valid=True,
+            volume_err_pct=0.2,
+            surface_deviation_p99_mm=0.8 * ct,
+            surface_deviation_max_mm=2.0 * ct,
+            dome_stations_min=8,
+            station_bands=True,
+            n_stations_max=True,
+            topo_events=_topo_tol(m8.params["L"] * s, ct),
+            face_count_max=300,
+            frame_axis_err_deg=0.1,
+            axial_extent_err_mm=4.0 * ct,
+            bbox_err_pct=0.1,
+            step_roundtrip_vol_err=1e-6,
+            gmsh_min_sicn=0.1,
+        ),
+        runtime_cap_s=300.0,
+        closed_form_volume=None,
+        chord_tol=ct,
+        frame=frame,
+        station_bands=m8.station_bands,
+        n_stations_max=m8.n_stations_max,
+        topo_events_z_mm=[z * s for z in m8.topo_events_z_mm],
+        topo_events_max=m8.topo_events_max,
+    )
+
+
+def _m11() -> MilestoneSpec:
+    """Segmented BATES, 3 annular segments with gaps and flat ends, one STL / 3 shells.
+    MISSION §6.2 M11."""
+    R_o, ct = 1_000.0, CHORD_TOL
+    segments = [
+        dict(name="A", z_lo=0.0, z_hi=3_000.0, R_i=300.0),
+        dict(name="B", z_lo=3_500.0, z_hi=6_500.0, R_i=450.0),
+        dict(name="C", z_lo=7_000.0, z_hi=10_000.0, R_i=300.0),
+    ]
+    L_env = 10_000.0
+    solid_volumes = [math.pi * (R_o**2 - s["R_i"]**2) * (s["z_hi"] - s["z_lo"]) for s in segments]
+    return MilestoneSpec(
+        name="M11",
+        description="Segmented BATES: 3 annular segments (A R_i=300, B R_i=450, C R_i=300), gapped, flat ends",
+        params=dict(R_o=R_o, L_env=L_env, segments=segments),
+        regions=[RegionBand(s["name"], s["z_lo"] / L_env, s["z_hi"] / L_env) for s in segments],
+        rebuild_args=["--axis", "z", "--sections", "40", "--chord-tol", str(ct)],
+        gates=dict(
+            n_solids=3,
+            brep_valid=True,
+            volume_err_pct=0.05,
+            per_solid_volume_err_pct=0.05,
+            surface_deviation_p99_mm=0.8 * ct,
+            surface_deviation_max_mm=1.2 * ct,
+            face_count_max=24,
+            bbox_err_pct=0.1,
+            step_roundtrip_vol_err=1e-6,
+            gmsh_min_sicn=0.1,
+        ),
+        runtime_cap_s=300.0,
+        closed_form_volume=sum(solid_volumes),
+        chord_tol=ct,
+        n_solids=3,
+    )
+
+
+def _m12() -> MilestoneSpec:
+    """Near-end-of-burn cavity decomposition: M5 cavity dilated by w=250, slots break through
+    the dome, multi-outer-loop stations. MISSION §6.2 M12."""
+    L, R_o, ct = 10_000.0, 1_000.0, CHORD_TOL
+    dome_h = R_o / 2.0
+    R_bore = 550.0
+    n_slots, slot_half_w, slot_outer_r = 8, 290.0, 950.0
+    slot_z_lo, slot_z_hi, slot_fillet = 5_750.0, 9_750.0, 250.0
+    breakthrough_z = 9_656.0
+    topo_tol = _topo_tol(L, ct)
+    return MilestoneSpec(
+        name="M12",
+        description=(
+            "M5 capsule minus cavity dilated by web=250: bore 550, 8 obround slots half-width "
+            "290, outer r 950 (50mm web), z=[5750,9750], fillets r=250; aft slots break through "
+            "the dome past z=9656; bore exits dome near z~83/9917"
+        ),
+        params=dict(
+            L=L, R_o=R_o, dome_semi_axial=dome_h, R_bore=R_bore,
+            n_slots=n_slots, slot_half_width=slot_half_w, slot_outer_r=slot_outer_r,
+            slot_z_lo=slot_z_lo, slot_z_hi=slot_z_hi, slot_fillet=slot_fillet,
+            breakthrough_z=breakthrough_z, dilation_w=250.0,
+        ),
+        regions=[
+            RegionBand("fore_dome", 0.0, dome_h / L),
+            RegionBand("fore_wall", dome_h / L, slot_z_lo / L),
+            RegionBand("slot_zone", slot_z_lo / L, breakthrough_z / L),
+            RegionBand("breakthrough", breakthrough_z / L, slot_z_hi / L),
+            RegionBand("aft_dome", slot_z_hi / L, 1.0),
+        ],
+        rebuild_args=["--axis", "z", "--sections", "120", "--adaptive", "--chord-tol", str(ct)],
+        gates=dict(
+            n_solids=1,
+            brep_valid=True,
+            volume_err_pct=0.3,
+            surface_deviation_p99_mm=0.8 * ct,
+            surface_deviation_max_mm=2.0 * ct,
+            dome_stations_min=8,
+            station_bands=True,
+            n_stations_max=True,
+            topo_events=topo_tol,
+            min_edge_mm=0.1,
+            face_count_max=400,
+            bbox_err_pct=0.1,
+            step_roundtrip_vol_err=1e-6,
+            gmsh_min_sicn=0.1,
+        ),
+        runtime_cap_s=600.0,
+        closed_form_volume=None,
+        chord_tol=ct,
+        station_bands={"fore_wall": 10, "breakthrough": 10},
+        n_stations_max=120,
+        topo_events_z_mm=[slot_z_lo, breakthrough_z, slot_z_hi],
+        topo_events_max=5,
+    )
+
+
+def _m13() -> MilestoneSpec:
+    """Capstone: M12 truth rotated/translated, input a real-STL-shaped voxel surface
+    (noisy, unwelded, flipped facets, disconnected islands). MISSION §6.2 M13."""
+    m12 = _m12()
+    h = 8.0
+    frame = Frame(axis=(1.0, 0.0, 0.0), origin_mm=(2_500.0, -700.0, 1_300.0), units="in")
+    return MilestoneSpec(
+        name="M13",
+        description=(
+            "M12 truth rotated to +x, translated (2500,-700,1300); input is isotropic h=8mm "
+            "exact-SDF marching cubes, noisy, unwelded, 2% flipped facets, 3 noise islands"
+        ),
+        params=dict(m12.params),
+        regions=m12.regions,
+        rebuild_args=["--axis", "auto", "--units", "in", "--sections", "120", "--adaptive",
+                      "--chord-tol", str(h)],
+        gates=dict(
+            n_solids=1,
+            brep_valid=True,
+            volume_err_pct=0.5,
+            surface_deviation_p99_mm=0.5 * h,
+            surface_deviation_max_mm=1.5 * h,
+            dome_stations_min=8,
+            station_bands=True,
+            n_stations_max=True,
+            topo_events=8.0,
+            min_edge_mm=0.1,
+            face_count_max=400,
+            frame_axis_err_deg=0.1,
+            axial_extent_err_mm=8.0,
+            bbox_err_pct=0.1,
+            step_roundtrip_vol_err=1e-6,
+            gmsh_min_sicn=0.1,
+        ),
+        runtime_cap_s=900.0,
+        mesh_timeout_s=600.0,
+        closed_form_volume=None,
+        chord_tol=h,
+        frame=frame,
+        station_bands=m12.station_bands,
+        n_stations_max=m12.n_stations_max,
+        topo_events_z_mm=[m12.params["slot_z_lo"], m12.params["slot_z_hi"]],
+        topo_events_max=5,
+        input=InputSpec(
+            kind="voxel", spacing_mm=(h, h, h), noise_sigma_mm=0.8, unweld_jitter_mm=1e-5,
+            flip_frac=0.02, islands=3, watertight_expected=False,
+        ),
+    )
+
+
+def _mr() -> MilestoneSpec:
+    """Real-STL slot: optional, self-referential (no analytic truth). MISSION §6.2 MR.
+    Scorer emits pass:true,"skipped": "no real input" when real_inputs/ is empty."""
+    return MilestoneSpec(
+        name="MR",
+        description="First real_inputs/*.stl (+ optional matching .json) — self-referential checks only",
+        params={},
+        regions=[],
+        rebuild_args=["--axis", "auto", "--adaptive", "--sections", "120"],
+        gates=dict(
+            n_solids=1,   # minimum; checked as >= 1, not ==
+            brep_valid=True,
+            volume_err_pct=0.5,
+            surface_deviation_p99_mm=True,   # threshold computed at runtime as 1.0*ct_est
+            surface_deviation_max_mm=True,   # threshold computed at runtime as 4.0*ct_est
+            step_roundtrip_vol_err=1e-6,
+            gmsh_min_sicn=0.1,
+            min_edge_mm=0.1,
+        ),
+        runtime_cap_s=1_800.0,
+        closed_form_volume=None,
+        optional=True,
+        input_glob="real_inputs/*.stl",
+    )
+
+
 MILESTONES: Dict[str, MilestoneSpec] = {
-    s.name: s for s in [_m1(), _m2(), _m3(), _m4(), _m5()]
+    s.name: s for s in [
+        _m1(), _m2(), _m3(), _m4(), _m5(),
+        _m6(), _m7(), _m8(), _m9(), _m10(), _m11(), _m12(), _m13(),
+        _mr(),
+    ]
 }
 
 

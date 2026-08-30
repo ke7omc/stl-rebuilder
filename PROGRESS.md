@@ -15,6 +15,38 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 26 (M0, round 2 start): `harness/milestones.py` extended with the round-2 ladder.**
+  Added `Frame`/`InputSpec` dataclasses and `MilestoneSpec`'s new §7.2 fields (`chord_tol`,
+  `frame`, `input`, `station_bands`, `n_stations_max`, `topo_events_z_mm`, `topo_events_max`,
+  `n_solids`, `optional`, `input_glob`), all defaulted to reproduce Round 1 exactly. Wrote
+  `_m6()`..`_m13()` and `_mr()` specs per MISSION §6.2's table (params, region bands,
+  `rebuild_args`, gates, `station_bands`/`topo_events_z_mm` where applicable). `MILESTONES` is
+  now M1..M13, MR in order. Also fixed `harness/generators.py::make()`: it raised bare `KeyError`
+  for any name not yet in `_MAKERS`, which now includes M6-MR (registered in milestones.py but
+  not yet implemented) — that crashed `selftest.py`'s whole run instead of being caught by its
+  existing per-milestone `NotImplementedError` handler. `make()` now distinguishes "not a real
+  milestone" (KeyError) from "real milestone, generator not built yet" (NotImplementedError).
+- Verified byte-for-byte (minus `metrics`/`runtime_s`) that `score.py --milestone M{1..5}` output
+  is unchanged before/after this edit — no touch to score.py, selftest.py, or generators.py's
+  M1-M5 makers. `harness/selftest.py` (full ladder) now runs to completion in ~88s: **M1-M5 all
+  6 checks each PASS**, M6-M13/MR each report one clean FAIL ("generator implemented") instead of
+  crashing, exit 1 overall (expected — M0 isn't done until every milestone generates). `pytest
+  tests/` → 16 passed, unchanged.
+- Geometry notes for the next iterations building `generators.py`: M7's closed form is exact
+  (V = π(1000²−300²)·10000 − 6·π·100²·7000, embedded in `_m7()`); M11's `closed_form_volume` is
+  the sum of the 3 segments' π(R_o²−R_i²)·length (also embedded, `params["segments"]` has the
+  per-segment z/R_i). M6/M8/M9/M10/M12/M13 keep `closed_form_volume=None` like M3 — filleted-star
+  and dilated-obround cross-sections have no trivial closed form; verify those against BRepGProp
+  only, same pattern M3 already uses.
+- **Next:** `harness/generators.py::_make_m6` first (build order in the prompt): ruled
+  `ThruSections` loft between the M3-style star profile at z=-10 (250/450, fillets 30/40) and the
+  same star scaled x1.5 at z=L+10 (375/675, fillets 45/60), cut from a plain R_o=1000 cylinder —
+  read `docs/research/02-brep-loft-step-gmsh.md` for `BRepOffsetAPI_ThruSections` before writing
+  it. Register `_make_bore_filled_m6` in `selftest.py::_BORE_FILLERS` (a solid cylinder, no
+  cavity, like M1's). Then M7 (multi-cutter chain deaths, no loft), M11 (three separate solids —
+  exercises `n_solids` structurally different from 1 for the first time), continuing the prompt's
+  suggested order (M8, M12, M10, then `voxelize.py` for M9/M13).
+
 - **iter 25 (HANDOFF mode): rewrote `HANDOFF.md` into its final form. No code changes.**
   Re-scored M5 on HEAD (`d66d4aa`) as an independent check — `pass:true, progress:1.0`, numbers
   identical to iter 24's `--keep` run, so the table in HANDOFF.md is verified, not estimated.
@@ -510,6 +542,37 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 26 — M0 (round 2 start) — sonnet/medium — 2026-08-30T04:29
+- Score before: round 2 just started; `harness/` still exactly Round 1 (M1-M5 only, frozen tag
+  `harness-frozen`); driver header said "extend harness/ with M6-M13 + MR per MISSION §6.2/§7.2".
+- Change: `harness/milestones.py` — added `Frame` (axis/origin_mm/units + `scale_to_mm`
+  property) and `InputSpec` (kind analytic|voxel, spacing_mm, noise_sigma_mm, unweld_jitter_mm,
+  flip_frac, islands, watertight_expected) dataclasses; extended `MilestoneSpec` with the §7.2
+  fields (`chord_tol`, `frame`, `input`, `station_bands`, `n_stations_max`, `topo_events_z_mm`,
+  `topo_events_max`, `n_solids`, `optional`, `input_glob`), all defaulted so M1-M5's specs are
+  unchanged. Wrote `_m6()` through `_m13()` and `_mr()` — params/regions/rebuild_args/gates read
+  directly off MISSION §6.2's table; M7 and M11 get exact `closed_form_volume` (M7:
+  π(1000²−300²)·10000 − 6π·100²·7000; M11: sum of 3 segments' π(R_o²−R_i²)·length), the rest
+  `None` (no trivial closed form, same as M3). `MILESTONES` registry now M1..M13, MR.
+  `harness/generators.py::make()`: distinguishes unknown-milestone (`KeyError`) from
+  registered-but-not-yet-built (`NotImplementedError`) so `selftest.py`'s existing per-milestone
+  catch handles M6-MR gracefully instead of the whole run crashing on a bare `KeyError`.
+- Score after (local): `score.py --milestone M{1..5}` output diffed byte-for-byte (minus
+  `metrics`/`runtime_s`) against pre-edit baselines — identical, all still `pass:true`.
+  `harness/selftest.py` (full M1-M13+MR sweep) → exit 1 (expected), ~88s: M1-M5 all 6 checks
+  PASS each; M6-M13/MR each one clean FAIL ("generator implemented... not yet implemented") with
+  no crash/traceback. `pytest tests/` → 16 passed (unchanged).
+- Learned: `generators.make()`'s bare `KeyError` on any name outside the (Round-1-only) `_MAKERS`
+  dict was silently fine while `milestones.MILESTONES` only had M1-M5 (the two dicts had the same
+  keys), but the moment milestones.py grew M6+, `selftest.py`'s loop over `ms.MILESTONES` hit a
+  name generators.py didn't recognize as "a real but unbuilt milestone" and it raised past the
+  `except NotImplementedError` handler — the exact class of bug the M0 gate exists to catch.
+- Next: `harness/generators.py::_make_m6` — ruled `ThruSections` loft (star profile 250/450
+  fillets 30/40 at z=-10 to 375/675 fillets 45/60 at z=L+10) cut from an R_o=1000 cylinder; read
+  `docs/research/02-brep-loft-step-gmsh.md` first. Register `_make_bore_filled_m6` (solid
+  cylinder, no cavity) in `selftest.py::_BORE_FILLERS`. Then M7, M11 (first `n_solids>1` case),
+  continuing the prompt's build order toward M8/M12/M10 then `voxelize.py` for M9/M13.
 
 ### iter 25 — HANDOFF — opus/medium — 2026-08-29T20:36
 - Score before: driver header "M5 PASSED (progress 1.0)", milestone HANDOFF, mode handoff.
