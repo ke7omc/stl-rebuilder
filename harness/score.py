@@ -28,7 +28,7 @@ from OCP.BRepGProp import BRepGProp
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.GProp import GProp_GProps
 from OCP.StlAPI import StlAPI_Writer
-from OCP.TopAbs import TopAbs_FACE, TopAbs_SOLID
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID
 from OCP.TopExp import TopExp, TopExp_Explorer
 from OCP.TopoDS import TopoDS
 from OCP.TopTools import TopTools_IndexedMapOfShape
@@ -58,6 +58,21 @@ def _solids_with_volume_z(shape) -> list:
     return out
 
 
+def _min_edge_length_mm(shape) -> float | None:
+    """Shortest TopAbs_EDGE curve length (mm) over the whole shape, or None if it has no edges."""
+    shortest = None
+    exp = TopExp_Explorer(shape, TopAbs_EDGE)
+    while exp.More():
+        edge = TopoDS.Edge_s(exp.Current())
+        props = GProp_GProps()
+        BRepGProp.LinearProperties_s(edge, props)
+        length = props.Mass()
+        if shortest is None or length < shortest:
+            shortest = length
+        exp.Next()
+    return shortest
+
+
 # Checks that are *always* run, in evaluation order, followed by the gate-conditional ones.
 # `progress` is (index of first failure + partial) / len(plan), so the denominator must be the
 # full plan — not the number of checks that happened to run before fail-fast stopped, which
@@ -82,6 +97,7 @@ _GATED = [  # (check name, gate key that enables it) — order = evaluation orde
     ("surface_deviation_p99_mm", "surface_deviation_p99_mm"),
     ("surface_deviation_p99_by_region", "surface_deviation_p99_mm"),
     ("face_count_max", "face_count_max"),
+    ("min_edge_mm", "min_edge_mm"),
     ("step_roundtrip", "step_roundtrip_vol_err"),
     ("gmsh_tet", "gmsh_min_sicn"),
 ]
@@ -94,7 +110,7 @@ _LOWER_IS_BETTER = {"volume_err_pct", "per_solid_volume_err_pct", "bbox_err_pct"
                     "surface_deviation_p99_mm", "surface_deviation_p99_by_region",
                     "face_count_max", "step_roundtrip", "n_stations_max",
                     "topo_event_z", "topo_events", "adaptive_efficiency"}
-_HIGHER_IS_BETTER = {"gmsh_tet", "dome_stations_min"}
+_HIGHER_IS_BETTER = {"gmsh_tet", "dome_stations_min", "min_edge_mm"}
 
 # The deviation metric compares two *tessellations*, so each side carries its own chordal error.
 # At the scoring tolerance (0.5 mm) a tessellation sits up to 0.25 mm inside the true surface —
@@ -693,6 +709,21 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
                 fail_here("face_count_max", value=n_faces, threshold=threshold,
                           hint=f"result has {n_faces} faces (gate <= {threshold}); "
                                "unify coplanar/coaxial faces before export")
+
+        # --- check: min_edge_mm (MISSION §6.2 M12/M13/MR: no degenerate/sliver edges) --------
+        if "min_edge_mm" in spec.gates:
+            shortest = _min_edge_length_mm(result_shape)
+            metrics_out["min_edge_mm"] = shortest
+            threshold = spec.gates["min_edge_mm"]
+            ok = shortest is not None and shortest >= threshold
+            add("min_edge_mm", ok, value=shortest, threshold=threshold)
+            if not ok:
+                fail_here("min_edge_mm", value=shortest, threshold=threshold,
+                          hint=(f"shortest edge is {shortest:.4g} mm (gate >= {threshold} mm); "
+                                "a sliver edge from a near-tangent fillet/boolean intersection "
+                                "will choke gmsh meshing"
+                                if shortest is not None else
+                                "result shape has no edges — harness bug or degenerate shape"))
 
         # --- check: step_roundtrip ----------------------------------------------------
         if "step_roundtrip_vol_err" in spec.gates:

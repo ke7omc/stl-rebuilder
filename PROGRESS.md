@@ -15,6 +15,28 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 31b (M0, round 2): `harness/score.py` wires `min_edge_mm` (M12/M13/MR).** New
+  `_min_edge_length_mm(shape)` helper walks `TopExp_Explorer(shape, TopAbs_EDGE)`,
+  `BRepGProp.LinearProperties_s(edge, GProp_GProps())` per edge (`.Mass()` is curve length for
+  a 1-D `LinearProperties_s` call, verified against M1's truth STEP: 12 edges, shortest
+  1884.96 mm, matches the annular cylinder's radial end-cap edges), returns the shape-wide
+  minimum. Added to `_GATED` right after `face_count_max` (still cheap: no re-tessellation, one
+  more `TopExp_Explorer` pass) and to `_HIGHER_IS_BETTER` (bigger min-edge is safer, matching
+  `dome_stations_min`'s direction convention) so a failing-but-close value earns partial credit.
+  Fails with `shortest=None` (harness-bug hint) only if the result shape somehow has zero edges,
+  which brep_valid/n_solids would already have caught earlier in the plan.
+  - **Verified:** `score.py --milestone M12` still fails at generator construction (expected,
+    unbuilt). `selftest.py --milestone M1 --skip-gmsh` unaffected. `score.py --milestone M{1..5}`
+    on the real pipeline: unchanged, all `pass: true, progress: 1.0`. `pytest tests/` (16 tests):
+    all pass (ran after `station_bands`/`n_stations_max` landed too, see iter 31 below — same run
+    covers both).
+  - **Next:** every report/geometry-derived Round-2 gate except `frame_axis_err_deg` and
+    `axial_extent_err_mm` (M10/M13, blocked on resolving `truth.bbox`'s frame convention, see
+    iter 30's note) is now wired. The harness's remaining M0 blocker is generators: M8, M9, M10,
+    M12, M13 all raise `NotImplementedError`. M8 (dilated-cavity fillet cut) is the next one per
+    the original build order — it unblocks `station_bands`/`n_stations_max`/`topo_events` being
+    exercised for real, and M9/M10/M12 all reuse M8's params (`m8 = _m8()`).
+
 - **iter 31 (M0, round 2): `harness/score.py` wires `station_bands` and `n_stations_max`
   (M8/M9/M10/M12/M13), the report-derived gates iter 30's log flagged as next.**
   - `station_bands`: generalizes `dome_stations_min`'s pattern from hardcoded "dome" label
