@@ -40,6 +40,44 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 45 (M7) — M7 PASSES, progress 0.0625 -> 1.0 on the first design, and M1-M6 all still
+  pass (each re-scored individually, progress 1.0).** `volume_err_pct` 0.0055% (gate 0.1),
+  `topo_events` matched within 2.5e-5 mm of the expected 7000 mm (gate 2.0), `gmsh_tet` min SICN
+  0.458 (gate 0.1), `face_count_max` 16 (gate 60), `surface_deviation_max_mm` 0.054 (gate 0.6),
+  runtime 1.95 s. What landed (all in `pipeline/cli.py`, plus one new `pipeline/solids.py`
+  function):
+  - Station loop now accepts ANY number of interior loops per station (was hard-coded to
+    exactly 1), classifying each ring independently: axis-centered + circular (or axis-centered
+    + non-circular, e.g. M4/M5's fin slots) goes to the existing single main-bore-chain path
+    unchanged (errors if more than one axis-centered hole appears at a station); every OTHER
+    (off-axis) ring must be circular — recorded as `(z, cx, cy, R)` samples for M7's satellite
+    perforations (a non-circular off-axis ring, or more than one axis-centered ring, is reported
+    as unsupported topology rather than silently mishandled).
+  - Cross-station matching: satellite samples are grouped into chains by nearest-(cx,cy) match
+    to each existing chain's most recent sample (greedy, `d < 2*R` threshold) — safe because
+    M7's perforations are straight (same-hole distance ~0 mm across stations) while distinct
+    satellites are a full inter-hole spacing apart (600 mm at R=100, threshold 200 mm), so there
+    is no confusion. General enough for holes that appear at different z (not exercised by M7,
+    which starts all 6 at z_min, but costs nothing extra).
+  - `pipeline/solids.py::build_cylinder_solid(cx, cy, z_lo, z_hi, radius)` — a straight
+    `BRepPrimAPI_MakeCylinder` on a `gp_Ax2` offset from the main axis; simpler than extending
+    `build_revolve_solid` (which is hard-coded to the Z axis) since M7's satellites don't taper.
+  - Each satellite chain gets its own z extent: full `[z_min-eps_cut, z_max+eps_cut]` if it spans
+    every station, else `_bisect_hole_edge` (new function, mirrors `_bisect_topology_event` but
+    matches by proximity to the chain's own (cx,cy,R) instead of circular-vs-non-circular
+    classification, since several same-classification holes can coexist in one station) finds
+    its true birth/death z. All 6 of M7's satellites die at the same z=7000 plane; their
+    individually-bisected z values are deduped into one reported event (any two within
+    `tol.topo_tol` are averaged together) — without this, `topo_events_max` (gate 2) would fail
+    on 6 near-identical reported events for 1 expected one.
+  - Cut order: the main bore chain's cutter still gets ONE `booleans.cut` against the envelope
+    (unchanged); each satellite cutter is then a separate sequential `booleans.cut` against the
+    running result, rather than fusing all cutters first — sound because every cutter is
+    geometrically disjoint from every other, so cutting them in any order gives the same final
+    solid, and it sidesteps `BRepAlgoAPI_Fuse` of disjoint solids entirely.
+  - Passed on the FIRST scored run with the full station-loop + chain + cutter machinery in
+    place; the only gap in between (progress 0.5625 -> 1.0) was that `topology_events_z_mm`
+    wasn't being reported at all yet — added the dedup-and-report step above and it passed clean.
 - **iter 44 (M6, escalated) — M6 PASSES, progress 0.9384 -> 1.0, and M1-M5 all still pass (each
   re-scored individually, progress 1.0).** `gmsh_tet` min SICN **0.0077 -> 0.3644** (gate 0.1),
   `face_count_max` **157 -> 27** (gate 200), `volume_err_pct` 0.00098 -> 0.00065 (gate 0.2),
@@ -2736,4 +2774,3 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   returns exact volume for boolean-cut cylinders (no floating-point error at all).
 - Next: build `harness/metrics.py` (volume/CoM/inertia from trimesh; symmetric deviation;
   STEP round-trip) and `harness/meshcheck.py` (gmsh subprocess check).
-Testing M7 after multi-hole/satellite cutter support

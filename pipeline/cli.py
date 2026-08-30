@@ -505,7 +505,7 @@ def _run(args) -> int:
             z_hi = z_max + eps_cut_val
         else:
             z_hi = _bisect_hole_edge(mesh, z_last, all_zz[i_last + 1], chord_tol, cx0, cy0, R0)
-        sat_cutters.append(solids.build_cylinder_solid(cx0, cy0, z_lo, z_hi, R0))
+        sat_cutters.append((solids.build_cylinder_solid(cx0, cy0, z_lo, z_hi, R0), z_lo, z_hi))
 
     event_z = None
     circ_before = None
@@ -690,8 +690,22 @@ def _run(args) -> int:
     # Satellite perforations (M7) are geometrically disjoint from the main bore and from each
     # other, so a sequence of independent cuts gives the same result as fusing them first and
     # is simpler/more robust than a multi-solid fuse of disjoint cutters.
-    for sat_solid in sat_cutters:
+    sat_events_raw = []
+    for sat_solid, z_lo, z_hi in sat_cutters:
         shape = booleans.cut(shape, sat_solid, tol.fuzzy(chord_tol))
+        if z_lo > z_min + eps_cut_val:
+            sat_events_raw.append(z_lo)
+        if z_hi < z_max - eps_cut_val:
+            sat_events_raw.append(z_hi)
+    # Several satellite chains often die/are born at (numerically near-identical) the same
+    # z-plane (M7: all 6 perforations end at z=7000) — report ONE event per distinct plane, not
+    # one per chain, matching what score.py's `topo_events_max` anti-gaming check expects.
+    sat_events_z_mm = []
+    for z in sorted(sat_events_raw):
+        if sat_events_z_mm and abs(z - sat_events_z_mm[-1]) <= tol.topo_tol(chord_tol, L):
+            sat_events_z_mm[-1] = 0.5 * (sat_events_z_mm[-1] + z)
+        else:
+            sat_events_z_mm.append(z)
     shape, valid = export.finalize(shape, chord_tol)
     if not valid:
         print("rebuild.py: final solid failed BRepCheck_Analyzer validity check", file=sys.stderr)
@@ -711,9 +725,9 @@ def _run(args) -> int:
                 "bore": "mixed" if (bore_rings and bore_pts) else
                          ("prism" if bore_rings else "revolve"),
             },
-            topology_events_z_mm=(
-                [event_fore, event_aft] if event_fore is not None
-                else ([event_z] if event_z is not None else [])
+            topology_events_z_mm=sorted(
+                ([event_fore, event_aft] if event_fore is not None
+                 else ([event_z] if event_z is not None else [])) + sat_events_z_mm
             ),
         )
     return 0
