@@ -15,12 +15,19 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
-- Milestone: **M2**, in progress. Local score: `pass:false, progress:0.6535`, first failure
-  `surface_deviation_max_mm` 1.314 mm at z=9965.2 (aft_dome, right at the pinch end; gate
-  0.6 mm) — up from progress 0.4788 (volume_err_pct 0.0756%) at the top of iter 16. No crash,
-  no timeout — the pipeline runs end-to-end. `volume_err_pct` is now comfortably under its
-  0.05% gate (see iter 16 log). M1 still `pass:true, progress:1.0`; `pytest tests/` still
-  15 passed / 1 pre-existing unrelated failure (see iter 16 log).
+- Milestone: **M2 PASSES** — `pass:true, progress:1.0`, all 14 checks green (see iter 17 log:
+  `_densify_dome_chords` model-resamples the dome pinch windows, and
+  `solids.build_revolve_solid`'s new `curve_windows` param fits ONE interpolating B-spline edge
+  per window instead of many straight chords, resolving the accuracy-vs-`face_count_max`
+  tension that blocked iters 16-17). M1 still `pass:true, progress:1.0`. `pytest tests/`
+  15 passed / 1 pre-existing unrelated failure (`test_every_m1_check_passes_and_missing_
+  generators_block_the_freeze`, an argparse/conftest issue confirmed present on the unmodified
+  baseline, not a regression from this work).
+- **Next milestone: M3.** Read `harness/milestones.py::_m3` for its spec/gates and
+  `harness/generators.py` for whether its truth generator exists yet; `pipeline/cli.py` doesn't
+  handle M3's geometry yet (only the M1/M2 axisymmetric-circular-envelope-and-bore fast path is
+  implemented — see the module docstring). The new `curve_windows` mechanism in
+  `pipeline/solids.py` may generalize to any curved-meridian region M3+ introduces.
 - **Iter 15 summary (read this before touching `pipeline/cli.py` or `pipeline/solids.py`
   again):** the 0.138% volume error left by iter 14 was NOT dominated by the pinch-endpoint
   radius itself (that was already snapped to the bore's fitted radius, which is accurate). It
@@ -311,14 +318,55 @@
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
 
-### iter 17 (in progress) — M2 — sonnet/medium
-- Testing: switched `_densify_dome_chords` from uniform-in-z to uniform-in-arc-length sampling
-  of the same validated quadratic-in-R^2 model (see updated docstring in `pipeline/cli.py`),
-  n_samples still 20. Expect `surface_deviation_max_mm` to drop below the 0.6mm gate (more
-  points concentrated at the steep pinch tip) without regressing `volume_err_pct` (same model,
-  same window) or blowing `face_count_max=40` (still only 20 samples per gap, same as iter 16
-  which never even reached the face-count check). Running
-  `.venv/bin/python harness/score.py --milestone M2 --out out/score.local.json` to verify.
+### iter 17 — M2 — sonnet/medium — 2026-08-29
+- Score before: `M2 progress=0.6535`, first failure `surface_deviation_max_mm=1.314mm` (gate
+  0.6mm) at the aft-dome pinch end.
+- Tried and reverted first: uniform-in-arc-length resampling in `_densify_dome_chords` (instead
+  of uniform-in-z) at n_samples=20. Made it WORSE (max deviation 1.463mm) and moved the worst
+  point from the pinch tip to z=9524.9, deep in the *middle* of the same window — proof the
+  chord-vs-arc error isn't concentrated only at the tip; redistributing a fixed point budget
+  just starves the middle. Confirmed the real lever is total point count, not placement.
+  Reverted (see `_densify_dome_chords` docstring for the full account).
+- Diagnosis (bumping n_samples uniform-in-z instead): swept 32/44/50/60. Deviation checks all
+  pass by n=50 (max 0.458mm, p99 0.354mm, p99-by-region 0.383mm — all under gate) but
+  `face_count_max` blows to 68 (gate 40); n=60 passes deviation more comfortably but face count
+  hits 77. **The real problem: `build_revolve_solid` turns every profile point into its own
+  straight-chord face** (via RDP, which barely collapses points in a genuinely curved region) —
+  so satisfying the deviation gate (needs ~50+ points/window) and the face-count gate (<=40
+  total, both domes) are mutually exclusive with a pure polyline representation. No point count
+  threads that needle.
+- Change (the actual fix): `pipeline/solids.py::build_revolve_solid` gained an optional
+  `curve_windows` param — z-ranges where the profile points are fit to ONE interpolating
+  B-spline edge (`GeomAPI_Interpolate`) instead of individual straight chords. `pipeline/cli.py`
+  now passes `curve_windows=[(z_min, fore_window_z), (aft_window_z, z_max)]` (the same validated
+  dome windows `_densify_dome_chords` already resamples) when building the outer solid. This is
+  narrower than the *global*-spline approach iter 15 tried and reverted (which mixed noisy real
+  stations across a near-vertical-tangent-then-flat meridian in one curve and either overshot or
+  self-intersected) — here each spline is scoped to one smooth analytic region only, built from
+  clean model-resampled points, with no flat-cylinder points mixed in. `_densify_dome_chords`'s
+  `n_samples` dropped back to 24 (it now only affects spline-fit quality, not face count, so it
+  no longer needs tuning against `face_count_max`).
+- Bug hit + fixed mid-implementation: the first `curve_windows` implementation split the point
+  list into independent "runs" (window vs. non-window) and built edges per run — but the
+  straight-chord run adjacent to a window never included the window's own boundary point, so
+  the connecting edge between them was silently never built (no wire-construction error, just a
+  physically wrong open gap). This surfaced as `n_solids=0` (the revolved shape ended up a
+  `TopAbs_SHELL`, not a `TopAbs_SOLID`) at first, and inverted (negative) volume with a smaller
+  isolated `curve_windows` reproduction. Fixed by anchoring each straight run to its neighboring
+  run's shared boundary point before RDP, so the connecting chord is always built. Verified in
+  isolation: volume matches the all-straight-line baseline for the un-densified case, and is
+  slightly larger (correctly, since the dome bulges outside the chord) for the spline case.
+- Score after: **`M2 progress=1.0`, `pass: true`** — `volume_err_pct=0.0202%`,
+  `surface_deviation_max_mm=0.349mm`, `p99=0.225mm`, `p99_by_region=0.263mm`, `face_count_max=4`
+  (was the failing check at 68-77 with the polyline approach), `step_roundtrip` and `gmsh_tet`
+  also pass. M1 still `pass:true, progress:1.0` (spline path is opt-in via `curve_windows`,
+  unused by M1). `pytest tests/` 15 passed / 1 pre-existing unrelated failure (same
+  `test_every_m1_check_passes_and_missing_generators_block_the_freeze` argparse/conftest issue
+  noted in iter 16, confirmed present on the unmodified iter-16 baseline too).
+- Next: M2 is done. Move to M3 (per `MISSION.md` build order) — read its milestone spec in
+  `harness/milestones.py::_m3` and generator status in `harness/generators.py`; the
+  `curve_windows` mechanism in `solids.py` may generalize to any milestone with a curved
+  (non-conical) meridian region, worth checking before reinventing per-milestone.
 
 ### iter 16 — M2 — sonnet/medium — 2026-08-29T19:48
 - Score before: `M2 progress=0.4788`, first failure `volume_err_pct=0.0756%` (gate 0.05%).

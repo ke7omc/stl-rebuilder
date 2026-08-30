@@ -116,7 +116,7 @@ def _extrapolate_end(pts, target_z: float, at_start: bool, min_dz: float, resid_
 
 
 def _densify_dome_chords(outer_pts, z_lo, z_hi, at_start: bool, min_dz: float, resid_tol: float,
-                          window_z: float, n_samples: int = 20):
+                          window_z: float, n_samples: int = 24):
     """Replace the real (noisy, unevenly-spaced) circle-fit stations inside the validated dome
     window — from the pinch endpoint through `window_z`, the last station the quadratic-in-R^2
     model actually fit — with a clean, evenly-spaced resample of that same model, including the
@@ -148,23 +148,19 @@ def _densify_dome_chords(outer_pts, z_lo, z_hi, at_start: bool, min_dz: float, r
     at the steep pinch end more cheaply than raising n_samples further; at n_samples=14 it
     regressed (volume_err_pct 0.088%, worse than n_samples=20 uniform-in-z) -- reverted.
 
-    iter 17: switched from uniform-in-z to uniform-in-*arc-length* along the (z, R) meridian
-    curve. Chord-vs-arc deviation for a fixed number of chords is governed by how much the curve
-    bends per chord, which arc length tracks directly (unlike z, which ignores how much R moves)
-    -- equal arc-length steps put more points exactly where dR/dz is steepest (the pinch tip)
-    without the closed-form-solve fragility that sank the uniform-in-R attempt. Arc length is
-    estimated from a fine (500-point) uniform-in-z evaluation of the same validated quadratic
-    model, then re-sampled at n_samples evenly spaced arc-length stations via interpolation."""
+    iter 17: tried uniform-in-*arc-length* along the (z, R) meridian curve instead of uniform-in-z
+    (equal arc-length steps put more points where dR/dz is steepest, without the closed-form
+    fragility that sank the uniform-in-R attempt). Result: WORSE, not better --
+    surface_deviation_max_mm rose to 1.463mm and the worst point moved from the pinch tip
+    (z=9965, where arc-length *did* pack more points) to z=9524.9, deep in the *middle* of the
+    same window, which lost points to fund that extra density at the tip. So the chord-vs-arc
+    error is not concentrated only at the tip -- it is spread fairly evenly in curvature terms
+    across the whole window, and a fixed n_samples budget has no slack to redistribute without
+    starving somewhere else. Reverted to uniform-in-z; the real lever is n_samples itself."""
     z0, coef, _ = _fit_r2_quadratic(outer_pts, at_start, min_dz, resid_tol)
     z_end = z_lo if at_start else z_hi
     lo, hi = (z_end, window_z) if at_start else (window_z, z_end)
-    fine_z = np.linspace(lo, hi, 500)
-    fine_r = np.array([_eval_r2_quadratic(z0, coef, z) for z in fine_z])
-    seg = np.hypot(np.diff(fine_z), np.diff(fine_r))
-    s = np.concatenate([[0.0], np.cumsum(seg)])
-    s_targets = np.linspace(0.0, s[-1], n_samples)
-    zs = np.interp(s_targets, s, fine_z)
-    zs[0], zs[-1] = lo, hi
+    zs = np.linspace(lo, hi, n_samples)
     return [(float(z), _eval_r2_quadratic(z0, coef, z)) for z in zs]
 
 
@@ -258,21 +254,24 @@ def _run(args) -> int:
     # Not done for a non-pinch end (M1): there the profile is flat and a straight chord is exact.
     middle_pts = list(outer_pts)
     fore_gap, aft_gap = [], []
+    curve_windows = []
     if is_pinch_start:
         fore_gap = _densify_dome_chords(outer_pts, z_min, None, True, min_dz, resid_tol, fore_window_z)
         fore_gap[0] = (z_min, r_start)  # keep the bore-snapped value, not the model's own fit there
         middle_pts = [p for p in middle_pts if p[0] > fore_window_z]
+        curve_windows.append((z_min, fore_window_z))
     if is_pinch_end:
         aft_gap = _densify_dome_chords(outer_pts, None, z_max, False, min_dz, resid_tol, aft_window_z)
         aft_gap[-1] = (z_max, r_end)
         middle_pts = [p for p in middle_pts if p[0] < aft_window_z]
+        curve_windows.append((aft_window_z, z_max))
     start_pt = [] if is_pinch_start else [(z_min, r_start)]
     end_pt = [] if is_pinch_end else [(z_max, r_end)]
     outer_full = sorted(start_pt + fore_gap + middle_pts + aft_gap + end_pt, key=lambda p: p[0])
     bore_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
         + [(z_max + eps_cut_val, bore_pts[-1][1])]
 
-    outer_solid = solids.build_revolve_solid(outer_full, chord_tol)
+    outer_solid = solids.build_revolve_solid(outer_full, chord_tol, curve_windows=curve_windows)
     bore_solid = solids.build_revolve_solid(bore_full, chord_tol)
 
     shape = booleans.cut(outer_solid, bore_solid, tol.fuzzy(chord_tol))
