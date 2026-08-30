@@ -40,6 +40,44 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 44 (M6, escalated) — DIAGNOSIS: the arc failures were never about fit quality; the arc
+  RUNS are systematically TRUNCATED and the connecting straight lines chord across ~30 deg of real
+  fillet.** Measured directly (`/tmp/diag_arcs.py`, throwaway) on the actual reference ring the
+  loft is built from (station z=5204.8, 425 raw points, 156 after RDP):
+  - `detect_arc_runs` finds the right 12 runs, but their angular spans are **95.6 deg (tips) and
+    30.9 deg (valleys)**. The TRUE spans, computed from the star's own vertex geometry
+    (n=6, R_tip=450, R_valley=250 -> interior angles 303.68 / 116.32 deg), are **123.68 deg
+    (tips) and 63.68 deg (valleys)**. So ~28 deg of every tip fillet and ~33 deg of every valley
+    fillet are classified as "straight" and then replaced by a chord.
+  - The direct consequence is measurable in the supposedly-straight gaps between runs: fitting a
+    line through each gap's endpoints leaves **max perpendicular deviation 1.16-2.74 mm** over
+    ~250 mm segments. A truly straight star flank would be collinear to tessellation precision
+    (the truth's flanks are exactly planar faces -- see below). That 1.2-2.7 mm, amplified x1.5 at
+    the far end of the loft, is the ~3.2 mm `surface_deviation_max_mm` that killed iters 40/42/43.
+  - It also explains the ill-conditioned valley fits every previous iteration reported: a 30.9 deg
+    arc of a ~50 mm circle has a 1.8 mm sagitta, so 0.25 mm of tessellation noise moves the fitted
+    radius by ~2 mm. Measured here: valley `r_lsq_raw` = 48.34/48.59 where the truth is
+    `40 * scale` = 50.4; tip `r_lsq_raw` = 37.76 vs truth `30 * scale` = 37.81 (the tip run is
+    long enough to be well conditioned, which is why only the valleys looked wrong).
+  - **Ruled out as the cause**: the loft's ruled surfaces themselves. `harness/generators.py::
+    _star_loft_cutter` builds the truth as `ThruSections(isSolid, ruled)` between two star wires
+    that are *exactly* x1.5 scalings of each other (250/450 fillets 30/40 -> 375/675 fillets
+    45/60), with `CheckCompatibility(False)`, so corresponding edges pair by parameter and each
+    line->line pair is an exactly planar face and each arc->arc pair an exact cone. The truth
+    surface IS the pure "scale linear in z" cone -- so a correct arc/line wire lofted the same way
+    is exact by construction, and iter 43's isolated single-arc test agreeing to 1e-4 mm was not a
+    fluke.
+  - **The fix this iteration tests**: stop trying to fit each fillet circle from its own (short,
+    noisy, truncated) arc run. Fit the 12 long straight FLANKS instead -- they have 250 mm of
+    lever arm and are exactly planar in truth, so a total-least-squares line through the middle of
+    each gap is conditioned ~100x better -- intersect adjacent flank lines to get the 12 true
+    corners, and inscribe each fillet as the arc TANGENT to both flanks, leaving only its radius
+    (a single well-conditioned 1-D least-squares parameter) to be fitted from the arc points. That
+    reconstructs the full 63.7/123.7 deg fillet, not the truncated 30.9/95.6 deg fragment, and
+    gives a 24-edge wire (12 arcs + 12 lines) instead of a 156-segment polygon -- which is also
+    the whole point for `gmsh_tet`: the loft's lateral faces become ~40-250 mm wide instead of
+    2.5-10 mm wide, so gmsh's `MeshSizeMin = hmax/10 = 10 mm` floor no longer collides with the
+    face width (the measured cause of min SICN 0.0077 -- 142/154 ring segments are under 10 mm).
 - **iter 43 (M6): a sixth `gmsh_tet` mitigation attempt (plain default-threshold `detect_arc_runs`
   on the loft wires, no least-squares refit) also falsified and reverted -- still 0.9384 (third
   consecutive stall). New, more useful result: isolated the loft's arc-to-arc RULED SURFACE itself
