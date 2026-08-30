@@ -751,10 +751,11 @@ def contract_valid(score: dict | None) -> tuple[bool, str]:
     return True, "ok"
 
 
-def run_scorer(milestone: str, iteration: int) -> tuple[int, dict | None, str]:
+def run_scorer(milestone: str, iteration: int, out_name: str = "score.json") -> tuple[int, dict | None, str]:
     """Run the frozen scorer. Returns (exit, score dict or None, log tail)."""
     OUT_DIR.mkdir(exist_ok=True)
-    out = OUT_DIR / "score.json"
+    out = OUT_DIR / out_name
+    suffix = "" if out_name == "score.json" else f"-{milestone}"
     if out.exists():
         out.unlink()
     if not (ROOT / "harness" / "score.py").exists():
@@ -778,9 +779,38 @@ def run_scorer(milestone: str, iteration: int) -> tuple[int, dict | None, str]:
                                            "most likely rebuild.py or its imports are broken; see log tail"},
                  "checks": [], "scorer_log_tail": tail}
         out.write_text(json.dumps(score, indent=2))
-    (LOGS_DIR / f"iter-{iteration:04d}.score.log").write_text(tail)
-    shutil.copy(out, LOGS_DIR / f"iter-{iteration:04d}.score.json")
+    (LOGS_DIR / f"iter-{iteration:04d}.score{suffix}.log").write_text(tail)
+    shutil.copy(out, LOGS_DIR / f"iter-{iteration:04d}.score{suffix}.json")
     return code, score, tail
+
+
+def check_regressions(upto: str, iteration: int) -> list[tuple[str, str]]:
+    """Re-score every milestone before `upto` on the current HEAD. Returns [(milestone, why)] for
+    the ones that no longer pass — a later milestone may not be bought by breaking an earlier one."""
+    failing: list[tuple[str, str]] = []
+    for m in MILESTONES[1:MILESTONES.index(upto)]:
+        if m in ("HANDOFF", "DONE"):
+            continue
+        code, score, _ = run_scorer(m, iteration, out_name=f"score.{m}.json")
+        if score and score.get("pass"):
+            log(f"regression check: {m} still passes")
+            continue
+        ff = (score or {}).get("first_failure") or {}
+        why = f"{ff.get('check')}={ff.get('value')} — {str(ff.get('hint', ''))[:160]}"
+        log(f"REGRESSION: {m} no longer passes on HEAD: {why}")
+        failing.append((m, why))
+    return failing
+
+
+def demote(st: dict, failing: list[tuple[str, str]], iteration: int, context: str) -> None:
+    """Send the loop back to the lowest milestone that fails on HEAD."""
+    target, why = failing[0]
+    st["milestone"] = target
+    st.update(best_progress=0.0, stall=0, escalated=False)
+    set_last_eval(st, iteration, "regression", False,
+                  f"{context}: {target} no longer passes ({why}); milestone set back to {target}",
+                  "\n".join(f"{m}: {w}" for m, w in failing))
+    log(f"MILESTONE DEMOTED → {target}  ({context}; earlier milestones must keep passing)")
 
 
 # ----------------------------------------------------------------------------- modes
@@ -951,6 +981,10 @@ def evaluate(st: dict, iteration: int, mode: str) -> None:
     if ms == "HANDOFF":
         h = ROOT / "HANDOFF.md"
         ok = h.exists() and len(h.read_text()) > 1500 and all(f"M{i}" in h.read_text() for i in range(1, 6))
+        failing = check_regressions("HANDOFF", iteration)
+        if failing:
+            demote(st, failing, iteration, "at HANDOFF")
+            return
         set_last_eval(st, iteration, "handoff", ok, "HANDOFF.md present and complete" if ok else
                       "HANDOFF.md missing, short, or not covering M1–M5", "")
         if ok:
@@ -962,6 +996,10 @@ def evaluate(st: dict, iteration: int, mode: str) -> None:
     progress = float(score.get("progress", 0.0)) if score else 0.0
     set_last_eval(st, iteration, f"scorer {ms}", bool(score and score.get("pass")), latest_verdict_line(), tail)
     if score and score.get("pass"):
+        failing = check_regressions(ms, iteration)
+        if failing:
+            demote(st, failing, iteration, f"{ms} passes")
+            return
         keep_artifacts(score, ms)
         advance(st, f"scorer pass at iteration {iteration}")
         return
@@ -1278,6 +1316,8 @@ def main() -> int:
     ap.add_argument("--kill", action="store_true", help="stop now: kill the agent, checkpoint-commit, save state")
     ap.add_argument("--recheck-models", action="store_true")
     ap.add_argument("--reset-stall", action="store_true")
+    ap.add_argument("--check-regressions", action="store_true",
+                    help="re-score every milestone below the current one on HEAD; demote the state if one fails")
     ap.add_argument("--max-iterations", type=int)
     a = ap.parse_args()
     if a.max_iterations:
@@ -1308,6 +1348,18 @@ def main() -> int:
         os.kill(pid, signal.SIGTERM)
         print(f"sent SIGTERM to driver pid {pid}: it kills the agent, checkpoint-commits its work, saves state "
               f"and exits. Watch logs/loop.log for 'stopped; state saved'.")
+        return 0
+    if a.check_regressions:
+        if running_driver_pid():
+            print("stop the driver first (--stop/--kill); the sweep must not race an evaluation")
+            return 1
+        failing = check_regressions(st["milestone"], st["iteration"])
+        if failing:
+            demote(st, failing, st["iteration"], "manual regression sweep")
+        else:
+            print(f"all milestones below {st['milestone']} pass on HEAD")
+        save_state(st)
+        write_dashboard(st)
         return 0
     if a.reset_stall:
         st.update(stall=0, escalated=False, stopped_reason=None)
