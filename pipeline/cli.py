@@ -253,6 +253,37 @@ def _drop_close_ring_points(pts, min_gap: float):
     return np.asarray(kept)
 
 
+def _fit_ref_fillets(raw_pts, simp_pts, chord_tol: float):
+    """Reconstruct the reference ring as exact tangent fillet arcs joined by straight flanks.
+
+    `detect_arc_runs` reliably finds WHERE each fillet is but systematically truncates HOW FAR it
+    runs (measured on M6: 95.6 deg spans at the tips vs a true 123.68, 30.9 vs 63.68 at the
+    valleys), so its run endpoints are used only as seeds. The geometry is then recovered the way
+    the truth was built: fit the long straight flanks between runs, intersect neighbouring flanks
+    for the sharp corner, and inscribe the one tangent circle that fits the arc points. Returns
+    None -- caller falls back to the RDP polygon loft -- whenever the reconstruction cannot be
+    trusted."""
+    runs = fitting.detect_arc_runs(simp_pts.tolist(), None)
+    if len(runs) < 3:
+        return None
+    key = {(round(float(x), 9), round(float(y), 9)): i for i, (x, y) in enumerate(raw_pts)}
+    spans = []
+    for run in runs:
+        a = key.get((round(float(simp_pts[run[0]][0]), 9), round(float(simp_pts[run[0]][1]), 9)))
+        b = key.get((round(float(simp_pts[run[-1]][0]), 9), round(float(simp_pts[run[-1]][1]), 9)))
+        if a is None or b is None:
+            return None
+        spans.append((a, b))
+    fillets = fitting.fit_fillet_ring(raw_pts, spans, 0.3 * chord_tol)
+    if not fillets:
+        return None
+    if any(not math.isfinite(f["radius"]) or f["radius"] <= 0.0 for f in fillets):
+        return None
+    if fitting.fillet_ring_deviation(raw_pts, fillets) > chord_tol:
+        return None
+    return fillets
+
+
 def _build_bore_prism_or_loft(bore_rings, z_min: float, z_max: float, eps_cut_val: float,
                                chord_tol: float):
     """Select the constant-cross-section prism path (`_build_prism_bore`, M3's star bore) or the
@@ -294,8 +325,8 @@ def _build_bore_prism_or_loft(bore_rings, z_min: float, z_max: float, eps_cut_va
     ref_idx = len(bore_rings) // 2
     _, ref_ring = bore_rings[ref_idx]
     ref_pts_raw = np.asarray(ref_ring.coords)[:-1]
-    ref_pts = np.asarray(fitting.simplify_closed_ring(ref_pts_raw.tolist(), 0.3 * chord_tol))
-    ref_pts = _drop_close_ring_points(ref_pts, 5.0 * chord_tol)
+    ref_simp = np.asarray(fitting.simplify_closed_ring(ref_pts_raw.tolist(), 0.3 * chord_tol))
+    ref_pts = _drop_close_ring_points(ref_simp, 5.0 * chord_tol)
     ref_area = areas[ref_idx]
     z_lo_t = z_min - eps_cut_val
     z_hi_t = z_max + eps_cut_val
@@ -303,6 +334,10 @@ def _build_bore_prism_or_loft(bore_rings, z_min: float, z_max: float, eps_cut_va
     a_hi_t = max(1e-9, float(np.polyval(coef, z_hi_t)))
     s_lo = math.sqrt(a_lo_t / ref_area)
     s_hi = math.sqrt(a_hi_t / ref_area)
+    fillets = _fit_ref_fillets(ref_pts_raw, ref_simp, chord_tol)
+    if fillets is not None:
+        return solids.build_fillet_loft_solid(z_lo_t, s_lo, z_hi_t, s_hi, fillets)
+
     pts_lo = ref_pts * s_lo
     pts_hi = ref_pts * s_hi
     return solids.build_ruled_loft_solid(z_lo_t, pts_lo, z_hi_t, pts_hi, r_fillet_thresh=0.0)

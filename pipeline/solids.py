@@ -354,3 +354,57 @@ def build_ruled_loft_solid(z0, pts0, z1, pts1, r_fillet_thresh: float = None) ->
     if not loft.IsDone():
         raise RuntimeError("ruled loft failed")
     return loft.Shape()
+
+
+def _fillet_ring_wire(fillets, z: float, scale: float):
+    """Closed wire at height `z` from a tangent-fillet cross-section (`fitting.fit_fillet_ring`)
+    scaled uniformly about the axis by `scale`: one exact `GC_MakeArcOfCircle` per fillet, one
+    straight edge per flank, in ring order. 2*len(fillets) edges total, against the ~156 a
+    tolerance-driven polygon of the same cross-section needs."""
+    m = len(fillets)
+
+    def P(xy):
+        return gp_Pnt(xy[0] * scale, xy[1] * scale, z)
+
+    mkwire = BRepBuilderAPI_MakeWire()
+    for i, f in enumerate(fillets):
+        t1, t2 = P(f["t1"]), P(f["t2"])
+        arc = GC_MakeArcOfCircle(t1, P(f["mid"]), t2).Value()
+        mkwire.Add(BRepBuilderAPI_MakeEdge(arc).Edge())
+        nxt = P(fillets[(i + 1) % m]["t1"])
+        if t2.Distance(nxt) > 1e-9:
+            mkwire.Add(BRepBuilderAPI_MakeEdge(t2, nxt).Edge())
+    if not mkwire.IsDone():
+        raise RuntimeError("fillet ring wire construction failed")
+    return mkwire.Wire()
+
+
+def build_fillet_loft_solid(z0: float, s0: float, z1: float, s1: float,
+                            fillets) -> TopoDS_Shape:
+    """Ruled-loft cutter between the SAME tangent-fillet cross-section scaled by `s0` at `z0` and
+    by `s1` at `z1` (MISSION §6.2 M6's linearly-scaling star bore).
+
+    This is the arc/line counterpart of `build_ruled_loft_solid`, and the reason it exists is
+    `gmsh_tet`, not accuracy: a polygon wire dense enough to hold the deviation gate puts
+    142 of its 154 segments below gmsh's `MeshSizeMin` floor (hmax/10 = 10 mm on M6), and each of
+    those becomes a ~3 mm-wide, 10 000 mm-long ribbon face that can only be meshed with slivers
+    (measured min SICN 0.0077 against a 0.1 gate, 11 % of tets under gate, spread over the whole
+    bore). Exact fillet arcs collapse each fillet's ~12 ribbons into ONE face 40-250 mm wide, so
+    the face width stops fighting the mesh-size floor.
+
+    Both wires are generated from one geometry description by pure scaling, so corresponding
+    edges are exact scalings of each other. That makes every line->line pair an exactly planar
+    face and every arc->arc pair an exact cone -- which is precisely how the truth solid is built
+    (`ThruSections(isSolid, ruled)` between two exactly x1.5-scaled star wires) -- and it removes
+    the cross-layer parametrization mismatch that killed the earlier attempt to build each layer's
+    curves independently from its own points (PROGRESS.md iter 41, item 5)."""
+    wire0 = _fillet_ring_wire(fillets, z0, s0)
+    wire1 = _fillet_ring_wire(fillets, z1, s1)
+    loft = BRepOffsetAPI_ThruSections(True, True)
+    loft.AddWire(wire0)
+    loft.AddWire(wire1)
+    loft.CheckCompatibility(False)
+    loft.Build()
+    if not loft.IsDone():
+        raise RuntimeError("fillet ruled loft failed")
+    return loft.Shape()

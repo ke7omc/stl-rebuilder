@@ -40,6 +40,39 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 44 (M6, escalated) — M6 PASSES, progress 0.9384 -> 1.0, and M1-M5 all still pass (each
+  re-scored individually, progress 1.0).** `gmsh_tet` min SICN **0.0077 -> 0.3644** (gate 0.1),
+  `face_count_max` **157 -> 27** (gate 200), `volume_err_pct` 0.00098 -> 0.00065 (gate 0.2),
+  `surface_deviation_max_mm` 0.4996 -> 0.7025 (gate 1.0), `surface_deviation_p99_mm` 0.3211 ->
+  **0.2161** (gate 0.4), runtime 5.7 s. The diagnosis below was correct and the fix built on it
+  worked on the first scored run. What landed:
+  - `pipeline/fitting.py::fit_fillet_ring(pts, arc_spans, line_tol)` — reconstructs the ring as 12
+    exact tangent fillet arcs joined by 12 straight flanks. Per gap it takes the longest
+    CONTIGUOUS window of points that is collinear within `line_tol` (scored by geometric span,
+    then point count) and fits it by total least squares; adjacent flank lines are intersected for
+    the true sharp corner; each fillet is then the unique circle tangent to both flanks, leaving
+    only the bisector distance `s` (radius `r = s*sin(half-angle)`) as a single well-conditioned
+    1-D parameter, fitted by coarse grid + bisection against the arc points.
+  - `pipeline/fitting.py::fillet_ring_deviation(pts, fillets)` — max distance from every RAW ring
+    point to the reconstructed arc/line curve. This is the self-check that decides whether to
+    trust the reconstruction at all.
+  - `pipeline/solids.py::build_fillet_loft_solid` / `_fillet_ring_wire` — builds the two end wires
+    from the SAME fillet list at two scales (so corresponding edges pair exactly, arc->arc and
+    line->line) and lofts with `ThruSections(True, True)` + `CheckCompatibility(False)` — the
+    identical construction `harness/generators.py::_star_loft_cutter` uses for the truth.
+  - `pipeline/cli.py::_fit_ref_fillets` — seeds spans from `detect_arc_runs`, maps them back to
+    raw indices, and returns None (falling back to the existing RDP-polygon loft) if there are <3
+    runs, a span is unmappable, a radius is non-finite/<=0, or `fillet_ring_deviation > chord_tol`.
+  - Measured at the reference station z=5204.8: `max_dev_vs_raw = 0.3457 mm`; fitted radii
+    37.687-37.787 (truth `30*scale` = 37.81) and 50.331-50.742 (truth `40*scale` = 50.41).
+  - Why this fixed `gmsh_tet` and not just the deviation: the wire is now 24 edges instead of a
+    154-segment polygon, so the loft's lateral faces are 40-250 mm wide instead of 2.5-10 mm. Iter
+    42 measured gmsh's floor at `MeshSizeMin = hmax/10 = 10 mm` with 142/154 segments below it;
+    face width no longer collides with that floor.
+  - The earlier "arc edges are structurally broken in this loft" conclusion (iters 40/42/43, three
+    independent ~3.2 mm failures) was a *correct measurement of a wrong construction*, not a
+    property of OCCT: all three fed TRUNCATED arc runs and chorded across the remaining ~30 deg of
+    real fillet. Arc edges in this loft are exact once the arcs are the full fillet.
 - **iter 44 (M6, escalated) — DIAGNOSIS: the arc failures were never about fit quality; the arc
   RUNS are systematically TRUNCATED and the connecting straight lines chord across ~30 deg of real
   fillet.** Measured directly (`/tmp/diag_arcs.py`, throwaway) on the actual reference ring the
@@ -1308,6 +1341,16 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **SUPERSEDED BY iter 44 — read this before the three arc-related M6 entries below.** Those
+  entries say "do not use arc edges in the M6 loft" and that conclusion is WRONG as stated. The
+  common defect in iters 40/42/43 was that all three built arcs from `detect_arc_runs` runs
+  as-is, and those runs are TRUNCATED by ~28-33 deg at each end (measured: 95.6 vs a true 123.68
+  deg at the tips, 30.9 vs 63.68 at the valleys), so the connecting straight edges chorded across
+  real fillet. Iter 44 reconstructs the FULL fillet (flank lines -> corner intersection ->
+  inscribed tangent circle, `fitting.fit_fillet_ring`) and the same 24-edge arc/line loft passes
+  every gate with room to spare. **What remains true and still worth not retrying: do not build
+  loft arcs directly from raw `detect_arc_runs` spans, and do not attempt to fix that by improving
+  the circle fit — the runs' ENDPOINTS are what is wrong, not the points in between.**
 - **M6 `gmsh_tet`/`surface_deviation_max_mm`: a 6th mitigation (iter 43) — plain default-threshold
   `detect_arc_runs`/`r_fillet_thresh=None` on the loft's two wires (the simplest possible arc
   path, no least-squares fit, no exact-scale trick) — do not retry.** Three independent
@@ -1484,6 +1527,47 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 44 — M6 — opus/high (escalated) — 2026-08-30T18:20
+- Score before: `progress=0.9384`, stage `validate`, first failure `gmsh_tet` min SICN
+  0.0076691465167256665 (gate 0.1); every other check passing (`volume_err_pct` 0.000975,
+  `surface_deviation_max_mm` 0.4996, `p99` 0.3211, `face_count_max` 157).
+- Diagnosis first (the escalated-mode requirement), measured not assumed: on the actual reference
+  ring the loft is built from (station z=5204.8, 425 raw pts), `detect_arc_runs` finds the correct
+  12 fillets but spans only **95.6 deg at the tips and 30.9 deg at the valleys** against a true
+  **123.68 / 63.68 deg** derived from the star's own geometry (n=6, R_tip=450, R_valley=250 ->
+  interior angles 303.68/116.32). The straight edges that replace the unclassified remainder
+  therefore chord across ~30 deg of real fillet: fitting a line through each gap leaves **1.16-2.74
+  mm** max perpendicular deviation over ~250 mm, which x1.5 at the far end is exactly the ~3.2 mm
+  that killed iters 40/42/43. Same defect explains the ill-conditioned valley circles (a 30.9 deg
+  arc of a 50 mm circle has a 1.8 mm sagitta, so 0.25 mm of tessellation noise moves the radius
+  ~2 mm). Ruled out: the ruled surfaces themselves — the truth is built by the identical
+  `ThruSections(True, True)` + `CheckCompatibility(False)` construction between two exactly
+  x1.5-scaled star wires, and iter 43's isolated single-arc-to-arc face was exact to 1e-4 mm.
+- Change (one): reconstruct the reference ring's true geometry instead of trusting the run
+  endpoints. New `fitting.fit_fillet_ring` fits the 12 long straight FLANKS (longest contiguous
+  window collinear within `0.3*chord_tol`, total-least-squares — ~100x better conditioned than a
+  30 deg arc), intersects adjacent flanks for the 12 sharp corners, and inscribes each fillet as
+  the circle tangent to both flanks, so only the bisector distance `s` (radius `s*sin(half-angle)`)
+  is fitted — one well-conditioned 1-D parameter. New `fitting.fillet_ring_deviation` measures the
+  result against every raw point; new `solids.build_fillet_loft_solid`/`_fillet_ring_wire` loft the
+  same 24-edge wire at two scales; new `cli._fit_ref_fillets` gates it and falls back to the
+  existing RDP-polygon loft on any doubt.
+- Score after: **M6 pass, progress=1.0, stage `done`, no first failure.** `gmsh_tet` **0.0077 ->
+  0.3644**, `face_count_max` **157 -> 27**, `volume_err_pct` 0.000975 -> 0.000654,
+  `surface_deviation_p99_mm` 0.3211 -> **0.2161**, `surface_deviation_max_mm` 0.4996 -> 0.7025
+  (still well under the 1.0 gate), `step_roundtrip` 5.1e-14, runtime 5.7 s. Regression sweep:
+  M1/M2/M3/M4/M5 each re-scored individually, all pass at progress 1.0.
+- Learned: three prior iterations correctly measured a ~3.2 mm arc-loft failure and drew the wrong
+  boundary around it ("arc edges don't work in this loft"). The failure was upstream of the loft
+  entirely — in the classifier's run ENDPOINTS, which no amount of better circle fitting can
+  repair, and which nothing in the pipeline was checking. The general lesson for later milestones:
+  when a fitted feature is reconstructed, measure the reconstruction against the RAW input points
+  (`fillet_ring_deviation`) rather than against the fit's own residual, which is blind to a
+  truncated domain.
+- Next: M7. The fillet reconstruction currently only succeeds at well-conditioned mid stations
+  (index 1 and -2 return 0 runs / None) — fine here because only the mid station is the reference,
+  but any milestone needing per-station fillets will hit that.
 
 ### iter 42 — M6 — sonnet/medium — 2026-08-30T16:28
 - Score before: iter 41, `out/score.local.json` progress=0.9384, first failure `gmsh_tet` min
