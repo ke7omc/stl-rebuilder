@@ -14,24 +14,74 @@
 - The stall counter you saw (stall=5) was a driver artifact (best_progress pinned at 0.95 by the
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
+### 2026-08-30 12:15 (Round 2) — selftest wall clock is now the risk, fix it before/with M13
+- The driver's full selftest after the M9 commit (`logs/iter-0035.selftest.log`, heartbeats in
+  `logs/loop.log` 11:44–12:10) took **26 min**: checks 1–51 in 5 min, checks 52–56 (**M9**) in the
+  next **15 min**, checks 57–83 in 6 min. So M9's checks cost ~2–3 min *each*. Generation is not
+  the problem — scoring against the 44 MB pathological input per check is.
+- M13 is the same recipe at ~4× the triangles and ~8× the voxels (250×250×1250 vs 200×200×250).
+  On the current design it will exceed the driver's hard cap. That cap is **SCORE_TIMEOUT_S =
+  3600 s**, not the 1500 s printed at `selftest.py:632` (stale — fix the print). A timed-out
+  selftest is a FAIL for the iteration, and the review pass will read MISSION §7.2's "full
+  selftest under 8 minutes with warm caches" literally.
+- Please, in this order: (1) implement the §7.2 truth cache — `harness/truth/Mk.json` with the
+  param hash, reuse `Mk.step`/`Mk.stl`/the input STL when the hash matches; `generators.make()`
+  currently always rebuilds. (2) Profile the M9 checks one by one on a quiet machine
+  (`--milestone M9`, per-check timings are already printed) and take the big-mesh load out of
+  checks that do not need it: the output-side mutations (scaled copy, bore-filled copy, ideal
+  report, region/topo mutations) test the scorer and can run against the clean reference mesh;
+  only the check whose point *is* the pathological input should touch the full mesh. (3) If the
+  input-side metrics (watertight, skew statistics, not_truth_copy) are the slow part, vectorize
+  or sample them — 900 k triangles should take seconds, not minutes. (4) Re-run
+  `pytest tests/test_voxelize.py` alone on a quiet machine as your own note says — an 18-minute
+  100 % CPU stall on the first test is a performance bug until proven otherwise, and M13's grid
+  is 8× larger.
+- Target: full selftest ≤ 8 min warm (§7.2) and ≤ 30 min cold, so both the driver's evaluation
+  and your own verification runs stay cheap. Nothing here loosens a gate.
+
 ## Current state
-- **iter 37 (M0, round 2, in progress): `harness/generators.py::_make_m13` implemented** —
-  factored `_capsule_slot_breakthrough_shape` out of `_make_m12`'s body (identical boolean
-  sequence, now shared) so `_make_m13` reuses it, then combines M10's `_place_in_frame`
-  (rotate to +x, translate, scale=1.0 — M13 doesn't shrink like M10) with M9's voxelize
-  wiring (fine ref tessellation -> `voxelize.synthesize_voxel_input`), passing `scale=
-  1/spec.frame.scale_to_mm` to `synthesize_voxel_input` so the pathological STL is written in
-  inches directly instead of a second transform pass. Added `_make_bore_filled_m13` to
-  `selftest.py` (M12's fuse trick + `_place_in_frame`, mirrors `_make_bore_filled_m10`).
-  Testing `.venv/bin/python harness/selftest.py --milestone M13` now; expect ~9/9 PASS given
-  M9/M10 both passed with the equivalent halves of this recipe. Will re-run M1..M12 individually
-  after to confirm the `_capsule_slot_breakthrough_shape` refactor didn't change M12's geometry
-  (same code, just moved into a function — behavior should be byte-identical).
-  Next after this: MR (real-STL ingestion) needs both a `score.py` wiring pass (self-referential
-  checks, `optional`/`input_glob` skip semantics — currently unwired, see `milestones.py`
-  `MilestoneSpec.optional`/`input_glob` fields that already exist but nothing reads them) and a
-  `selftest.py` `[SKIP]` path when `real_inputs/` is empty — bigger than a single iteration,
-  start with score.py's skip semantics first since that's the harder ambiguity to get right.
+- **iter 37 (M0, round 2): `harness/generators.py::_make_m13` implemented + fixed a real
+  `score.py` bug it exposed. M1–M13 (every non-MR milestone) now generate and pass their full
+  `selftest.py --milestone Mk` suite individually.**
+  - Factored `_capsule_slot_breakthrough_shape` out of `_make_m12`'s body (identical boolean
+    sequence, now shared; `_make_m12` is now a 2-line wrapper) so `_make_m13` reuses it, then
+    combined M10's `_place_in_frame` (rotate to +x, translate, scale=1.0 — M13 doesn't shrink
+    like M10) with M9's voxelize wiring (fine ref tessellation -> `voxelize.
+    synthesize_voxel_input`), passing `scale=1/spec.frame.scale_to_mm` so the pathological STL
+    is written directly in inches. Added `_make_bore_filled_m13` to `selftest.py` (M12's fuse
+    trick + `_place_in_frame`, mirrors `_make_bore_filled_m10`).
+  - **Found/fixed a real `score.py` gap**: `input_watertight` unconditionally required the input
+    STL to be a valid volume, ignoring the already-existing `spec.input.watertight_expected`
+    field (`False` only for M13 — MISSION §6.2's first milestone with intentionally
+    non-watertight input: islands + 2% flipped facets). M13's first selftest run failed at the
+    very first gate until this was wired in; `fail_here` on non-watertight input now only fires
+    when `watertight_expected` is `True`. M1–M12 (all default `True`) unaffected — confirmed by
+    re-running all of them (see below).
+  - **Verified**: `selftest.py --milestone M13`: 9/9 PASS in 1256s (gmsh min_quality 0.303 vs
+    0.1 gate). Re-ran every other milestone individually to confirm no regression from the
+    refactor/fix: `--milestone M8,M9,M10,M12 --skip-gmsh` all PASS (9/9 or 8/8), `--milestone
+    M1,M2,M3,M4,M5,M6,M7,M11 --skip-gmsh` all PASS. `pytest tests/test_score.py` 6/6 green.
+  - **Brady's 12:15 note (read after this work was mostly done) flags the real remaining risk:
+    the FULL unnarrowed `selftest.py` (all 13 milestones + MR + determinism, no `--milestone`)
+    has never been run in one process this round — individual runs summed give a rough estimate
+    of ~2700–3200s including gmsh, against the driver's actual `SCORE_TIMEOUT_S=3600s` (the
+    1500s the selftest script prints in its own footer is stale/wrong per Brady's note — worth
+    fixing that print). That's over budget on MISSION §7.2's "≤8min warm" target and cutting it
+    close against the hard 3600s cap. Per Brady's ordered ask, NEXT ITERATION should before
+    anything else: (1) build the §7.2 truth cache (`harness/truth/Mk.json` param-hash, skip
+    rebuild when unchanged — `generators.make()` currently always rebuilds from scratch, and
+    `check_milestone` alone calls it ~5 times per milestone), (2) profile M9/M13's per-check
+    time to find why the pathological-mesh checks cost 2–3 min each (input-side checks —
+    watertight, `not_truth_copy`, skew stats — likely don't need the full 900k-tri mesh), (3)
+    isolate a clean-machine rerun of `pytest tests/test_voxelize.py` (flagged as an 18-min stall
+    in iter 36, never actually isolated). Do NOT run the full unnarrowed `selftest.py` yet
+    without addressing this — a >3600s run is a wasted hour that still doesn't produce usable
+    evidence.
+  - **After that**: MR is the only milestone left with no generator (`score.py` needs
+    `spec.optional`/`spec.input_glob` wiring — `pass:true,"skipped"` when `real_inputs/` is
+    empty, self-referential checks when a file is present; `selftest.py` needs a `[SKIP]` path
+    for it instead of routing through `check_milestone`'s `generators.make()` flow). That's the
+    actual last M0 blocker per the header's `SELFTEST FAILED` list (M13, MR) — M13 is now done.
 
 - **iter 36 (M0, round 2): `harness/generators.py::_make_m9` implemented — wires `harness/voxelize.py`
   (built iter 34, unused until now) into a truth generator for the first `kind="voxel"`

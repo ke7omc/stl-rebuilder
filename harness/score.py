@@ -351,10 +351,15 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
         truth = generators.make(milestone)
 
         # --- check: input_watertight ------------------------------------------
+        # Most milestones' input STL must be a valid volume; milestones whose InputSpec sets
+        # `watertight_expected=False` (M13: intentionally islands/flipped-facet pathologies per
+        # MISSION §6.2) deliberately feed a non-watertight mesh, so the check is informational
+        # only there — it must not fail_here or every M13 run would die at the first check.
+        watertight_expected = spec.input.watertight_expected
         input_mesh = metrics.load_mesh(truth.stl_path)
         watertight = bool(input_mesh.is_volume)
-        add("input_watertight", watertight, value=watertight)
-        if not watertight:
+        add("input_watertight", watertight or not watertight_expected, value=watertight)
+        if watertight_expected and not watertight:
             fail_here("input_watertight", value=watertight, threshold=True,
                       hint="truth STL is not a valid volume; regenerate the truth mesh")
 
