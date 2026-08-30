@@ -40,6 +40,58 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 43 (M6): a sixth `gmsh_tet` mitigation attempt (plain default-threshold `detect_arc_runs`
+  on the loft wires, no least-squares refit) also falsified and reverted -- still 0.9384 (third
+  consecutive stall). New, more useful result: isolated the loft's arc-to-arc RULED SURFACE itself
+  and proved it is mathematically EXACT, narrowing where the real bug must be.** Built a minimal
+  standalone repro (`/tmp/diag_loft2.py`, not committed -- throwaway): a `BRepOffsetAPI_
+  ThruSections(True, True)` between just ONE `GC_MakeArcOfCircle` edge (a ~38mm-radius arc) and
+  its exact `x1.4993`-scaled twin at z=10000, then sliced the resulting shape with
+  `BRepAlgoAPI_Section` at z=5000 and sampled the section curve at 5 interior parameter values
+  (`BRepAdaptor_Curve`) -- every sampled point matched the expected linearly-interpolated radius
+  to 4 decimal places (diff exactly 0.0000mm). This rules out "OCCT's ruled-surface parametrization
+  between two `Geom_Circle`-based edges doesn't actually sample the angle-linear correspondence" as
+  a blanket explanation (iter 42's stated next thing to check) -- for a SINGLE arc-to-arc face, the
+  correspondence is exact.
+  - Then reran the real thing: passed `r_fillet_thresh=None` (default elbow-based detection,
+    simplest possible arc path, no least-squares/exact-scale cleverness) into `pipeline/cli.py`'s
+    `_build_bore_prism_or_loft` call. Confirmed via a monkeypatch spy
+    (`/tmp/diag_real.py`) that `detect_arc_runs` DOES fire on the real ref ring (12 runs, lengths
+    `[13,4,13,4,13,4,13,4,13,6,13,6]` -- matches iter 42's "12 arcs found" almost exactly) and the
+    loft/cut/export pipeline completes (exit 0, watertight, 1 solid). Scored it:
+    `surface_deviation_max_mm` regressed to **3.254mm** (gate 1.0mm) at z=10000, essentially
+    identical in magnitude to iter 40's naive 3-point fit (3.25mm) AND iter 42's least-squares
+    exact-scale fit (3.207mm) -- **a THIRD independent implementation of "use arc edges in this
+    2-wire loft" lands on the same ~3.2mm failure**, which makes "try a better arc fit" even less
+    plausible as the fix; the bug is structural to the multi-arc closed-ring construction, not to
+    fit quality (this now fully confirms, rather than just suggests, iter 42's tentative
+    conclusion).
+  - Ruled out one more concrete hypothesis before running out of budget: near-zero-length straight
+    "line" segments between consecutive arc runs (which could make `_arc_line_wire`'s connecting
+    edge degenerate and corrupt just that one face) -- measured the actual gap length between every
+    pair of consecutive arc runs on the real ring: `199.5-205.6mm` uniformly, nowhere near zero.
+    Not the cause.
+  - Also flagged, not yet explained: the 12 arc-run classification is **not 6-fold symmetric**
+    (`[13,4,13,4,13,4,13,4,13,6,13,6]` -- 4/6 valleys get a 4-point run, 2/6 get a 6-point run,
+    matching iter 42's own "4 valleys r=39.41mm... 2 valleys r=38.46mm" two-population split).
+    A perfectly symmetric star bore should classify identically at all 6 valleys; this asymmetry
+    is either real mesh-sampling noise (plausible -- the truth STL is a discretized tessellation,
+    not the analytic star) or a hint that something about the ring's point ordering/indexing isn't
+    as clean as assumed. Worth checking directly (plot/dump the 2 "6-point" valleys vs the 4
+    "4-point" ones) before trying arcs a 4th time.
+  - **Next lead, not yet tried**: build the REAL 24-edge wire pair (not the isolated single-arc
+    repro) and repeat the section-slice-and-compare test edge-by-edge at z=5000, but compare each
+    edge's mid-height sample against the TRUE expected radius (interpolated scale factor applied
+    to the ORIGINAL circle center/radius per run, not a naive vertex-to-vertex linear interpolation
+    of the polygon points -- tried this cheaply in `/tmp/diag_section_all.py` but the "expected"
+    reference there was wrong-by-construction for arc regions, since linearly interpolating raw
+    polygon VERTEX positions doesn't equal the arc's true bulge, so the ~24mm "diffs" it reported
+    are an artifact of a bad reference, not a real geometry bug -- don't reuse that script's
+    reference method). Whatever edge is actually wrong should be locatable this way if the sub-mm
+    reference is done correctly (interpolate the fitted circle's center/radius, not raw points).
+  - Reverted `pipeline/cli.py` back to `r_fillet_thresh=0.0` (the known-good baseline).
+    Confirmed identical to iter 42's baseline: `out/score.local.json` progress=0.9384, first
+    failure `gmsh_tet` min SICN 0.0076691465167256665, all other checks pass, face_count=157.
 - **iter 42 (M6): a fifth `gmsh_tet` attempt (least-squares-fitted + exactly-scaled fillet arc
   edges, replacing the polygon in the loft wires) also falsified and reverted — no net change,
   still 0.9384. Important new finding: the failure is NOT fit-residual amplification.** Root
@@ -1218,6 +1270,24 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **M6 `gmsh_tet`/`surface_deviation_max_mm`: a 6th mitigation (iter 43) — plain default-threshold
+  `detect_arc_runs`/`r_fillet_thresh=None` on the loft's two wires (the simplest possible arc
+  path, no least-squares fit, no exact-scale trick) — do not retry.** Three independent
+  implementations of "use arc edges instead of a straight polygon in this specific 2-wire
+  `BRepOffsetAPI_ThruSections` loft" (iter 40's naive 3-point fit: 3.25mm, iter 42's least-squares
+  exact-scaled fit: 3.207mm, iter 43's plain default detection: 3.254mm) all land on the SAME
+  ~3.2mm `surface_deviation_max_mm` failure at z=10000 (gate 1.0mm). This is no longer "the fit
+  isn't good enough" — it is structural to using arc edges (of any construction) in this loft.
+  **However, iter 43 also proved (isolated single-arc-to-arc `ThruSections` face, sliced with
+  `BRepAlgoAPI_Section` and sampled with `BRepAdaptor_Curve`) that the ruled surface between TWO
+  arc edges alone is mathematically exact** — so the bug is not "OCCT can't loft between arcs," it
+  is something about the CLOSED 24-EDGE multi-arc wire (12 arcs + 12 connecting lines) that
+  doesn't hold for a single isolated arc face. Do not retry any arc-fit variant (better fit
+  quality, exact scaling, different classification threshold) without first locating which
+  specific one of the 24 faces is wrong via a per-face section-slice test with a CORRECT expected
+  reference (interpolate the fitted circle's center/radius per run, not raw polygon vertices —
+  see the iter 43 log entry for why a naive vertex-interpolation reference gives false ~24mm
+  "diffs" that aren't real).
 - **M6 `gmsh_tet`: a 5th mitigation (iter 42) — collapsing each fillet run into ONE
   least-squares-fitted circular-arc edge (`fit_circle` over the whole run, not 3 raw points),
   with the far end's circle derived by exactly scaling the near end's fitted center/radius
