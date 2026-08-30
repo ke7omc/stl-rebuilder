@@ -1,25 +1,37 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
-- 2026-08-29 (first unattended run, 08:10–11:24, 11 iterations, ≈$27): the M0 harness is built —
-  all five truth generators, 22 selftest checks, scorer contract valid — and went through the
-  Opus review pass (`33e3257`), which tightened three §6 gates but rewrote the deviation metric
-  into something that exhausts 64 GB RAM + 64 GB swap on M2's fine tessellation (SIGKILL at
-  ~11.5 min, every run since). Iter 11 (`8cedc57`) coarsened the tessellation (`CHORD_TOL/2`);
-  whether that is enough is unverified. State: M0 build phase, escalated (Opus), stall reset.
-- The run exposed driver gaps, now fixed (commit "driver: hardening after the first unattended
-  run"): Ctrl-C/timeout left the agent running as an orphan; no clock for the agent; the
-  review pass counted as builder stalls; killed agents booked $0; no memory guard; no live
-  progress. See README "Watch it / Stop it" and the `CONFIG` block for the new knobs
-  (90/120/180-min timeouts, $6 normal budget, $120 window, 24 GB memory cap, 5-min heartbeats).
-- **Next (Brady):** `cd ~/Projects/stl-rebuilder && ./loop.sh` and leave it. Expected: iter 12
-  (Opus) verifies/fixes the memory blowup → selftest green → review pass → `harness-frozen` →
-  M1 on Sonnet. Watch `tail -f logs/loop.log` / `python3 loop.py --status`; stop with
-  `python3 loop.py --stop` (graceful) or `--kill` (now; Ctrl-C is the same).
-- After the first real `RATE/USAGE LIMIT` line, set `LOOP_WINDOW_BUDGET_USD` to roughly what
-  `--status` shows spent in that window (the $120 default is a placeholder above today's rate).
-- The driver never pushes; push manually from an interactive session to sync GitHub.
-- After HANDOFF.md exists: Brady opens the listed STEP files in SpaceClaim (Notion Phase 4).
+- **2026-08-29 20:41 — THE LOOP IS DONE.** 25 iterations, ≈$103 API-equivalent, one day. All
+  five milestones pass on commit `1b4ff91` (verified together by the driver's regression sweep):
+  M1 annular cylinder, M2 ellipsoidal domes, M3 6-point star bore, M4 finocyl with a topology
+  event at z=6000, M5 domes + fins with two events. Volume errors ≤ 0.02 %, deviation max
+  ≤ 0.44 mm (gate 0.6), gmsh min SICN ≥ 0.187 (gate 0.1), 1–2 s per rebuild. `HANDOFF.md`
+  has the results table (§2), the SpaceClaim checklist (§4), how to run a real burnback STL
+  incl. choosing `--chord-tol` (§5), and honest limitations (§6). Winning STEPs:
+  `logs/M{1..5}-final-step.step`.
+- **Next (Brady):** (1) `git push` — the driver never pushes and the Bash guard blocks Claude
+  from pushing too. (2) SpaceClaim checklist on the five STEPs (HANDOFF §4). (3) Run a real
+  burnback STL per HANDOFF §5 and note what SpaceClaim says; that feedback is the spec for the
+  next round. (4) Know the gaps before trusting it on real grains: non-circular bores must be
+  axially constant (no loft path — the biggest gap for mid-burn surfaces), one outer + one bore
+  loop per station, non-axisymmetric outers rejected, and `--adaptive`/`--refine-bands` are
+  no-ops (M5's adaptive-efficiency gate was met by cosine end-clustering — a harness weakness
+  worth fixing if a next round needs real feature-aware station placement).
+- **If continuing the loop:** add M6+ to MISSION.md (tapered star / lofted non-circular bore,
+  multiple perforations, a real-STL-derived case), re-run the harness review (the harness is
+  frozen at `harness-frozen`; re-point it after changes), then `./loop.sh`.
+- Driver hardening done today (all on `infra-frozen`): save-then-stop (`--stop`/`--kill`/Ctrl-C),
+  stream-json heartbeats + `--status` + `state/STATUS.md`, memory-guarded scoring (24 GB),
+  per-mode timeouts 90/120/180 min, budgets $10/$15/$20, crash guard + auto-restart in
+  `loop.sh`, review-pass stall reset, `PROGRESS_MIN_DELTA`, `--keep` artifacts, and the
+  regression gate (a milestone pass requires all earlier milestones to still pass; otherwise
+  demote — it caught M5's fix breaking M4). Window budget default $120; use
+  `LOOP_WINDOW_BUDGET_USD` to raise it for a session. Costs: Sonnet iterations $2–9 (10–50
+  min), Opus review/escalated $2–4.
+- Incidents worth remembering: the M0 review pass's deviation metric OOM'd the machine (64 GB
+  RAM + 64 GB swap) — fixed by the agent with a radius-bounded KD-tree query (75 s selftest);
+  a `ROOT / None` crash on the first milestone pass silently stopped the loop for 4 h before the
+  crash guard existed.
 
 ## What this is
 An autonomous, self-correcting coding loop that builds `rebuild.py`: an STL (solid-rocket-motor

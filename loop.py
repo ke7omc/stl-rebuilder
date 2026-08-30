@@ -1230,7 +1230,7 @@ def iterate(st: dict, once: bool) -> int:
             finish_pending(st)
             continue
         if st["milestone"] == "DONE":
-            log("all milestones complete and HANDOFF.md written — nothing to do")
+            write_status(st, "all milestones complete and HANDOFF.md written — nothing to do")
             return 0
         if st["iteration"] >= CONFIG["MAX_ITERATIONS"]:
             write_status(st, f"MAX_ITERATIONS={CONFIG['MAX_ITERATIONS']} reached")
@@ -1380,6 +1380,7 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, _on_sigterm)
     acquire_lock()
+    st["stopped_reason"] = None
     try:
         preflight(st, a.recheck_models)
         if STOP_FILE.exists():
