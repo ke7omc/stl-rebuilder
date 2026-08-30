@@ -156,24 +156,26 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
       to 1 face (solving face_count_max) but rounded off the star's sharp valley cusps, pushing
       volume_err_pct to ~0.89% (gate 0.1%).
     The arc+line hybrid fixes both: `detect_arc_runs` (pipeline/fitting.py) classifies each
-    boundary point via a local windowed circle fit (small local radius = fillet, large/
-    ill-conditioned = straight run); each fillet run becomes one exact 3-point circular arc edge
+    boundary point via a local windowed circle fit (small/finite local radius = curved, large/
+    ill-conditioned = straight run); each curved run becomes one exact 3-point circular arc edge
     (matches the truth generator's own construction almost exactly, so surface_deviation and
     volume error both stay tiny), each straight run collapses to a single straight edge between
     consecutive arc endpoints (keeps face_count_max low, and cusps stay sharp since they're true
     polygon vertices, not spline-smoothed). Falls back to a straight-edge polygon (no arcs
-    detected) when the ring has no fillet-scale curvature to find."""
+    detected) when the ring has no curvature to find.
+
+    `r_fillet_thresh` defaults to `None`, which lets `detect_arc_runs` pick the curved/straight
+    split itself from the ring's own local-radius distribution (see its docstring) rather than a
+    fixed fraction of the ring's bounding radius. A fixed fraction worked for M3 (one small
+    fillet radius vs. ill-conditioned straight sides) but is wrong for M4/M5's finocyl bore,
+    where a ~300 mm main-bore arc is real curvature needing an exact arc edge, not a fraction of
+    the ~700 mm fin-tip radius away from a hardcoded threshold that happened to put it on the
+    "straight" side (18 mm chord sagitta against a 1 mm deviation gate)."""
     pts = [p for p in xy_pts]
     if len(pts) > 1 and math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-9:
         pts = pts[:-1]
     if len(pts) < 3:
         raise ValueError("prism cross-section needs at least 3 distinct points")
-
-    if r_fillet_thresh is None:
-        cx = sum(p[0] for p in pts) / len(pts)
-        cy = sum(p[1] for p in pts) / len(pts)
-        scale = max(math.hypot(p[0] - cx, p[1] - cy) for p in pts)
-        r_fillet_thresh = 0.25 * scale
 
     arcs = detect_arc_runs(pts, r_fillet_thresh)
 
@@ -191,8 +193,18 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
         for i in range(n_arcs):
             run = arcs[i]
             p0, pm, p1 = P(run[0]), P(run[len(run) // 2]), P(run[-1])
-            arc = GC_MakeArcOfCircle(p0, pm, p1).Value()
-            mkwire.Add(BRepBuilderAPI_MakeEdge(arc).Edge())
+            # A run can degenerate to 1-2 (near-)duplicate points at the classifier's boundary
+            # (a single sample straddling a real corner, misread as "curved" by its own
+            # 5-point local window) — GC_MakeArcOfCircle raises Standard_Failure on a
+            # zero-length/collinear 3-point set. Fall back to a straight pass-through edge for
+            # just that run rather than losing the whole cross-section to a crash.
+            try:
+                if len(run) < 2:
+                    raise ValueError("degenerate arc run")
+                arc = GC_MakeArcOfCircle(p0, pm, p1).Value()
+                mkwire.Add(BRepBuilderAPI_MakeEdge(arc).Edge())
+            except Exception:
+                mkwire.Add(BRepBuilderAPI_MakeEdge(p0, p1).Edge())
             next_run = arcs[(i + 1) % n_arcs]
             mkwire.Add(BRepBuilderAPI_MakeEdge(p1, P(next_run[0])).Edge())
 
