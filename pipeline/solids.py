@@ -22,13 +22,13 @@ import math
 
 import numpy as np
 
-from OCP.gp import gp_Pnt, gp_Ax1, gp_Dir, gp_Vec
+from OCP.gp import gp_Pnt, gp_Ax1, gp_Ax2, gp_Dir, gp_Vec
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeWire,
     BRepBuilderAPI_MakeFace,
 )
-from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol, BRepPrimAPI_MakePrism
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol, BRepPrimAPI_MakePrism, BRepPrimAPI_MakeCylinder
 from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
 from OCP.GC import GC_MakeArcOfCircle
 from OCP.GeomAPI import GeomAPI_Interpolate
@@ -139,6 +139,14 @@ def build_revolve_solid(z_r_pairs, chord_tol: float, curve_windows=None) -> Topo
     if not revol.IsDone():
         raise RuntimeError("revolve failed")
     return revol.Shape()
+
+
+def build_cylinder_solid(cx: float, cy: float, z_lo: float, z_hi: float, radius: float) -> TopoDS_Shape:
+    """A straight circular cylinder off (or on) the main axis, from `z_lo` to `z_hi`, centered
+    at `(cx, cy)` — the cutter for an M7 satellite perforation (constant radius, straight,
+    off-axis, so `build_revolve_solid`'s Z-axis-only revolve doesn't apply)."""
+    ax2 = gp_Ax2(gp_Pnt(cx, cy, z_lo), gp_Dir(0.0, 0.0, 1.0))
+    return BRepPrimAPI_MakeCylinder(ax2, radius, z_hi - z_lo).Shape()
 
 
 def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float = None,

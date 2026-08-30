@@ -5,9 +5,12 @@ actually measures, not from the milestone name: an axisymmetric revolve for a ci
 axis-centered bore chain (M1, M2); a prismatic extrude for a bore whose cross-section is
 non-circular but constant along z (M3's star bore); and a "mixed" path — a circular revolve
 fused with a prismatic extrude at a bisected topology-event z — for a single bore chain that
-switches from circular to non-circular partway along z (M4/M5's fin-slot birth plane). The
-outer envelope must still be a circular, axis-centered cylinder. Multiple independent hole
-chains (more than one interior loop per station) are not yet implemented.
+switches from circular to non-circular partway along z (M4/M5's fin-slot birth plane); and a
+straight off-axis cylinder cutter per satellite chain (M7's N perforations) — matched
+station-to-station by nearest (cx, cy) since satellites don't move, and independently bisected
+for its own birth/death z if it doesn't span the part's full axial extent. The outer envelope
+must still be a circular, axis-centered cylinder, and at most one interior loop per station may
+be axis-centered (that one alone may be non-circular, e.g. M4/M5's fin slots).
 """
 import argparse
 import math
@@ -201,6 +204,37 @@ def _bisect_topology_event(mesh, z_a: float, z_b: float, chord_tol: float, circ_
     return 0.5 * (z_a + z_b)
 
 
+def _bisect_hole_edge(mesh, z_present: float, z_absent: float, chord_tol: float,
+                       cx0: float, cy0: float, r0: float, n_iter: int = 50,
+                       min_dz: float = 1e-4) -> float:
+    """Localize the z where one specific satellite hole (M7's N perforations) starts or stops
+    existing — `z_present` is a station known to have a hole near `(cx0, cy0)`, `z_absent` is a
+    station known not to (order doesn't matter). Mirrors `_bisect_topology_event` but matches by
+    proximity to this chain's own center/radius instead of circular-vs-non-circular, since
+    several holes with the same classification can coexist in one station."""
+    match_dist = 2.0 * r0
+    z_a, z_b = z_present, z_absent
+    for _ in range(n_iter):
+        if abs(z_b - z_a) <= min_dz:
+            break
+        zm = 0.5 * (z_a + z_b)
+        polys, zz = slice_station(mesh, zm, chord_tol)
+        present = False
+        if len(polys) == 1:
+            for ring in polys[0].interiors:
+                pts = np.asarray(ring.coords)
+                cx, cy, R, resid, _ = fit_circle(pts)
+                if resid <= tol.circle_max_resid(chord_tol) and \
+                        math.hypot(cx - cx0, cy - cy0) < match_dist:
+                    present = True
+                    break
+        if present:
+            z_a = zm
+        else:
+            z_b = zm
+    return 0.5 * (z_a + z_b)
+
+
 def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
                        eps_end_val: float, chord_tol: float, bore_radius: float = None):
     """Build the cutter solid for a non-circular but axially-constant bore (e.g. M3's star):
@@ -369,19 +403,20 @@ def _run(args) -> int:
                                     vertex_zs=mesh.vertices[:, 2])
 
     outer_pts = []   # (z, R) of the exterior loop
-    bore_pts = []    # (z, R) of the (single) interior loop, only while it looks circular
-    bore_rings = []  # (z, ndarray of (x,y)) of the interior loop, whenever it is NOT circular
+    bore_pts = []    # (z, R) of the (single) axis-centered interior loop, only while circular
+    bore_rings = []  # (z, ndarray of (x,y)) of the axis-centered interior loop, when NOT circular
+    sat_samples = []  # (z, cx, cy, R) of every OFF-axis circular hole (M7's satellites), any z
+    all_zz = []      # every station z actually sliced, in order (for chain-edge neighbor lookup)
     for z in zs:
         polys, zz = slice_station(mesh, z, chord_tol)
         if not polys:
             print(f"rebuild.py: no section recovered at z={z:.3f}", file=sys.stderr)
             return 4
-        if len(polys) != 1 or len(polys[0].interiors) != 1:
-            print(f"rebuild.py: expected 1 outer loop + 1 hole at z={zz:.3f}, "
-                  f"got {len(polys)} outer / "
-                  f"{len(polys[0].interiors) if polys else 0} holes (unsupported topology)",
-                  file=sys.stderr)
+        if len(polys) != 1:
+            print(f"rebuild.py: expected 1 outer loop at z={zz:.3f}, got {len(polys)} "
+                  f"(unsupported topology)", file=sys.stderr)
             return 4
+        all_zz.append(zz)
 
         poly = polys[0]
         ext = np.asarray(poly.exterior.coords)
@@ -393,19 +428,84 @@ def _run(args) -> int:
             return 4
         outer_pts.append((zz, Ro))
 
-        # The bore's cross-section may be a non-circular but axially-*constant* (prismatic)
-        # shape, e.g. M3's star bore — that is still tractable by extrusion (see
-        # `solids.build_prism_solid`) even though it is not a surface of revolution. A hole
-        # that fails the circle fit is recorded as a raw ring instead of erroring immediately;
-        # after the station loop, `bore_rings` non-empty (and `bore_pts` empty) selects the
-        # prism path below.
-        ring = poly.interiors[0]
-        hole = np.asarray(ring.coords)
-        cx2, cy2, Ri, max_resid2, _ = fit_circle(hole)
-        if max_resid2 > tol.circle_max_resid(chord_tol) or not _axis_centered(cx2, cy2, Ri, chord_tol):
-            bore_rings.append((zz, ring))
+        rings = list(poly.interiors)
+        if not rings:
+            print(f"rebuild.py: expected at least 1 interior hole at z={zz:.3f}, got 0 "
+                  f"(unsupported topology)", file=sys.stderr)
+            return 4
+
+        # At most one hole per station may be axis-centered (the main bore chain, M1-M6's
+        # single-hole case). Its cross-section may be a non-circular but axially-*constant*
+        # (prismatic) shape, e.g. M3's star bore or M4/M5's fin slots — still tractable by
+        # extrusion (`solids.build_prism_solid`) even though it is not a surface of revolution;
+        # a hole that fails the circle fit is recorded as a raw ring instead of erroring
+        # immediately, exactly as before. Every OTHER (off-axis) hole is one sample of an M7
+        # satellite chain, matched across stations by proximity after this loop.
+        central_seen = False
+        for ring in rings:
+            hole = np.asarray(ring.coords)
+            cxh, cyh, Rh, max_resid2, _ = fit_circle(hole)
+            is_circle = max_resid2 <= tol.circle_max_resid(chord_tol)
+            if is_circle and _axis_centered(cxh, cyh, Rh, chord_tol):
+                if central_seen:
+                    print(f"rebuild.py: more than one axis-centered hole at z={zz:.3f} — "
+                          f"unsupported topology", file=sys.stderr)
+                    return 4
+                central_seen = True
+                bore_pts.append((zz, Rh))
+            elif is_circle:
+                sat_samples.append((zz, cxh, cyh, Rh))
+            else:
+                if len(rings) != 1:
+                    print(f"rebuild.py: non-circular off-axis hole among {len(rings)} holes at "
+                          f"z={zz:.3f} — unsupported topology", file=sys.stderr)
+                    return 4
+                bore_rings.append((zz, ring))
+
+    # Group satellite samples into chains by nearest-center match to the previous station's
+    # live chains — satellites are straight (M7), so a true match is ~0 mm apart while distinct
+    # satellites are a full inter-hole spacing apart (no ambiguity at the 2x-radius threshold).
+    sat_by_z = {}
+    for z, cxh, cyh, Rh in sat_samples:
+        sat_by_z.setdefault(z, []).append((cxh, cyh, Rh))
+    sat_chains = []
+    for z in sorted(sat_by_z):
+        used = set()
+        for cxh, cyh, Rh in sat_by_z[z]:
+            best_i, best_d = None, None
+            for i, ch in enumerate(sat_chains):
+                if i in used:
+                    continue
+                _, lcx, lcy, lR = ch[-1]
+                d = math.hypot(cxh - lcx, cyh - lcy)
+                if d < 2.0 * lR and (best_d is None or d < best_d):
+                    best_i, best_d = i, d
+            if best_i is None:
+                sat_chains.append([(z, cxh, cyh, Rh)])
+                used.add(len(sat_chains) - 1)
+            else:
+                sat_chains[best_i].append((z, cxh, cyh, Rh))
+                used.add(best_i)
+
+    # Each satellite chain becomes its own straight cylinder cutter, extended to the part's
+    # true axial extent (+eps_cut) if it spans every station, or bisected to its own birth/death
+    # z (`_bisect_hole_edge`) if it starts or stops partway (M7's flat end wall at z=7000).
+    sat_cutters = []
+    for ch in sat_chains:
+        cxs = np.array([s[1] for s in ch]); cys = np.array([s[2] for s in ch])
+        Rs = np.array([s[3] for s in ch])
+        cx0, cy0, R0 = float(cxs.mean()), float(cys.mean()), float(Rs.mean())
+        z_first, z_last = ch[0][0], ch[-1][0]
+        i_first, i_last = all_zz.index(z_first), all_zz.index(z_last)
+        if i_first == 0:
+            z_lo = z_min - eps_cut_val
         else:
-            bore_pts.append((zz, Ri))
+            z_lo = _bisect_hole_edge(mesh, z_first, all_zz[i_first - 1], chord_tol, cx0, cy0, R0)
+        if i_last == len(all_zz) - 1:
+            z_hi = z_max + eps_cut_val
+        else:
+            z_hi = _bisect_hole_edge(mesh, z_last, all_zz[i_last + 1], chord_tol, cx0, cy0, R0)
+        sat_cutters.append(solids.build_cylinder_solid(cx0, cy0, z_lo, z_hi, R0))
 
     event_z = None
     circ_before = None
@@ -587,6 +687,11 @@ def _run(args) -> int:
         bore_solid = solids.build_revolve_solid(bore_full, chord_tol)
 
     shape = booleans.cut(outer_solid, bore_solid, tol.fuzzy(chord_tol))
+    # Satellite perforations (M7) are geometrically disjoint from the main bore and from each
+    # other, so a sequence of independent cuts gives the same result as fusing them first and
+    # is simpler/more robust than a multi-solid fuse of disjoint cutters.
+    for sat_solid in sat_cutters:
+        shape = booleans.cut(shape, sat_solid, tol.fuzzy(chord_tol))
     shape, valid = export.finalize(shape, chord_tol)
     if not valid:
         print("rebuild.py: final solid failed BRepCheck_Analyzer validity check", file=sys.stderr)

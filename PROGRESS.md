@@ -2736,3 +2736,4 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   returns exact volume for boolean-cut cylinders (no floating-point error at all).
 - Next: build `harness/metrics.py` (volume/CoM/inertia from trimesh; symmetric deviation;
   STEP round-trip) and `harness/meshcheck.py` (gmsh subprocess check).
+Testing M7 after multi-hole/satellite cutter support
