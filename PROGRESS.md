@@ -15,6 +15,49 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 35 (M0, round 2): `harness/generators.py::_make_m10` implemented — frame normalisation
+  truth (M8 scaled x1/40, rotated to +x axis, translated, STL written in inches, MISSION §6.2
+  M10).** Registered in `_MAKERS`; `harness/selftest.py::_make_bore_filled_m10` added and
+  registered in `_BORE_FILLERS`. `selftest.py --milestone M10`: all 9 checks PASS.
+  - **Build order matters for mesh quality, not just correctness.** First attempt pre-scaled
+    `spec.params` (already x1/40'd by `milestones.py::_m10`) straight into the shared
+    `_capsule_slot_cavity_shape` helper (factored out of `_make_m8`, now used by both). Correct
+    geometry (bbox/volume matched M8 scaled by (1/40)^3 exactly) but truth STEP failed
+    `gmsh_min_sicn`: min SICN 0.031 vs the 0.1 gate (M8 itself gets 0.248 on the same relative
+    hmax=R_o/10). Root-caused to gmsh's raw Delaunay pass leaving slivers around M10's small
+    (3.75 mm) slot fillets — confirmed scale-invariant geometry wasn't the issue (rebuilding at
+    full M8 scale then transform-scaling the *finished* BRep down by 1/40 as the last step gave
+    the identical 0.031, since a linear scale of finished parametric geometry can't change
+    relative mesh conditioning). The actual fix: added `gmsh.model.mesh.optimize("Netgen")`
+    after `generate(3)` in `harness/meshcheck.py` (best-effort, try/except so a failure on some
+    future geometry falls back to the unoptimized mesh instead of erroring) — this alone took
+    M10's worst tet from 0.031 to 0.284, ~+4 s per mesh, and slightly improved M8 too
+    (0.248→0.291). Kept the full-scale-then-shrink build order in `_make_m10` anyway (via new
+    `_place_in_frame(shape, frame, scale=1.0)` parameter) since it's the right general pattern
+    for M13 too and doesn't cost anything once the mesher fix is in.
+  - **Also fixed while building this**: `_capsule_slot_cavity_shape`'s bore/slot overlap used a
+    hardcoded `50.0` mm constant (`r0 = R_bore - 50.0`); at M10 scale `R_bore` shrinks to 13.75 mm
+    so the constant went negative → invalid cutter radius. Promoted it to an explicit
+    `slot_overlap` param on M8's spec (`milestones.py`) so it scales along with everything else
+    when M10's `_m10()` builds its scaled params dict (`n_slots` is explicitly excluded from that
+    scaling loop — it's a count, not a length — the same class of bug, caught the same way: ran
+    it, `TypeError: 'float' object cannot be interpreted as an integer`).
+  - **Verified**: `selftest.py --milestone M10` 9/9 PASS (truth-passes-all-gates, dome-stations,
+    topo-events x2, region-p99, 1.01x-scaled volume, bore-filled volume, gmsh mesh). Full
+    `selftest.py` (no filter): down to 3 failures (M9, M13, MR — still-unbuilt generators; was 4
+    before this iteration). `score.py --milestone M1..M5`: all still `pass: true` (no regression).
+    `pytest tests/`: 24 passed, 440 s (no regression, `test_voxelize.py`'s deprecation warnings
+    are pre-existing/harmless numpy 2.5 noise from skimage, not new).
+  - **Next**: M9 — wire `harness/voxelize.py` (built last iteration, not yet called from
+    `generators.py`) into a new `_make_m9`: build M8's truth shape, tessellate it at
+    `chord_tol/2` for a clean reference mesh, feed that to `synthesize_voxel_input` per M9's
+    `InputSpec` (noise/flip/island/unweld per MISSION §7.2), write the result to a
+    `M9.input.stl` path distinct from the analytic `M9.stl`, and add the `Truth.input_stl_path`
+    field (or equivalent) `_finish`/`_finish_framed` need so `score.py`/`selftest.py` know to
+    feed the *pathological* mesh to `rebuild.py` instead of the clean analytic one. Benchmark
+    M9's grid size (per MISSION's own estimate) before committing to whether a truth-JSON cache
+    is load-bearing yet or can wait for M13.
+
 - **iter 34 (M0, round 2): `harness/voxelize.py` built — narrow-band exact-SDF marching-cubes
   input synthesis for M9/M13's `kind="voxel"` `InputSpec`s (MISSION §7.2), plus
   `tests/test_voxelize.py` (8 tests, all passing).** Not yet wired into `generators.py` — that's

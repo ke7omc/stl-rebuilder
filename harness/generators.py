@@ -588,9 +588,10 @@ def _obround_slot_cutter(r0: float, r1: float, half_w: float, z0: float, z1: flo
     return BRepPrimAPI_MakeRevol(placed, axis, 2.0 * theta_half).Shape()
 
 
-def _make_m8() -> Truth:
-    spec = ms.get("M8")
-    p = spec.params
+def _capsule_slot_cavity_shape(p: dict, label: str) -> TopoDS_Shape:
+    """Capsule outer minus (straight bore fused with `n_slots` obround wedge-slot cutters).
+    Shared by M8 (as-is) and M10 (M8's construction re-run on already-scaled params, then
+    placed in a non-canonical frame by the caller)."""
     L = p["L"]
     outer = _capsule_outer_shape(L, p["R_o"], p["dome_semi_axial"])
     cutter = _straight_bore(p["R_bore"], L)
@@ -601,20 +602,104 @@ def _make_m8() -> Truth:
     z0 = p["slot_z_lo"]
     z1 = p["slot_z_hi"]
     fr = p["slot_fillet"]
-    r0 = p["R_bore"] - 50.0  # overlap into the bore so the fuse is transversal, not tangent
+    # overlap into the bore so the fuse is transversal, not tangent; scaled with the rest of the
+    # geometry via p["slot_overlap"] (M10 scales this alongside everything else, unlike a
+    # hardcoded constant which would go negative at M10's x1/40 scale).
+    r0 = p["R_bore"] - p["slot_overlap"]
     for k in range(n_slots):
         slot = _obround_slot_cutter(r0, r1, hw, z0, z1, fr, 2.0 * math.pi * k / n_slots)
         fuse = BRepAlgoAPI_Fuse(cutter, slot)
         fuse.Build()
         if not fuse.IsDone():
-            raise RuntimeError(f"M8 cutter fuse failed on slot {k}")
+            raise RuntimeError(f"{label} cutter fuse failed on slot {k}")
         cutter = fuse.Shape()
 
     cut = BRepAlgoAPI_Cut(outer, cutter)
     cut.Build()
     if not cut.IsDone():
-        raise RuntimeError("M8 boolean cut failed")
-    return _finish("M8", cut.Shape())
+        raise RuntimeError(f"{label} boolean cut failed")
+    return cut.Shape()
+
+
+def _make_m8() -> Truth:
+    spec = ms.get("M8")
+    return _finish("M8", _capsule_slot_cavity_shape(spec.params, "M8"))
+
+
+def _place_in_frame(shape: TopoDS_Shape, frame: "ms.Frame", scale: float = 1.0) -> TopoDS_Shape:
+    """Rotate the canonical +z-axis shape onto `frame.axis`, uniformly scale about the origin
+    (about the origin so it commutes with the rotation), then translate to `frame.origin_mm`.
+    Both the truth STEP and the truth's own bbox live in this rotated/scaled/translated *mm*
+    frame; only the STL's numeric units differ (handled separately by `_finish_framed`).
+
+    `scale` defaults to 1.0 (M13 does not shrink the geometry, only M10 does). When `scale != 1`,
+    callers should build the input `shape` at *full* size first and let this scale it down as the
+    very last step, rather than pre-scaling the construction params: doing the fillet/boolean ops
+    at full scale keeps them well inside OCCT's absolute tolerance, then a single linear scale of
+    the finished BRep preserves that conditioning (scaling parametric geometry doesn't redo any
+    boolean). Building the same cavity directly at 1/40 scale instead measurably degrades mesh
+    quality (min SICN dropped from ~0.25 to ~0.03 on the M10 capsule) because the slot fillets
+    became small enough that OCCT's fixed absolute tolerance ate into their relative precision.
+    """
+    z = gp_Dir(0.0, 0.0, 1.0)
+    target = gp_Dir(*frame.axis)
+    trsf_rot = gp_Trsf()
+    if z.IsEqual(target, 1e-12):
+        pass  # already aligned, identity rotation
+    elif z.IsOpposite(target, 1e-12):
+        # 180 degree flip: any axis perpendicular to z works.
+        trsf_rot.SetRotation(gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(1.0, 0.0, 0.0)), math.pi)
+    else:
+        rot_axis = z.Crossed(target)
+        angle = z.Angle(target)
+        trsf_rot.SetRotation(gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), rot_axis), angle)
+    placed = BRepBuilderAPI_Transform(shape, trsf_rot, True).Shape()
+
+    if scale != 1.0:
+        trsf_scale = gp_Trsf()
+        trsf_scale.SetScale(gp_Pnt(0.0, 0.0, 0.0), scale)
+        placed = BRepBuilderAPI_Transform(placed, trsf_scale, True).Shape()
+
+    trsf_trans = gp_Trsf()
+    trsf_trans.SetTranslation(gp_Vec(*frame.origin_mm))
+    return BRepBuilderAPI_Transform(placed, trsf_trans, True).Shape()
+
+
+def _finish_framed(milestone: str, shape_mm: TopoDS_Shape, frame: "ms.Frame",
+                    chord_tol_mm: float) -> Truth:
+    """Like `_finish`, but `shape_mm` is already placed in its non-canonical truth frame
+    (rotated axis, off-origin) and expressed in mm. The truth STEP stays mm (MISSION §6.2 M10:
+    "truth STEP in that frame (mm)"); the truth STL is written in `frame.units` (mm/25.4 = in)."""
+    V, A = _volume_area(shape_mm)
+    bbox = _bbox(shape_mm)
+    step_path = TRUTH_DIR / f"{milestone}.step"
+    stl_path = TRUTH_DIR / f"{milestone}.stl"
+    _write_step(shape_mm, step_path)
+
+    unit_scale = 1.0 / frame.scale_to_mm  # mm -> frame.units
+    trsf_scale = gp_Trsf()
+    trsf_scale.SetScale(gp_Pnt(0.0, 0.0, 0.0), unit_scale)
+    shape_units = BRepBuilderAPI_Transform(shape_mm, trsf_scale, True).Shape()
+    _write_stl(shape_units, stl_path, chord_tol=chord_tol_mm * unit_scale)
+
+    return Truth(
+        milestone=milestone,
+        shape=shape_mm,
+        V_truth=V,
+        A_truth=A,
+        bbox=bbox,
+        step_path=step_path,
+        stl_path=stl_path,
+    )
+
+
+def _make_m10() -> Truth:
+    spec = ms.get("M10")
+    m8_params = ms.get("M8").params
+    scale = spec.params["L"] / m8_params["L"]  # 1/40, MISSION §6.2 M10
+    shape_full = _capsule_slot_cavity_shape(m8_params, "M10")
+    shape_mm = _place_in_frame(shape_full, spec.frame, scale=scale)
+    return _finish_framed("M10", shape_mm, spec.frame, spec.chord_tol)
 
 
 def _make_m12() -> Truth:
@@ -701,6 +786,7 @@ _MAKERS = {
     "M6": _make_m6,
     "M7": _make_m7,
     "M8": _make_m8,
+    "M10": _make_m10,
     "M11": _make_m11,
     "M12": _make_m12,
 }

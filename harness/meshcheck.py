@@ -27,6 +27,15 @@ def _run(step_path: str, hmax: float) -> dict:
             gmsh.model.mesh.generate(3)
         except Exception as e:
             return {"ok": False, "reason": f"mesh generate raised: {e}"}
+        try:
+            # Netgen's optimizer sweeps element quality up substantially on the initial
+            # Delaunay mesh (measured: M10's worst tet went from minSICN 0.031 to 0.284 on the
+            # same hmax/hmin) at a cost of a few seconds; small/thin features (e.g. M10's 1/40
+            # scale slot fillets) otherwise leave slivers the raw Delaunay pass doesn't clean up.
+            # Best-effort: if it raises on some geometry, keep the un-optimized mesh/quality.
+            gmsh.model.mesh.optimize("Netgen")
+        except Exception:
+            pass
         types, tags, _ = gmsh.model.mesh.getElements(3)
         all_tags = [t for grp in tags for t in grp]
         if not all_tags:

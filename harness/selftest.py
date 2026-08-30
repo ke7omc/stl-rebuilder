@@ -340,10 +340,34 @@ def _make_bore_filled_m12(spec, work_dir: Path) -> Path:
     return path
 
 
+def _make_bore_filled_m10(spec, work_dir: Path) -> Path:
+    """M10 with neither central bore nor obround slots (same trick as `_make_bore_filled_m8`),
+    built at M8's full scale then scaled/rotated/translated into M10's frame via
+    `generators._place_in_frame` (see its docstring for why full-scale-then-shrink beats
+    building directly at 1/40 scale) so the mutation is a fair apples-to-apples comparison
+    against the transformed truth."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+
+    m8_params = ms.get("M8").params
+    L = m8_params["L"]
+    outer = generators._capsule_outer_shape(L, m8_params["R_o"], m8_params["dome_semi_axial"])
+    bore = generators._straight_bore(m8_params["R_bore"], L)
+    fuse = BRepAlgoAPI_Fuse(outer, bore)
+    fuse.Build()
+    if not fuse.IsDone():
+        raise RuntimeError("M10 bore-filler fuse failed")
+    scale = spec.params["L"] / L
+    placed = generators._place_in_frame(fuse.Shape(), spec.frame, scale=scale)
+    path = work_dir / "M10_bore_filled.step"
+    generators._write_step(placed, path)
+    return path
+
+
 _BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2,
                   "M3": _make_bore_filled_m3, "M4": _make_bore_filled_m4,
                   "M5": _make_bore_filled_m5, "M6": _make_bore_filled_m6,
                   "M7": _make_bore_filled_m7, "M8": _make_bore_filled_m8,
+                  "M10": _make_bore_filled_m10,
                   "M11": _make_bore_filled_m11, "M12": _make_bore_filled_m12}
 
 

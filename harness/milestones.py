@@ -371,7 +371,7 @@ def _m8() -> MilestoneSpec:
             L=L, R_o=R_o, dome_semi_axial=dome_h, R_bore=R_bore,
             n_slots=n_slots, slot_half_width=slot_half_w, slot_outer_r=slot_outer_r,
             slot_z_lo=slot_z_lo, slot_z_hi=slot_z_hi, slot_fillet=slot_fillet,
-            dilation_w=150.0,
+            dilation_w=150.0, slot_overlap=50.0,
         ),
         regions=[
             RegionBand("fore_dome", 0.0, dome_h / L),
@@ -451,7 +451,8 @@ def _m10() -> MilestoneSpec:
     m8 = _m8()
     s = 1.0 / 40.0
     ct = CHORD_TOL * s
-    scaled = {k: (v * s if isinstance(v, (int, float)) else v) for k, v in m8.params.items()}
+    scaled = {k: (v * s if k != "n_slots" and isinstance(v, (int, float)) else v)
+              for k, v in m8.params.items()}
     frame = Frame(axis=(1.0, 0.0, 0.0), origin_mm=(254.0, -76.2, 101.6), units="in")
     return MilestoneSpec(
         name="M10",
