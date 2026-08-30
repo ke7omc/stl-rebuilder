@@ -15,19 +15,18 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
-- Milestone: **M2 PASSES** — `pass:true, progress:1.0`, all 14 checks green (see iter 17 log:
-  `_densify_dome_chords` model-resamples the dome pinch windows, and
-  `solids.build_revolve_solid`'s new `curve_windows` param fits ONE interpolating B-spline edge
-  per window instead of many straight chords, resolving the accuracy-vs-`face_count_max`
-  tension that blocked iters 16-17). M1 still `pass:true, progress:1.0`. `pytest tests/`
-  15 passed / 1 pre-existing unrelated failure (`test_every_m1_check_passes_and_missing_
-  generators_block_the_freeze`, an argparse/conftest issue confirmed present on the unmodified
-  baseline, not a regression from this work).
-- **Next milestone: M3.** Read `harness/milestones.py::_m3` for its spec/gates and
-  `harness/generators.py` for whether its truth generator exists yet; `pipeline/cli.py` doesn't
-  handle M3's geometry yet (only the M1/M2 axisymmetric-circular-envelope-and-bore fast path is
-  implemented — see the module docstring). The new `curve_windows` mechanism in
-  `pipeline/solids.py` may generalize to any curved-meridian region M3+ introduces.
+- Milestone: **M3 PASSES** — `pass:true, progress:1.0`, all 12 checks green (volume_err_pct
+  0.0024%, surface_deviation_max_mm 0.365, face_count_max 27, gmsh min_quality 0.187 vs gate
+  0.1). M2 and M1 both still `pass:true, progress:1.0`. `pytest tests/` 15 passed / 1
+  pre-existing unrelated failure (same `test_every_m1_check_passes_and_missing_generators_
+  block_the_freeze` argparse/conftest issue as before, not a regression).
+- M3 required a genuinely new pipeline path: a non-axisymmetric but axially-constant
+  (prismatic) star bore, extruded rather than revolved. See iter 18 log below for the arc+line
+  hybrid that made it pass, and the two approaches tried and reverted first.
+- **Next milestone: M4.** Read `harness/milestones.py::_m4` for its spec/gates and
+  `harness/generators.py` for whether its truth generator exists yet. Check whether M4 needs
+  yet another new geometric path, or can reuse the revolve (`build_revolve_solid` +
+  `curve_windows`) or prism (`build_prism_solid` + `detect_arc_runs`) machinery already built.
 - **Iter 15 summary (read this before touching `pipeline/cli.py` or `pipeline/solids.py`
   again):** the 0.138% volume error left by iter 14 was NOT dominated by the pinch-endpoint
   radius itself (that was already snapped to the bore's fitted radius, which is accurate). It
@@ -317,6 +316,60 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 18 — M3 — sonnet/medium — 2026-08-29
+- Score before: M3 not attempted yet (`pipeline/cli.py` only handled circular
+  axis-centered bores; M3's 6-point star bore is non-axisymmetric).
+- Change: added the non-axisymmetric bore path. `pipeline/cli.py::_run`'s hole loop now
+  tolerates circle-fit failure per-station by keeping the raw shapely ring
+  (`bore_rings.append((zz, ring))`) instead of erroring, guards `is_pinch_start`/
+  `is_pinch_end` against an empty `bore_pts`, and errors out (exit 4) only if a chain mixes
+  circular and non-circular stations (not yet supported). New `_build_prism_bore` picks the
+  mid-length station's ring and passes its raw points straight to `solids.build_prism_solid`.
+  `pipeline/fitting.py` gained `detect_arc_runs(pts, r_thresh, window=2)`: a windowed Kasa
+  `fit_circle` over each point's `+-window` neighbors classifies it as "arc" (small local
+  radius, e.g. a fillet) or "straight" (large/ill-conditioned local radius), groups into
+  contiguous runs with wraparound merge. `solids.py::build_prism_solid` was rewritten around
+  this: each detected arc run becomes one exact 3-point `GC_MakeArcOfCircle` edge, each
+  straight run collapses to one straight edge between consecutive arc endpoints, closing into
+  one wire that's extruded into the cutter solid. `r_fillet_thresh` defaults to
+  `0.25 * max_radius_from_ring_centroid` when not given (no milestone-specific hardcoding in
+  production code).
+- Tried and reverted first (in order, see the git history and standalone testing this
+  iteration — do not retry either without a new idea):
+  1. A straight-edge polygon (one edge per RDP/shapely-simplified vertex): passed every
+     accuracy gate (volume/bbox/surface_deviation) but `gmsh_tet` failed at
+     min_quality~0.016-0.063 across many density/tolerance sweeps (gate 0.1) — even the
+     *truth* STEP only barely clears that gate (0.137) at the same hmax, so sharp polyline
+     corners approximating each fillet arc condition the tet mesh badly right there, regardless
+     of face-count/point-density tuning.
+  2. A single closed periodic B-spline (`GeomAPI_Interpolate(..., True, ...)`) through the
+     whole ring, collapsing the boundary to 1 face: fixed `face_count_max` but rounded off the
+     star's sharp valley cusps, pushing `volume_err_pct` to ~0.89% (gate 0.1%) — confirmed via
+     isolated face-area comparisons (spline face 2-2.5% larger than the raw shoelace polygon
+     area regardless of point density). This periodic-spline version briefly landed in
+     `pipeline/solids.py::build_prism_solid` before being replaced by the arc+line hybrid.
+  The arc+line hybrid fixes both failure modes at once: exact arcs match the truth generator's
+  own fillet construction (tiny surface deviation, tiny volume error, and a smooth curvature
+  the tet mesher handles well), while straight-run collapsing keeps face count low (27, vs
+  gate 100) and preserves the star's sharp cusps as true polygon vertices (no spline rounding).
+- Score after (local): `harness/score.py --milestone M3 --out out/score.local.json` →
+  `pass:true, progress:1.0`, all 12 checks green: volume_err_pct 0.0024% (gate 0.1),
+  bbox_err_pct ~6e-7% (gate 0.1), surface_deviation_max_mm 0.365 (gate 1.0), face_count_max 27
+  (gate 100), step_roundtrip 4.7e-14 (gate 1e-6), gmsh min_quality 0.187 (gate 0.1). M2 and M1
+  re-scored and still `pass:true, progress:1.0`. `pytest tests/` → 15 passed / 1 pre-existing
+  unrelated failure (same as before this iteration).
+- Learned: `OCP.GC.GC_MakeArcOfCircle(p0, pm, p1).Value()` builds an exact 3-point circular
+  arc `Geom_TrimmedCurve` directly (no manual center/radius/angle math needed) — the same
+  robustness style as the module's existing edge/wire builders. A local windowed circle fit
+  (Kasa, `+-2` neighbors) cleanly separates M3's fillet radii (~25-43mm) from its straight-run
+  local radii (~380-6220mm, ill-conditioned since a straight line has no true finite radius)
+  with a wide margin, so a single scale-relative threshold (`0.25 * bounding radius`) works
+  without hardcoding milestone-specific numbers.
+- Next: M4 — read its spec in `harness/milestones.py`/`harness/generators.py` and check
+  whether it reuses `build_revolve_solid`+`curve_windows` or `build_prism_solid`+
+  `detect_arc_runs` as-is, or needs a new combination (e.g. a non-axisymmetric bore mixed with
+  a curved-meridian envelope).
 
 ### iter 17 — M2 — sonnet/medium — 2026-08-29
 - Score before: `M2 progress=0.6535`, first failure `surface_deviation_max_mm=1.314mm` (gate

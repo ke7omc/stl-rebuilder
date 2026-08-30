@@ -1,9 +1,11 @@
 """CLI entry point. Contract in MISSION.md §5.3.
 
-Currently implements the axisymmetric fast path only (§5.2 step 6, first bullet): one outer
-envelope + one bore chain, both circular and centered on the axis, revolved from an RDP-
-simplified (R, z) meridian. This covers M1 (annular cylinder). Non-axisymmetric sections,
-multiple hole chains, and topology events (chain birth/death) are not yet implemented.
+Implements two paths (§5.2 step 6): an axisymmetric revolve for a circular, axis-centered
+envelope/bore chain (M1, M2), and a prismatic extrude for a bore whose cross-section is
+non-circular but constant along z (M3's star bore) — selected per-part from what the station
+loop actually measures, not from the milestone name. The outer envelope must still be a
+circular, axis-centered cylinder. Multiple hole chains and topology events (chain birth/death,
+M4/M5) are not yet implemented.
 """
 import argparse
 import math
@@ -164,6 +166,22 @@ def _densify_dome_chords(outer_pts, z_lo, z_hi, at_start: bool, min_dz: float, r
     return [(float(z), _eval_r2_quadratic(z0, coef, z)) for z in zs]
 
 
+def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_cut_val: float,
+                       chord_tol: float):
+    """Build the cutter solid for a non-circular but axially-constant bore (e.g. M3's star):
+    take the station closest to mid-length as the representative cross-section (least likely to
+    be distorted by any inset/end effects) and hand its raw ring points straight to
+    `solids.build_prism_solid`, which detects fillet-arc runs vs straight runs itself and builds
+    an exact arc+line hybrid wire (see that function's docstring for why raw points, not a
+    Douglas-Peucker-simplified ring, are wanted here: simplification would erase the very
+    curvature signal `detect_arc_runs` needs, and straight-run collapsing already keeps the face
+    count low without it). Extrudes past both true ends by `eps_cut_val` for a robust boolean
+    cut."""
+    mid = bore_rings[len(bore_rings) // 2][1]
+    pts = list(mid.coords)
+    return solids.build_prism_solid(pts, z_min - eps_cut_val, z_max + eps_cut_val)
+
+
 def _run(args) -> int:
     chord_tol = args.chord_tol
     mesh, R_axis, info = pio.load_and_orient(args.input_stl, args.axis)
@@ -190,7 +208,8 @@ def _run(args) -> int:
                                     vertex_zs=mesh.vertices[:, 2])
 
     outer_pts = []   # (z, R) of the exterior loop
-    bore_pts = []    # (z, R) of the (single) interior loop
+    bore_pts = []    # (z, R) of the (single) interior loop, only while it looks circular
+    bore_rings = []  # (z, ndarray of (x,y)) of the interior loop, whenever it is NOT circular
     for z in zs:
         polys, zz = slice_station(mesh, z, chord_tol)
         if not polys:
@@ -209,18 +228,29 @@ def _run(args) -> int:
         if max_resid > tol.circle_max_resid(chord_tol) or not _axis_centered(cx, cy, Ro, chord_tol):
             print(f"rebuild.py: outer loop at z={zz:.3f} is not an axis-centered circle "
                   f"(max_resid={max_resid:.4f}, center=({cx:.4f},{cy:.4f})) — "
-                  f"non-axisymmetric sections not yet implemented", file=sys.stderr)
+                  f"non-axisymmetric outer envelopes not yet implemented", file=sys.stderr)
             return 4
         outer_pts.append((zz, Ro))
 
-        hole = np.asarray(poly.interiors[0].coords)
+        # The bore's cross-section may be a non-circular but axially-*constant* (prismatic)
+        # shape, e.g. M3's star bore — that is still tractable by extrusion (see
+        # `solids.build_prism_solid`) even though it is not a surface of revolution. A hole
+        # that fails the circle fit is recorded as a raw ring instead of erroring immediately;
+        # after the station loop, `bore_rings` non-empty (and `bore_pts` empty) selects the
+        # prism path below.
+        ring = poly.interiors[0]
+        hole = np.asarray(ring.coords)
         cx2, cy2, Ri, max_resid2, _ = fit_circle(hole)
         if max_resid2 > tol.circle_max_resid(chord_tol) or not _axis_centered(cx2, cy2, Ri, chord_tol):
-            print(f"rebuild.py: hole loop at z={zz:.3f} is not an axis-centered circle "
-                  f"(max_resid={max_resid2:.4f}, center=({cx2:.4f},{cy2:.4f})) — "
-                  f"non-axisymmetric sections not yet implemented", file=sys.stderr)
-            return 4
-        bore_pts.append((zz, Ri))
+            bore_rings.append((zz, ring))
+        else:
+            bore_pts.append((zz, Ri))
+
+    if bore_rings and bore_pts:
+        print("rebuild.py: hole loop topology is inconsistent across stations "
+              "(mixes circular and non-circular sections) — not yet implemented",
+              file=sys.stderr)
+        return 4
 
     # Envelope spans the true axial extent. Extrapolate the outer radius to it from the two
     # nearest fitted stations (linear secant) rather than copying the nearest station's R flat —
@@ -239,8 +269,8 @@ def _run(args) -> int:
     # is far more reliable than the outer extrapolation, since it isn't near the dome's steep
     # curvature). Snap to it when the extrapolation already landed close, rather than trusting
     # the extrapolation's residual ~10 mm error verbatim.
-    is_pinch_start = abs(r_start - bore_pts[0][1]) < 50.0
-    is_pinch_end = abs(r_end - bore_pts[-1][1]) < 50.0
+    is_pinch_start = bool(bore_pts) and abs(r_start - bore_pts[0][1]) < 50.0
+    is_pinch_end = bool(bore_pts) and abs(r_end - bore_pts[-1][1]) < 50.0
     if is_pinch_start:
         r_start = bore_pts[0][1]
     if is_pinch_end:
@@ -268,11 +298,14 @@ def _run(args) -> int:
     start_pt = [] if is_pinch_start else [(z_min, r_start)]
     end_pt = [] if is_pinch_end else [(z_max, r_end)]
     outer_full = sorted(start_pt + fore_gap + middle_pts + aft_gap + end_pt, key=lambda p: p[0])
-    bore_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
-        + [(z_max + eps_cut_val, bore_pts[-1][1])]
-
     outer_solid = solids.build_revolve_solid(outer_full, chord_tol, curve_windows=curve_windows)
-    bore_solid = solids.build_revolve_solid(bore_full, chord_tol)
+
+    if bore_rings:
+        bore_solid = _build_prism_bore(bore_rings, z_min, z_max, eps_cut_val, chord_tol)
+    else:
+        bore_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
+            + [(z_max + eps_cut_val, bore_pts[-1][1])]
+        bore_solid = solids.build_revolve_solid(bore_full, chord_tol)
 
     shape = booleans.cut(outer_solid, bore_solid, tol.fuzzy(chord_tol))
     shape, valid = export.finalize(shape)
@@ -289,7 +322,7 @@ def _run(args) -> int:
             args.report,
             n_stations=len(zs),
             stations_z_mm=list(zs),
-            paths_used={"outer": "revolve", "bore": "revolve"},
+            paths_used={"outer": "revolve", "bore": "prism" if bore_rings else "revolve"},
             topology_events_z_mm=[],
         )
     return 0

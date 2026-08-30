@@ -20,18 +20,19 @@ quadratic-in-R^2 model, then keep this module's simple straight-chord polyline e
 """
 import math
 
-from OCP.gp import gp_Pnt, gp_Ax1, gp_Dir
+from OCP.gp import gp_Pnt, gp_Ax1, gp_Dir, gp_Vec
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeWire,
     BRepBuilderAPI_MakeFace,
 )
-from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol, BRepPrimAPI_MakePrism
+from OCP.GC import GC_MakeArcOfCircle
 from OCP.GeomAPI import GeomAPI_Interpolate
 from OCP.TColgp import TColgp_HArray1OfPnt
 from OCP.TopoDS import TopoDS_Shape
 
-from pipeline.fitting import rdp
+from pipeline.fitting import rdp, detect_arc_runs
 
 
 def _dedupe(pts):
@@ -135,3 +136,74 @@ def build_revolve_solid(z_r_pairs, chord_tol: float, curve_windows=None) -> Topo
     if not revol.IsDone():
         raise RuntimeError("revolve failed")
     return revol.Shape()
+
+
+def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float = None) -> TopoDS_Shape:
+    """`xy_pts`: closed-ring (x, y) points (first == last, as returned by a shapely polygon's
+    `.exterior.coords`/`.interiors[i].coords`), raw or lightly deduped. Builds the cross-section
+    wire as a hybrid of exact circular-arc edges (`GC_MakeArcOfCircle`, 3-point through each
+    detected fillet run) bridged by straight edges everywhere else, then extrudes that single
+    closed-wire profile from z_lo to z_hi. This is the non-axisymmetric counterpart to
+    `build_revolve_solid`, for a cross-section that is constant along the axis (a prismatic
+    bore/envelope, e.g. M3's star bore) rather than one that is a surface of revolution.
+
+    Two prior approaches were tried and reverted (PROGRESS.md M3 log):
+    - A straight-edge polygon (one edge per RDP-retained vertex) passed every accuracy gate
+      (volume/bbox/surface_deviation) but `gmsh_tet` failed at min_quality~0.016 (gate 0.1):
+      even the *truth* STEP only barely clears that gate (0.137) at the same hmash, so the sharp
+      polyline corners approximating each fillet arc condition the tet mesh badly right there.
+    - A single closed periodic B-spline through all the ring points collapsed the whole boundary
+      to 1 face (solving face_count_max) but rounded off the star's sharp valley cusps, pushing
+      volume_err_pct to ~0.89% (gate 0.1%).
+    The arc+line hybrid fixes both: `detect_arc_runs` (pipeline/fitting.py) classifies each
+    boundary point via a local windowed circle fit (small local radius = fillet, large/
+    ill-conditioned = straight run); each fillet run becomes one exact 3-point circular arc edge
+    (matches the truth generator's own construction almost exactly, so surface_deviation and
+    volume error both stay tiny), each straight run collapses to a single straight edge between
+    consecutive arc endpoints (keeps face_count_max low, and cusps stay sharp since they're true
+    polygon vertices, not spline-smoothed). Falls back to a straight-edge polygon (no arcs
+    detected) when the ring has no fillet-scale curvature to find."""
+    pts = [p for p in xy_pts]
+    if len(pts) > 1 and math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-9:
+        pts = pts[:-1]
+    if len(pts) < 3:
+        raise ValueError("prism cross-section needs at least 3 distinct points")
+
+    if r_fillet_thresh is None:
+        cx = sum(p[0] for p in pts) / len(pts)
+        cy = sum(p[1] for p in pts) / len(pts)
+        scale = max(math.hypot(p[0] - cx, p[1] - cy) for p in pts)
+        r_fillet_thresh = 0.25 * scale
+
+    arcs = detect_arc_runs(pts, r_fillet_thresh)
+
+    def P(idx):
+        x, y = pts[idx]
+        return gp_Pnt(x, y, z_lo)
+
+    mkwire = BRepBuilderAPI_MakeWire()
+    if not arcs:
+        n = len(pts)
+        for i in range(n):
+            mkwire.Add(BRepBuilderAPI_MakeEdge(P(i), P((i + 1) % n)).Edge())
+    else:
+        n_arcs = len(arcs)
+        for i in range(n_arcs):
+            run = arcs[i]
+            p0, pm, p1 = P(run[0]), P(run[len(run) // 2]), P(run[-1])
+            arc = GC_MakeArcOfCircle(p0, pm, p1).Value()
+            mkwire.Add(BRepBuilderAPI_MakeEdge(arc).Edge())
+            next_run = arcs[(i + 1) % n_arcs]
+            mkwire.Add(BRepBuilderAPI_MakeEdge(p1, P(next_run[0])).Edge())
+
+    if not mkwire.IsDone():
+        raise RuntimeError("prism cross-section wire construction failed")
+    wire = mkwire.Wire()
+    if not wire.Closed():
+        raise RuntimeError("prism cross-section wire is not closed")
+
+    face = BRepBuilderAPI_MakeFace(wire, True).Face()
+    prism = BRepPrimAPI_MakePrism(face, gp_Vec(0.0, 0.0, z_hi - z_lo))
+    if not prism.IsDone():
+        raise RuntimeError("prism extrusion failed")
+    return prism.Shape()
