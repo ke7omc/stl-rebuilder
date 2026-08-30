@@ -63,6 +63,7 @@ CONFIG = {
     "STALL_ESCALATE": 3,           # switch to MODEL_ESCALATE after this many
     "STALL_TOURNAMENT": 4,         # run a tournament this many stalls after escalation
     "STALL_MAX": 12,               # stop with a status report
+    "PROGRESS_MIN_DELTA": 0.005,   # smaller gains do not reset the stall counter (creeping is stalling)
     # caps (wall clock per iteration, by mode)
     "MAX_ITERATIONS": 300,
     "ITER_TIMEOUT_S": 5400,        # 90 min: normal / handoff iterations
@@ -876,12 +877,14 @@ def advance(st: dict, note: str) -> None:
 
 
 def update_stall(st: dict, progress: float) -> None:
-    if progress > st["best_progress"] + 1e-9:
-        log(f"progress improved {st['best_progress']:.3f} → {progress:.3f}")
+    if progress >= st["best_progress"] + CONFIG["PROGRESS_MIN_DELTA"]:
+        log(f"progress improved {st['best_progress']:.4f} → {progress:.4f}")
         st["best_progress"], st["stall"] = progress, 0
     else:
         st["stall"] += 1
-        log(f"no improvement (progress {progress:.3f}, best {st['best_progress']:.3f}); stall={st['stall']}")
+        if progress > st["best_progress"]:
+            st["best_progress"] = progress   # keep the high-water mark, but creeping counts as a stall
+        log(f"no meaningful improvement (progress {progress:.4f}, best {st['best_progress']:.4f}); stall={st['stall']}")
 
 
 HARNESS_FILES = ["milestones.py", "generators.py", "metrics.py", "meshcheck.py", "score.py", "selftest.py"]
