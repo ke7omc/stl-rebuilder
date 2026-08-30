@@ -8,6 +8,7 @@ later check is recorded with pass=null, skipped="prior failure".
 """
 import argparse
 import contextlib
+import dataclasses
 import hashlib
 import json
 import math
@@ -19,6 +20,9 @@ import tempfile
 import time
 import traceback
 from pathlib import Path
+
+import numpy as np
+import trimesh
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -319,8 +323,241 @@ def _run_pipeline(stl_path: Path, out_step: Path, spec, cwd: Path) -> dict:
         }
 
 
+def _mr_input_and_meta(spec) -> tuple:
+    """First `real_inputs/*.stl` (gitignored) + its optional `<name>.json` sidecar, or (None, None)."""
+    matches = sorted(REPO_ROOT.glob(spec.input_glob))
+    if not matches:
+        return None, None
+    stl_path = matches[0]
+    json_path = stl_path.with_suffix(".json")
+    meta = {}
+    if json_path.is_file():
+        try:
+            meta = json.loads(json_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            meta = {}
+    return stl_path, meta
+
+
+def _score_mr(spec, keep_dir: Path | None) -> dict:
+    """MR (MISSION §6.2): no analytic truth, self-referential checks against the repaired input
+    mesh itself. `pass: true, skipped: "no real input"` when `real_inputs/` is empty."""
+    stl_path, meta = _mr_input_and_meta(spec)
+    if stl_path is None:
+        return _sanitize({
+            "milestone": "MR", "pass": True, "progress": 1.0, "stage_reached": "skipped",
+            "skipped": "no real input", "first_failure": None, "checks": [],
+            "metrics": {}, "artifacts": {"step": None, "report": None, "pipeline_log": None},
+        })
+
+    checks = []
+    metrics_out = {}
+    stage_reached = "setup"
+    first_failure = None
+    out_step = None
+    plan = ["pipeline_exit", "output_step_exists", "step_readable", "n_solids", "brep_valid",
+            "volume_err_pct", "surface_deviation_p99_mm", "surface_deviation_max_mm",
+            "min_edge_mm", "step_roundtrip", "gmsh_tet"]
+
+    def add(name, passed, **extra):
+        checks.append({"name": name, "pass": passed, **extra})
+
+    def fail_here(name, value=None, threshold=None, location=None, hint=""):
+        nonlocal first_failure
+        entry = {"check": name, "hint": hint}
+        if value is not None:
+            entry["value"] = value
+        if threshold is not None:
+            entry["threshold"] = threshold
+        if location is not None:
+            entry["location"] = location
+        first_failure = entry
+        raise FailFast(name)
+
+    work_dir = Path(tempfile.mkdtemp(prefix="score_MR_"))
+    try:
+        units = meta.get("units", "mm")
+        scale_to_mm = {"mm": 1.0, "in": 25.4, "m": 1000.0}.get(units, 1.0)
+        known_volume_mm3 = meta.get("known_volume_mm3")
+
+        input_mesh = metrics.load_mesh(stl_path)
+        edge_lengths = input_mesh.edges_unique_length * scale_to_mm
+        ct_est = float(np.median(edge_lengths)) if len(edge_lengths) else 1.0
+        ct_est = max(ct_est, 1e-3)
+        metrics_out["ct_est_mm"] = ct_est
+
+        # rebuild_args/gates are computed at runtime from the input mesh (no fixed spec for a
+        # real STL), so score against a per-run spec copy rather than mutating the frozen one.
+        mr_spec = dataclasses.replace(
+            spec,
+            rebuild_args=spec.rebuild_args + ["--units", units, "--chord-tol", f"{ct_est:.6g}"],
+        )
+
+        stage_reached = "pipeline"
+        out_step = work_dir / "MR.step"
+        run_info = _run_pipeline(stl_path, out_step, mr_spec, work_dir)
+        metrics_out["runtime_s"] = run_info["runtime_s"]
+        pipeline_ok = (not run_info["timed_out"]) and run_info["returncode"] == 0
+        add("pipeline_exit", pipeline_ok, value=run_info["returncode"],
+            stderr_tail=run_info["stderr_tail"])
+        if not pipeline_ok:
+            reason = "timed out" if run_info["timed_out"] else f"exit {run_info['returncode']}"
+            fail_here("pipeline_exit", value=run_info["returncode"], threshold=0,
+                      hint=f"rebuild.py {reason}: {run_info['stderr_tail'] or '(no stderr)'}")
+
+        step_exists = out_step.is_file()
+        add("output_step_exists", step_exists, value=step_exists)
+        if not step_exists:
+            fail_here("output_step_exists", value=step_exists, threshold=True,
+                      hint=f"rebuild.py exited 0 but did not write {out_step.name}")
+
+        stage_reached = "validate"
+        try:
+            result_shape, result_step_volume = metrics.read_step(out_step)
+        except Exception as e:
+            add("step_readable", False, value=str(e))
+            fail_here("step_readable", hint=f"output STEP could not be read back: {e}")
+        add("step_readable", True)
+
+        n_solids = _n_shapes_of_type(result_shape, TopAbs_SOLID)
+        ok = n_solids >= 1
+        add("n_solids", ok, value=n_solids, expect=">=1")
+        if not ok:
+            fail_here("n_solids", value=n_solids, threshold=1,
+                      hint=f"expected at least 1 solid, found {n_solids}")
+
+        valid = BRepCheck_Analyzer(result_shape).IsValid()
+        add("brep_valid", bool(valid))
+        if not valid:
+            fail_here("brep_valid", value=False, threshold=True,
+                      hint="BRepCheck_Analyzer reports the result shape is not a valid BRep")
+
+        # --- check: volume_err_pct (vs known_volume_mm3, else the repaired input mesh) --------
+        repaired = input_mesh.copy()
+        trimesh.repair.fix_normals(repaired)
+        trimesh.repair.fill_holes(repaired)
+        repaired.merge_vertices()
+        repaired_volume_mm3 = abs(float(repaired.volume)) * (scale_to_mm ** 3)
+        v_truth = abs(float(known_volume_mm3)) if known_volume_mm3 else repaired_volume_mm3
+        volume_err_pct = (abs(result_step_volume - v_truth) / v_truth * 100.0) if v_truth \
+            else float("inf")
+        threshold = spec.gates["volume_err_pct"]
+        ok = volume_err_pct < threshold
+        add("volume_err_pct", ok, value=volume_err_pct, threshold=threshold)
+        if not ok:
+            fail_here("volume_err_pct", value=volume_err_pct, threshold=threshold,
+                      hint=f"result volume differs from the repaired input mesh by "
+                           f"{volume_err_pct:.4f}% (gate < {threshold}%)")
+
+        # --- checks: surface deviation vs the input mesh itself (no analytic truth) -----------
+        input_mesh_mm = input_mesh.copy()
+        input_mesh_mm.apply_scale(scale_to_mm)
+        result_mesh = _mesh_from_step(out_step, work_dir / "result_fine.stl",
+                                       deflection=ct_est / 2.0)
+        dev = metrics.surface_deviation(input_mesh_mm, result_mesh)
+        p99_threshold = 1.0 * ct_est
+        ok = dev["p99_mm"] < p99_threshold
+        add("surface_deviation_p99_mm", ok, value=dev["p99_mm"], threshold=p99_threshold)
+        if not ok:
+            fail_here("surface_deviation_p99_mm", value=dev["p99_mm"], threshold=p99_threshold,
+                      hint=f"p99 deviation {dev['p99_mm']:.3f} mm vs input mesh "
+                           f"(gate < {p99_threshold:.3f} mm)")
+
+        max_threshold = 4.0 * ct_est
+        ok = dev["max_mm"] < max_threshold
+        add("surface_deviation_max_mm", ok, value=dev["max_mm"], threshold=max_threshold)
+        if not ok:
+            fail_here("surface_deviation_max_mm", value=dev["max_mm"], threshold=max_threshold,
+                      hint=f"max deviation {dev['max_mm']:.3f} mm vs input mesh "
+                           f"(gate < {max_threshold:.3f} mm)")
+
+        # --- check: min_edge_mm ----------------------------------------------------------------
+        shortest = _min_edge_length_mm(result_shape)
+        metrics_out["min_edge_mm"] = shortest
+        threshold = spec.gates["min_edge_mm"]
+        ok = shortest is not None and shortest >= threshold
+        add("min_edge_mm", ok, value=shortest, threshold=threshold)
+        if not ok:
+            fail_here("min_edge_mm", value=shortest, threshold=threshold,
+                      hint=(f"shortest edge is {shortest:.4g} mm (gate >= {threshold} mm)"
+                            if shortest is not None else
+                            "result shape has no edges — harness bug or degenerate shape"))
+
+        # --- check: step_roundtrip ---------------------------------------------------------
+        reexport = work_dir / "MR.roundtrip.step"
+        generators._write_step(result_shape, reexport)
+        rt = metrics.step_roundtrip_check(reexport, result_step_volume)
+        threshold = spec.gates["step_roundtrip_vol_err"]
+        ok = rt["ok"] and rt["rel_vol_err"] is not None and rt["rel_vol_err"] < threshold
+        add("step_roundtrip", ok, value=rt.get("rel_vol_err"), threshold=threshold,
+            reason=rt.get("reason"))
+        if not ok:
+            fail_here("step_roundtrip", value=rt.get("rel_vol_err"), threshold=threshold,
+                      hint=rt.get("reason") or
+                           f"STEP round-trip volume error {rt.get('rel_vol_err')} >= {threshold}")
+
+        # --- check: gmsh_min_sicn -----------------------------------------------------------
+        hmax = ct_est * 10.0
+        mesh_res = mc.check_meshability(str(out_step), hmax, timeout_s=spec.mesh_timeout_s)
+        threshold = spec.gates["gmsh_min_sicn"]
+        ok = bool(mesh_res.get("ok")) and (mesh_res.get("min_quality") or 0.0) > threshold
+        add("gmsh_tet", ok, value=mesh_res.get("min_quality"), threshold=threshold,
+            n_tet=mesh_res.get("n_tet"), reason=mesh_res.get("reason"))
+        if not ok:
+            fail_here("gmsh_tet", value=mesh_res.get("min_quality"), threshold=threshold,
+                      hint=mesh_res.get("reason") or
+                           f"gmsh min SICN {mesh_res.get('min_quality')} <= {threshold}")
+
+        stage_reached = "done"
+
+    except FailFast:
+        pass
+    except Exception as e:
+        tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))[-4000:]
+        add("exception", False, error=str(e), traceback_tail=tb)
+        first_failure = {"check": "exception", "hint": str(e)}
+    finally:
+        artifacts = {"step": None, "report": None, "pipeline_log": None}
+        if keep_dir is not None:
+            keep_dir.mkdir(parents=True, exist_ok=True)
+            for key, src in (("step", out_step),
+                             ("report", work_dir / "report.json"),
+                             ("pipeline_log", work_dir / "pipeline.log")):
+                if src is not None and Path(src).is_file():
+                    dest = keep_dir / f"MR{Path(src).suffix}" if key == "step" \
+                        else keep_dir / f"MR.{Path(src).name}"
+                    shutil.copyfile(src, dest)
+                    artifacts[key] = str(dest)
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+    recorded = {c["name"] for c in checks}
+    for name in plan:
+        if name not in recorded:
+            checks.append({"name": name, "pass": None, "skipped": "prior failure"})
+
+    passed = first_failure is None
+    if passed:
+        progress = 1.0
+    elif first_failure["check"] in plan:
+        idx = plan.index(first_failure["check"])
+        progress = (idx + _partial(first_failure["check"], first_failure.get("value"),
+                                   first_failure.get("threshold"))) / len(plan)
+    else:
+        progress = sum(1 for c in checks if c["pass"] is True) / len(plan)
+    if not math.isfinite(progress):
+        progress = 0.0
+
+    return _sanitize({
+        "milestone": "MR", "pass": passed, "progress": round(progress, 4),
+        "stage_reached": stage_reached, "first_failure": first_failure,
+        "checks": checks, "metrics": metrics_out, "artifacts": artifacts,
+    })
+
+
 def score(milestone: str, keep_dir: Path | None) -> dict:
     spec = ms.get(milestone)
+    if spec.optional and spec.input_glob:
+        return _score_mr(spec, keep_dir)
     checks = []
     metrics_out = {}
     stage_reached = "setup"

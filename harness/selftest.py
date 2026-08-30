@@ -412,7 +412,30 @@ _BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2,
                   "M13": _make_bore_filled_m13}
 
 
+def check_mr(name: str = "MR") -> None:
+    """MR (MISSION §6.2) has no analytic truth and never goes through `generators.make` —
+    `score.py::_score_mr` handles the real_inputs/*.stl glob (or its absence) itself. Prove only
+    the harness-side contract: with `real_inputs/` empty (the default, gitignored) the scorer
+    must emit `pass: true, skipped: "no real input"` rather than erroring or hanging."""
+    spec = ms.get(name)
+    real_inputs = list(REPO_ROOT.glob(spec.input_glob))
+    result = score_mod.score(name, keep_dir=None)
+    if real_inputs:
+        print(f"[INFO] {name}: real_inputs/ is non-empty ({len(real_inputs)} file(s)) — "
+              f"scored for real, pass={result['pass']}", flush=True)
+        _report(result["pass"], f"{name}: real input scores pass",
+                "" if result["pass"] else f"first_failure={result['first_failure']}")
+        return
+    ok = result.get("pass") is True and result.get("skipped") == "no real input"
+    print(f"[SKIP] {name}: no real_inputs/*.stl present", flush=True)
+    _report(ok, f"{name}: skips cleanly with no real input",
+            "" if ok else f"result={result}")
+
+
 def check_milestone(name: str, work_dir: Path, skip_gmsh: bool = False) -> None:
+    if name == "MR":
+        check_mr(name)
+        return
     spec = ms.get(name)
     try:
         truth = generators.make(name)
