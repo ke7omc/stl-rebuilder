@@ -1,0 +1,21 @@
+[    1918ms] [ERROR] WARNING: plotly-latest.min.js and plotly-latest.js are NO LONGER the latest releases of plotly.js. They are v1.58.5 (released July 2021), the end of the v1.x line, and will not be updated again. To use more recent versions of plotly.js, please update your links to point to an explicit version on cdn.plot.ly. You can find the latest version information at https://github.com/plotly/plotly.js/releases @ https://cdn.plot.ly/plotly-latest.min.js:6
+[    2445ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://pypistats.org/favicon.ico:0
+[    8466ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/pyside6/recent:0
+[    8538ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/pyqt6/recent:0
+[    8596ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/vtk/recent:0
+[    8653ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/dearpygui/recent:0
+[    8717ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/flet/recent:0
+[    8771ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/toga/recent:0
+[    8827ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/wxpython/recent:0
+[    8882ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/pyvista/recent:0
+[    8945ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/trimesh/recent:0
+[    9000ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/cadquery-ocp/recent:0
+[    9053ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/pymeshlab/recent:0
+[    9107ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/open3d/recent:0
+[    9162ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/pyinstaller/recent:0
+[    9220ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/nuitka/recent:0
+[    9279ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/briefcase/recent:0
+[    9340ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/cx-freeze/recent:0
+[    9419ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/pyqtdarktheme/recent:0
+[    9472ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/qdarkstyle/recent:0
+[    9532ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://pypistats.org/api/packages/qt-material/recent:0

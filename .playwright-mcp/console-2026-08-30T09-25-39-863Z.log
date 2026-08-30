@@ -1,0 +1,6 @@
+[     173ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'ambient-light-sensor'. @ :0
+[     173ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'battery'. @ :0
+[     173ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'document-domain'. @ :0
+[     173ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'execution-while-not-rendered'. @ :0
+[     173ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'execution-while-out-of-viewport'. @ :0
+[     173ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'speaker-selection'. @ :0

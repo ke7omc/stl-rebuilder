@@ -14,3 +14,4 @@ __pycache__/
 *.msh
 *.ply
 !docs/**
+real_inputs/

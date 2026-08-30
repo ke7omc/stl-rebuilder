@@ -1,0 +1,3 @@
+[    5673ms] [ERROR] Access to fetch at 'https://wiki.burnsim.com/wiki/Grain_Types' from origin 'https://example.com' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ https://example.com/:0
+[    5674ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://wiki.burnsim.com/wiki/Grain_Types:0
+[    5917ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://r.jina.ai/https://github.com/reilleya/openMotor:0

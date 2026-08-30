@@ -1,0 +1,548 @@
+- generic [active] [ref=f134e1]:
+  - text:  
+  - navigation "Global" [ref=f134e2]:
+    - list [ref=f134e4]:
+      - listitem [ref=f134e5]:
+        - link "Apple Developer" [ref=f134e6] [cursor=pointer]:
+          - /url: /
+      - listitem [ref=f134e7]:
+        - generic [ref=f134e9]:
+          - list [ref=f134e11]:
+            - listitem [ref=f134e12]:
+              - link "Get Started" [ref=f134e13] [cursor=pointer]:
+                - /url: /get-started/
+            - listitem:
+              - button "Get Started menu"
+          - list [ref=f134e16]:
+            - listitem [ref=f134e17]:
+              - link "Platforms" [ref=f134e18] [cursor=pointer]:
+                - /url: /platforms/
+            - listitem:
+              - button "Platforms menu"
+          - list [ref=f134e21]:
+            - listitem [ref=f134e22]:
+              - link "Technologies" [ref=f134e23] [cursor=pointer]:
+                - /url: /technologies/
+            - listitem:
+              - button "Technologies menu"
+          - list [ref=f134e26]:
+            - listitem [ref=f134e27]:
+              - link "Community" [ref=f134e28] [cursor=pointer]:
+                - /url: /community/
+            - listitem:
+              - button "Community menu"
+          - list [ref=f134e31]:
+            - listitem [ref=f134e32]:
+              - link "Documentation" [ref=f134e33] [cursor=pointer]:
+                - /url: /documentation/
+            - listitem:
+              - button "Documentation menu"
+          - list [ref=f134e36]:
+            - listitem [ref=f134e37]:
+              - link "Downloads" [ref=f134e38] [cursor=pointer]:
+                - /url: /download/
+            - listitem:
+              - button "Downloads menu"
+          - list [ref=f134e41]:
+            - listitem [ref=f134e42]:
+              - link "Support" [ref=f134e43] [cursor=pointer]:
+                - /url: /support/
+            - listitem:
+              - button "Support menu"
+      - listitem [ref=f134e45]:
+        - button "Search" [ref=f134e46] [cursor=pointer]
+      - listitem [ref=f134e47]:
+        - link "Sign in" [ref=f134e49] [cursor=pointer]:
+          - /url: /login/?return=%2Fsupport%2Fcompare-memberships%2F
+  - navigation [ref=f134e50]:
+    - generic [ref=f134e53]:
+      - heading [level=2] [ref=f134e54]:
+        - link "Support" [ref=f134e55] [cursor=pointer]:
+          - /url: /support/
+      - generic [ref=f134e57]:
+        - list:
+          - listitem [ref=f134e58]:
+            - link "Overview" [ref=f134e59] [cursor=pointer]:
+              - /url: /support/
+          - listitem [ref=f134e60]:
+            - link "Guides" [ref=f134e61] [cursor=pointer]:
+              - /url: /help/
+          - listitem [ref=f134e62]:
+            - link "Agreements and Guidelines" [ref=f134e63] [cursor=pointer]:
+              - /url: /support/terms/
+          - listitem [ref=f134e64]:
+            - link "Contact Us" [ref=f134e65] [cursor=pointer]:
+              - /url: /contact/
+  - main [ref=f134e66]:
+    - article [ref=f134e67]:
+      - generic [ref=f134e71]:
+        - heading "Choosing a Membership" [level=1] [ref=f134e72]
+        - paragraph [ref=f134e73]: It’s never been easier to develop for Apple platforms. To get started with app development for iOS, iPadOS, macOS, tvOS, visionOS, and watchOS, simply download Xcode from the Mac App Store. If you’re ready to distribute apps to customers, the Apple Developer Program provides everything you need to build apps with advanced capabilities and make them available worldwide. You can also distribute custom apps to specific businesses or proprietary apps within your organization.
+      - generic [ref=f134e77]:
+        - heading "Who should enroll" [level=2] [ref=f134e78]
+        - paragraph [ref=f134e79]:
+          - text: You can learn how to develop apps for Apple platforms for free without enrolling. With just an Apple Account, you can access Xcode, software downloads, documentation, sample code, forums, and Feedback Assistant, as well as test your apps on devices. If you don’t already have an Apple Account, you can
+          - link "create one now" [ref=f134e80] [cursor=pointer]:
+            - /url: https://account.apple.com/
+          - text: . To distribute apps, join the Apple Developer Program.
+        - heading "About the Apple Developer Program" [level=2] [ref=f134e81]
+        - paragraph [ref=f134e82]: If you’re interested in creating apps for distribution on the App Store, Apple Business Manager, or Apple School Manager, join the Apple Developer Program.* Membership includes access to beta OS releases, advanced app capabilities, and tools needed to develop, test, and distribute apps and Safari Extensions.
+        - paragraph [ref=f134e83]:
+          - strong [ref=f134e84]: Individuals or sole proprietors/single-person businesses.
+          - text: Apps are listed under the developer’s personal name.
+        - paragraph [ref=f134e85]:
+          - strong [ref=f134e86]: Organizations.
+          - text: Apps are listed under the organization’s legal entity name. Companies and educational institutions must provide a
+          - generic [ref=f134e87]: D-U-N-S
+          - text: Number (available for free) registered to their legal entity during the enrollment process.
+        - paragraph [ref=f134e88]:
+          - text: Enrollment is 99 USD (or in local currency where available) per membership year. Your nonprofit, educational institution, or government entity may be eligible for a
+          - link "fee waiver" [ref=f134e89] [cursor=pointer]:
+            - /url: /support/membership-fee-waiver/
+          - text: .
+        - paragraph [ref=f134e90]:
+          - link "Find out what’s included" [ref=f134e91] [cursor=pointer]:
+            - /url: /programs/whats-included/
+          - text: "|"
+          - link "Learn about enrollment" [ref=f134e92] [cursor=pointer]:
+            - /url: /programs/enroll/
+        - heading "Benefits and resources" [level=2] [ref=f134e93]
+        - table [ref=f134e94]:
+          - rowgroup [ref=f134e95]:
+            - row [ref=f134e96]:
+              - columnheader [ref=f134e97]
+              - columnheader "Apple Account" [ref=f134e98]
+              - columnheader "Apple Developer Program" [ref=f134e99]
+          - rowgroup [ref=f134e100]:
+            - row [ref=f134e101]:
+              - cell "Xcode developer tools" [ref=f134e102]
+              - cell "●" [ref=f134e103]
+              - cell "●" [ref=f134e104]
+            - row [ref=f134e105]:
+              - cell "Xcode beta releases" [ref=f134e106]
+              - cell "●" [ref=f134e107]
+              - cell "●" [ref=f134e108]
+            - row [ref=f134e109]:
+              - cell "On-device testing" [ref=f134e110]
+              - cell "●" [ref=f134e111]
+              - cell "●" [ref=f134e112]
+            - row [ref=f134e113]:
+              - cell "Apple Developer Forums" [ref=f134e114]
+              - cell "●" [ref=f134e115]
+              - cell "●" [ref=f134e116]
+            - row [ref=f134e117]:
+              - cell "Bug reporting with Feedback Assistant" [ref=f134e118]
+              - cell "●" [ref=f134e119]
+              - cell "●" [ref=f134e120]
+            - row [ref=f134e121]:
+              - cell "OS beta releases" [ref=f134e122]
+              - cell "●" [ref=f134e123]
+              - cell "●" [ref=f134e124]
+            - row [ref=f134e125]:
+              - cell "Full access to a comprehensive set of development tools" [ref=f134e126]
+              - cell [ref=f134e127]
+              - cell "●" [ref=f134e128]
+            - row [ref=f134e129]:
+              - cell "Advanced app capabilities and services" [ref=f134e130]
+              - cell [ref=f134e131]
+              - cell "●" [ref=f134e132]
+            - row [ref=f134e133]:
+              - cell "Code-level support" [ref=f134e134]
+              - cell [ref=f134e135]
+              - cell "●" [ref=f134e136]
+            - row [ref=f134e137]:
+              - cell "App distribution" [ref=f134e138]
+              - cell [ref=f134e139]
+              - cell "●" [ref=f134e140]
+            - row [ref=f134e141]:
+              - cell "App management, testing, and analytics with App Store Connect" [ref=f134e142]
+              - cell [ref=f134e143]
+              - cell "●" [ref=f134e144]
+            - row [ref=f134e145]:
+              - cell "Safari Extensions distribution" [ref=f134e146]
+              - cell [ref=f134e147]
+              - cell "●" [ref=f134e148]
+            - row [ref=f134e149]:
+              - cell "Notarization & Developer ID for Mac apps" [ref=f134e150]
+              - cell [ref=f134e151]
+              - cell "●" [ref=f134e152]
+            - row [ref=f134e153]:
+              - cell "Custom app distribution with Apple Business and Apple School Manager" [ref=f134e154]
+              - cell [ref=f134e155]
+              - cell "●" [ref=f134e156]
+            - row [ref=f134e157]:
+              - cell "Proprietary app distribution to your employees with Apple Business" [ref=f134e158]
+              - cell [ref=f134e159]
+              - cell "●" [ref=f134e160]
+            - row [ref=f134e161]:
+              - cell "Ad hoc distribution for testing and internal use" [ref=f134e162]
+              - cell [ref=f134e163]
+              - cell "●" [ref=f134e164]
+            - row [ref=f134e165]:
+              - cell "Access to members-only developer events or additional event content" [ref=f134e166]
+              - cell [ref=f134e167]
+              - cell "●" [ref=f134e168]
+            - row [ref=f134e169]:
+              - cell "Cost" [ref=f134e170]
+              - cell "Free" [ref=f134e171]
+              - cell "99 USD**" [ref=f134e172]
+        - list [ref=f134e173]:
+          - listitem [ref=f134e174]:
+            - paragraph [ref=f134e175]:
+              - strong [ref=f134e176]: Xcode Personal Team.
+              - text: "If you’re signing in to Xcode with an Apple Account that’s not affiliated with the Apple Developer Program, you’ll be able to perform on-device testing for personal use (Xcode refers to this as a Personal Team). However, there are some limitations to this type of development workflow that require you to re-provision the app to your device periodically, such as:"
+            - list [ref=f134e177]:
+              - listitem [ref=f134e178]: The number of App IDs that can be registered your account at one time is limited to 10 and each expires after 7 days.
+              - listitem [ref=f134e179]: The number of test devices that can be registered to your account for each platform is limited to 3 and each expires after 7 days.
+              - listitem [ref=f134e180]: Provisioning profiles will expire 7 days from issuance, which may require you to rebuild and re-install your app to your device after expiration.
+        - heading "Other programs" [level=2] [ref=f134e181]
+        - heading "App Store Small Business Program" [level=3] [ref=f134e182]
+        - paragraph [ref=f134e183]: This program features a reduced commission rate of 15% on paid apps and in-app purchases, helping you to invest more resources into your business so you can continue building great apps.
+        - paragraph [ref=f134e184]:
+          - link "Learn about the program " [ref=f134e185] [cursor=pointer]:
+            - /url: /app-store/small-business-program/
+        - heading "Apple Developer Enterprise Program" [level=3] [ref=f134e186]
+        - paragraph [ref=f134e187]: Organizations with specific use cases that require private distribution directly to employees through a secure internal system or a Mobile Device Management solution may be eligible for this program.
+        - paragraph [ref=f134e188]:
+          - link "Learn about eligibility requirements " [ref=f134e189] [cursor=pointer]:
+            - /url: /programs/enterprise/
+        - heading "Apple Video Partner Program" [level=3] [ref=f134e190]
+        - paragraph [ref=f134e191]: This program is designed for apps that deliver premium subscription video entertainment services on the Apple TV app. Participating apps are required to integrate with a number of Apple technologies, such as Universal Search, Siri, AirPlay, and single sign-on or zero sign-on, to ensure a seamless experience for users.
+        - paragraph [ref=f134e192]:
+          - link "Learn about the program " [ref=f134e193] [cursor=pointer]:
+            - /url: /programs/video-partner/
+        - heading "MFi Program" [level=3] [ref=f134e194]
+        - paragraph [ref=f134e195]: If you plan to develop or manufacture accessories that use MFi technologies, such as the Find My network or HomeKit, the MFi Program provides the licenses and resources you need.
+        - paragraph [ref=f134e196]:
+          - link "Learn about licensing MFi technologies " [ref=f134e197] [cursor=pointer]:
+            - /url: /programs/mfi/
+        - heading "News Partner Program" [level=3] [ref=f134e198]
+        - paragraph [ref=f134e199]: This program is designed for subscription news publications that provide their content to Apple News in Apple News Format. Publishers that work with Apple News may qualify for a commission rate of 15% on qualifying in-app purchase subscriptions from day one.
+        - paragraph [ref=f134e200]:
+          - link "Learn about the program " [ref=f134e201] [cursor=pointer]:
+            - /url: /programs/news-partner/
+        - heading "Security Research Device Program" [level=3] [ref=f134e202]
+        - paragraph [ref=f134e203]: Help improve the security of iOS devices by testing for vulnerabilities on a special Security Research Device.
+        - paragraph [ref=f134e204]:
+          - link "Learn about applying for a Security Research Device " [ref=f134e205] [cursor=pointer]:
+            - /url: /programs/security-research-device/
+  - complementary [ref=f134e206]:
+    - generic [ref=f134e208]:
+      - link [ref=f134e210] [cursor=pointer]:
+        - /url: /bug-reporting/
+        - paragraph [ref=f134e219]:
+          - generic [ref=f134e220]: Submit yourfeedback
+      - link [ref=f134e222] [cursor=pointer]:
+        - /url: /forums/
+        - paragraph [ref=f134e231]:
+          - generic [ref=f134e232]: Ask questions on the forums
+      - link [ref=f134e234] [cursor=pointer]:
+        - /url: /contact/
+        - paragraph [ref=f134e241]: Contact Apple Developer Support
+  - contentinfo [ref=f134e242]:
+    - generic [ref=f134e243]:
+      - heading "Developer Footer" [level=2] [ref=f134e244]
+      - list [ref=f134e246]:
+        - listitem [ref=f134e247]:
+          - text: "* You can use Apple Business and Apple School Manager where available."
+          - link "View supported regions" [ref=f134e248] [cursor=pointer]:
+            - /url: https://support.apple.com/en-us/HT207305
+          - text: .
+        - listitem [ref=f134e249]:
+          - text: "** The Apple Developer Program is 99 USD per membership year or in local currency where available. Your nonprofit, educational institution, or government entity may be eligible for a"
+          - link "fee waiver" [ref=f134e250] [cursor=pointer]:
+            - /url: https://developer.apple.com/support/membership-fee-waiver/
+          - text: .
+      - navigation "Breadcrumbs" [ref=f134e252]:
+        - link "Apple" [ref=f134e253] [cursor=pointer]:
+          - /url: https://www.apple.com/
+          - generic [ref=f134e254]: 
+        - generic [ref=f134e256]:
+          - list:
+            - listitem [ref=f134e257]:
+              - link "Developer" [ref=f134e258] [cursor=pointer]:
+                - /url: /
+            - listitem [ref=f134e259]:
+              - link "Support" [ref=f134e260] [cursor=pointer]:
+                - /url: /support/
+            - listitem [ref=f134e261]: Choosing a Membership
+      - navigation "Apple Developer Directory" [ref=f134e262]:
+        - generic [ref=f134e263]:
+          - generic:
+            - generic:
+              - heading "Platforms" [level=3]
+            - list:
+              - listitem [ref=f134e264]:
+                - link "iOS" [ref=f134e265] [cursor=pointer]:
+                  - /url: /ios/
+              - listitem [ref=f134e266]:
+                - link "iPadOS" [ref=f134e267] [cursor=pointer]:
+                  - /url: /ipados/
+              - listitem [ref=f134e268]:
+                - link "macOS" [ref=f134e269] [cursor=pointer]:
+                  - /url: /macos/
+              - listitem [ref=f134e270]:
+                - link "tvOS" [ref=f134e271] [cursor=pointer]:
+                  - /url: /tvos/
+              - listitem [ref=f134e272]:
+                - link "visionOS" [ref=f134e273] [cursor=pointer]:
+                  - /url: /visionos/
+              - listitem [ref=f134e274]:
+                - link "watchOS" [ref=f134e275] [cursor=pointer]:
+                  - /url: /watchos/
+              - listitem [ref=f134e276]:
+                - link "App Store" [ref=f134e277] [cursor=pointer]:
+                  - /url: /app-store/
+          - generic:
+            - generic:
+              - heading "Tools" [level=3]
+            - list:
+              - listitem [ref=f134e278]:
+                - link "Swift" [ref=f134e279] [cursor=pointer]:
+                  - /url: /swift/
+              - listitem [ref=f134e280]:
+                - link "SwiftUI" [ref=f134e281] [cursor=pointer]:
+                  - /url: /swiftui/
+              - listitem [ref=f134e282]:
+                - link "Swift Playground" [ref=f134e283] [cursor=pointer]:
+                  - /url: /swift-playground/
+              - listitem [ref=f134e284]:
+                - link "TestFlight" [ref=f134e285] [cursor=pointer]:
+                  - /url: /testflight/
+              - listitem [ref=f134e286]:
+                - link "Xcode" [ref=f134e287] [cursor=pointer]:
+                  - /url: /xcode/
+              - listitem [ref=f134e288]:
+                - link "Xcode Cloud" [ref=f134e289] [cursor=pointer]:
+                  - /url: /xcode-cloud/
+              - listitem [ref=f134e290]:
+                - link "Icon Composer" [ref=f134e291] [cursor=pointer]:
+                  - /url: /icon-composer/
+              - listitem [ref=f134e292]:
+                - link "SF Symbols" [ref=f134e293] [cursor=pointer]:
+                  - /url: /sf-symbols/
+        - generic [ref=f134e294]:
+          - generic:
+            - generic:
+              - heading "Technologies" [level=3]
+            - list:
+              - listitem [ref=f134e295]:
+                - link "Accessibility" [ref=f134e296] [cursor=pointer]:
+                  - /url: /documentation/accessibility/
+              - listitem [ref=f134e297]:
+                - link "Accessories" [ref=f134e298] [cursor=pointer]:
+                  - /url: /accessories/
+              - listitem [ref=f134e299]:
+                - link "AI & Machine Learning" [ref=f134e300] [cursor=pointer]:
+                  - /url: /machine-learning/
+              - listitem [ref=f134e301]:
+                - link "Apple Intelligence" [ref=f134e302] [cursor=pointer]:
+                  - /url: /apple-intelligence/
+              - listitem [ref=f134e303]:
+                - link "Audio & Video" [ref=f134e304] [cursor=pointer]:
+                  - /url: /audio/
+              - listitem [ref=f134e305]:
+                - link "Augmented Reality" [ref=f134e306] [cursor=pointer]:
+                  - /url: /augmented-reality/
+              - listitem [ref=f134e307]:
+                - link "Business" [ref=f134e308] [cursor=pointer]:
+                  - /url: /business/
+              - listitem [ref=f134e309]:
+                - link "Design" [ref=f134e310] [cursor=pointer]:
+                  - /url: /design/
+              - listitem [ref=f134e311]:
+                - link "Distribution" [ref=f134e312] [cursor=pointer]:
+                  - /url: /distribute/
+              - listitem [ref=f134e313]:
+                - link "Education" [ref=f134e314] [cursor=pointer]:
+                  - /url: /education/
+              - listitem [ref=f134e315]:
+                - link "Games" [ref=f134e316] [cursor=pointer]:
+                  - /url: /games/
+              - listitem [ref=f134e317]:
+                - link "Health & Fitness" [ref=f134e318] [cursor=pointer]:
+                  - /url: /health-fitness/
+              - listitem [ref=f134e319]:
+                - link "In-App Purchase" [ref=f134e320] [cursor=pointer]:
+                  - /url: /in-app-purchase/
+              - listitem [ref=f134e321]:
+                - link "Localization" [ref=f134e322] [cursor=pointer]:
+                  - /url: /localization/
+              - listitem [ref=f134e323]:
+                - link "Maps & Location" [ref=f134e324] [cursor=pointer]:
+                  - /url: /maps/
+              - listitem [ref=f134e325]:
+                - link "Security" [ref=f134e326] [cursor=pointer]:
+                  - /url: /security/
+              - listitem [ref=f134e327]:
+                - link "Safari & Web" [ref=f134e328] [cursor=pointer]:
+                  - /url: /safari/
+        - generic [ref=f134e329]:
+          - generic:
+            - generic:
+              - heading "Resources" [level=3]
+            - list:
+              - listitem [ref=f134e330]:
+                - link "Documentation" [ref=f134e331] [cursor=pointer]:
+                  - /url: /documentation/
+              - listitem [ref=f134e332]:
+                - link "Downloads" [ref=f134e333] [cursor=pointer]:
+                  - /url: /download/
+              - listitem [ref=f134e334]:
+                - link "Sample Code" [ref=f134e335] [cursor=pointer]:
+                  - /url: /documentation/samplecode
+              - listitem [ref=f134e336]:
+                - link "Videos" [ref=f134e337] [cursor=pointer]:
+                  - /url: /videos/
+              - listitem [ref=f134e338]:
+                - link "Documentation Archive" [ref=f134e339] [cursor=pointer]:
+                  - /url: /library/archive/navigation/
+          - generic:
+            - generic:
+              - heading "Support" [level=3]
+            - list:
+              - listitem [ref=f134e340]:
+                - link "Help Guides & Articles" [ref=f134e341] [cursor=pointer]:
+                  - /url: /help/
+              - listitem [ref=f134e342]:
+                - link "Contact Us" [ref=f134e343] [cursor=pointer]:
+                  - /url: /contact/
+              - listitem [ref=f134e344]:
+                - link "Forums" [ref=f134e345] [cursor=pointer]:
+                  - /url: /forums/
+              - listitem [ref=f134e346]:
+                - link "Feedback & Bug Reporting" [ref=f134e347] [cursor=pointer]:
+                  - /url: /bug-reporting/
+              - listitem [ref=f134e348]:
+                - link "System Status" [ref=f134e349] [cursor=pointer]:
+                  - /url: /system-status/
+          - generic:
+            - generic:
+              - heading "Account" [level=3]
+            - list:
+              - listitem [ref=f134e350]:
+                - link "Apple Developer" [ref=f134e351] [cursor=pointer]:
+                  - /url: /account/
+              - listitem [ref=f134e352]:
+                - link "App Store Connect" [ref=f134e353] [cursor=pointer]:
+                  - /url: https://appstoreconnect.apple.com/
+              - listitem [ref=f134e354]:
+                - link "Certificates, IDs, & Profiles" [ref=f134e355] [cursor=pointer]:
+                  - /url: /account/ios/certificate/
+              - listitem [ref=f134e356]:
+                - link "Feedback Assistant" [ref=f134e357] [cursor=pointer]:
+                  - /url: https://feedbackassistant.apple.com/
+        - generic [ref=f134e358]:
+          - generic:
+            - generic:
+              - heading "Programs" [level=3]
+            - list:
+              - listitem [ref=f134e359]:
+                - link "Apple Developer Program" [ref=f134e360] [cursor=pointer]:
+                  - /url: /programs/
+              - listitem [ref=f134e361]:
+                - link "Apple Developer Enterprise Program" [ref=f134e362] [cursor=pointer]:
+                  - /url: /programs/enterprise/
+              - listitem [ref=f134e363]:
+                - link "App Store Small Business Program" [ref=f134e364] [cursor=pointer]:
+                  - /url: /app-store/small-business-program/
+              - listitem [ref=f134e365]:
+                - link "MFi Program" [ref=f134e366] [cursor=pointer]:
+                  - /url: https://mfi.apple.com/
+              - listitem [ref=f134e367]:
+                - link "Mini Apps Partner Program" [ref=f134e368] [cursor=pointer]:
+                  - /url: /programs/mini-apps-partner/
+              - listitem [ref=f134e369]:
+                - link "News Partner Program" [ref=f134e370] [cursor=pointer]:
+                  - /url: /programs/news-partner/
+              - listitem [ref=f134e371]:
+                - link "Video Partner Program" [ref=f134e372] [cursor=pointer]:
+                  - /url: /programs/video-partner/
+              - listitem [ref=f134e373]:
+                - link "Security Bounty Program" [ref=f134e374] [cursor=pointer]:
+                  - /url: /security-bounty/
+              - listitem [ref=f134e375]:
+                - link "Security Research Device Program" [ref=f134e376] [cursor=pointer]:
+                  - /url: /programs/security-research-device/
+          - generic:
+            - generic:
+              - heading "Events" [level=3]
+            - list:
+              - listitem [ref=f134e377]:
+                - link "Meet with Apple" [ref=f134e378] [cursor=pointer]:
+                  - /url: /events/
+              - listitem [ref=f134e379]:
+                - link "Apple Developer Centers" [ref=f134e380] [cursor=pointer]:
+                  - /url: /events/developer-centers/
+              - listitem [ref=f134e381]:
+                - link "App Store Awards" [ref=f134e382] [cursor=pointer]:
+                  - /url: /app-store/app-store-awards/
+              - listitem [ref=f134e383]:
+                - link "Apple Design Awards" [ref=f134e384] [cursor=pointer]:
+                  - /url: /design/awards/
+              - listitem [ref=f134e385]:
+                - link "Apple Developer Academies" [ref=f134e386] [cursor=pointer]:
+                  - /url: /academies/
+              - listitem [ref=f134e387]:
+                - link "WWDC" [ref=f134e388] [cursor=pointer]:
+                  - /url: /wwdc/
+      - generic [ref=f134e389]:
+        - generic [ref=f134e390]:
+          - generic [ref=f134e391]:
+            - generic [ref=f134e392]:
+              - text: Read the
+              - link "latest news" [ref=f134e393] [cursor=pointer]:
+                - /url: /news/
+              - text: .
+            - generic [ref=f134e394]:
+              - text: Get the
+              - link "Apple Developer app" [ref=f134e395] [cursor=pointer]:
+                - /url: https://apps.apple.com/us/app/apple-developer/id640199958
+              - text: .
+            - text: Follow us on
+            - link "bilibili" [ref=f134e396] [cursor=pointer]:
+              - /url: https://space.bilibili.com/429911174
+            - text: ","
+            - link "LinkedIn" [ref=f134e397] [cursor=pointer]:
+              - /url: https://www.linkedin.com/showcase/appledeveloper/
+            - text: ","
+            - link "WeChat" [ref=f134e398] [cursor=pointer]:
+              - /url: https://mp.weixin.qq.com/s/slhQ1RBYUpJ71gwEUlwSTg
+            - text: ", and"
+            - link "YouTube" [ref=f134e399] [cursor=pointer]:
+              - /url: https://www.youtube.com/@AppleDeveloper
+            - text: .
+          - radiogroup "Select a color scheme preference" [ref=f134e401]:
+            - generic [ref=f134e402]:
+              - radio "Light" [ref=f134e403]
+              - generic [ref=f134e404]: Light
+            - generic [ref=f134e405]:
+              - radio "Dark" [ref=f134e406]
+              - generic [ref=f134e407]: Dark
+            - generic [ref=f134e408]:
+              - radio "Auto" [checked] [ref=f134e409]
+              - generic [ref=f134e410]: Auto
+        - generic [ref=f134e411]:
+          - combobox "Language Dropdown" [ref=f134e412] [cursor=pointer]:
+            - option "English" [selected]
+            - option "简体中文"
+            - option "日本語"
+            - option "한국어"
+            - option "Deutsch"
+            - option "Français"
+            - option "Italiano"
+            - option "Português (Brasil)"
+          - generic: 
+        - generic [ref=f134e413]:
+          - generic [ref=f134e414]:
+            - text: Copyright © 2026
+            - link "Apple Inc." [ref=f134e415] [cursor=pointer]:
+              - /url: https://www.apple.com
+            - text: All rights reserved.
+          - generic [ref=f134e416]:
+            - link "Terms of Use" [ref=f134e417] [cursor=pointer]:
+              - /url: https://www.apple.com/legal/internet-services/terms/site.html
+            - link "Privacy Policy" [ref=f134e418] [cursor=pointer]:
+              - /url: https://www.apple.com/legal/privacy/
+            - link "Agreements and Guidelines" [ref=f134e419] [cursor=pointer]:
+              - /url: /support/terms/

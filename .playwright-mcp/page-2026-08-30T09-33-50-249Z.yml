@@ -1,0 +1,194 @@
+- generic [ref=f4e2]:
+  - generic [ref=f4e3]:
+    - link "DuckDuckGo" [ref=f4e4] [cursor=pointer]:
+      - /url: /html/
+    - generic [ref=f4e5]:
+      - generic [ref=f4e6]:
+        - textbox [ref=f4e7]: test
+        - button "Submit" [ref=f4e8] [cursor=pointer]
+      - combobox [ref=f4e10] [cursor=pointer]:
+        - option "All Regions" [selected]
+        - option "Argentina"
+        - option "Australia"
+        - option "Austria"
+        - option "Belgium (fr)"
+        - option "Belgium (nl)"
+        - option "Brazil"
+        - option "Bulgaria"
+        - option "Canada (en)"
+        - option "Canada (fr)"
+        - option "Catalonia"
+        - option "Chile"
+        - option "China"
+        - option "Colombia"
+        - option "Croatia"
+        - option "Czech Republic"
+        - option "Denmark"
+        - option "Estonia"
+        - option "Finland"
+        - option "France"
+        - option "Germany"
+        - option "Greece"
+        - option "Hong Kong"
+        - option "Hungary"
+        - option "Iceland"
+        - option "India (en)"
+        - option "Indonesia (en)"
+        - option "Ireland"
+        - option "Israel (en)"
+        - option "Italy"
+        - option "Japan"
+        - option "Korea"
+        - option "Latvia"
+        - option "Lithuania"
+        - option "Malaysia (en)"
+        - option "Mexico"
+        - option "Netherlands"
+        - option "New Zealand"
+        - option "Norway"
+        - option "Pakistan (en)"
+        - option "Peru"
+        - option "Philippines (en)"
+        - option "Poland"
+        - option "Portugal"
+        - option "Romania"
+        - option "Russia"
+        - option "Saudi Arabia"
+        - option "Singapore"
+        - option "Slovakia"
+        - option "Slovenia"
+        - option "South Africa"
+        - option "Spain (ca)"
+        - option "Spain (es)"
+        - option "Sweden"
+        - option "Switzerland (de)"
+        - option "Switzerland (fr)"
+        - option "Taiwan"
+        - option "Thailand (en)"
+        - option "Turkey"
+        - option "US (English)"
+        - option "US (Spanish)"
+        - option "Ukraine"
+        - option "United Kingdom"
+        - option "Vietnam (en)"
+      - combobox [ref=f4e12] [cursor=pointer]:
+        - option "Any Time" [selected]
+        - option "Past Day"
+        - option "Past Week"
+        - option "Past Month"
+        - option "Past Year"
+  - generic [ref=f4e15]:
+    - generic [ref=f4e17]:
+      - heading [level=2] [ref=f4e18]:
+        - link "Speedtest by Ookla - The Global Broadband Speed Test" [ref=f4e19] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.speedtest.net%2F&rut=89ab5e7285fee020e6d5a1ed510b71d21a863c92fa5364fbe2f7e01ed95390d4
+      - generic [ref=f4e21]:
+        - link [ref=f4e23] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.speedtest.net%2F&rut=89ab5e7285fee020e6d5a1ed510b71d21a863c92fa5364fbe2f7e01ed95390d4
+        - link "www.speedtest.net" [ref=f4e24] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.speedtest.net%2F&rut=89ab5e7285fee020e6d5a1ed510b71d21a863c92fa5364fbe2f7e01ed95390d4
+      - link "Test your internet speed on any device with Speedtest by Ookla, available for free on desktop and mobile apps." [ref=f4e25] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.speedtest.net%2F&rut=89ab5e7285fee020e6d5a1ed510b71d21a863c92fa5364fbe2f7e01ed95390d4
+    - generic [ref=f4e27]:
+      - heading [level=2] [ref=f4e28]:
+        - link "Internet Speed Test | Fast.com" [ref=f4e29] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Ffast.com%2F&rut=796f7a6b28e22b0d08273f822207e64163c95b57945cd2b1c9faf4660ca16620
+      - generic [ref=f4e31]:
+        - link [ref=f4e33] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Ffast.com%2F&rut=796f7a6b28e22b0d08273f822207e64163c95b57945cd2b1c9faf4660ca16620
+        - link "fast.com" [ref=f4e34] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Ffast.com%2F&rut=796f7a6b28e22b0d08273f822207e64163c95b57945cd2b1c9faf4660ca16620
+      - link "How fast is your download speed? In seconds, FAST.com's simple Internet speed test will estimate your ISP speed." [ref=f4e35] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Ffast.com%2F&rut=796f7a6b28e22b0d08273f822207e64163c95b57945cd2b1c9faf4660ca16620
+    - generic [ref=f4e37]:
+      - heading [level=2] [ref=f4e38]:
+        - link "Speedtest by Ookla - The Global Broadband Speed Test" [ref=f4e39] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.speedtest.net%2Frun&rut=31eb15d0d83953e9ed130a3a3684ae9e6542340e44add5f659f28237c3d84d86
+      - generic [ref=f4e41]:
+        - link [ref=f4e43] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.speedtest.net%2Frun&rut=31eb15d0d83953e9ed130a3a3684ae9e6542340e44add5f659f28237c3d84d86
+        - link "www.speedtest.net/run" [ref=f4e44] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.speedtest.net%2Frun&rut=31eb15d0d83953e9ed130a3a3684ae9e6542340e44add5f659f28237c3d84d86
+      - link "Test your internet speed and performance with Speedtest by Ookla, available on desktop and mobile devices for free." [ref=f4e45] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.speedtest.net%2Frun&rut=31eb15d0d83953e9ed130a3a3684ae9e6542340e44add5f659f28237c3d84d86
+    - generic [ref=f4e47]:
+      - heading [level=2] [ref=f4e48]:
+        - link "Internet Speed Test - Check Wi-Fi Speed | TestMySpeed.com" [ref=f4e49] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.testmyspeed.com%2F&rut=39cb725ad9655ccf6992ab079d9dab4f3d009c20502b5e83972242dda825e762
+      - generic [ref=f4e51]:
+        - link [ref=f4e53] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.testmyspeed.com%2F&rut=39cb725ad9655ccf6992ab079d9dab4f3d009c20502b5e83972242dda825e762
+        - link "www.testmyspeed.com" [ref=f4e54] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.testmyspeed.com%2F&rut=39cb725ad9655ccf6992ab079d9dab4f3d009c20502b5e83972242dda825e762
+      - link "Test your internet speed instantly with TestMySpeed, the leading broadband speed test. Get real-time results for download, upload, and ping." [ref=f4e55] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.testmyspeed.com%2F&rut=39cb725ad9655ccf6992ab079d9dab4f3d009c20502b5e83972242dda825e762
+    - generic [ref=f4e57]:
+      - heading [level=2] [ref=f4e58]:
+        - link "Internet Speed Test | Check Download & Upload Speeds" [ref=f4e59] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.highspeedinternet.com%2Ftools%2Fspeed%2Dtest&rut=f912128421a091eab32f12486171563df91f5e64d2bc4395f544750ac7a68a2e
+      - generic [ref=f4e61]:
+        - link [ref=f4e63] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.highspeedinternet.com%2Ftools%2Fspeed%2Dtest&rut=f912128421a091eab32f12486171563df91f5e64d2bc4395f544750ac7a68a2e
+        - link "www.highspeedinternet.com/tools/speed-test" [ref=f4e64] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.highspeedinternet.com%2Ftools%2Fspeed%2Dtest&rut=f912128421a091eab32f12486171563df91f5e64d2bc4395f544750ac7a68a2e
+      - link "Test your internet speed and compare it to others with this free tool. Find out how much speed you need, what is the fastest type of internet, and how to improve your internet speed." [ref=f4e65] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.highspeedinternet.com%2Ftools%2Fspeed%2Dtest&rut=f912128421a091eab32f12486171563df91f5e64d2bc4395f544750ac7a68a2e
+    - generic [ref=f4e67]:
+      - heading [level=2] [ref=f4e68]:
+        - link "Internet Speed Test - AT&T Official Site" [ref=f4e69] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.att.com%2Fsupport%2Fspeedtest%2F&rut=4e231eebce2cf370001d5fe20ff8f12b1ce52f08db0be584acbab4809c4322a9
+      - generic [ref=f4e71]:
+        - link [ref=f4e73] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.att.com%2Fsupport%2Fspeedtest%2F&rut=4e231eebce2cf370001d5fe20ff8f12b1ce52f08db0be584acbab4809c4322a9
+        - link "www.att.com/support/speedtest/" [ref=f4e74] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.att.com%2Fsupport%2Fspeedtest%2F&rut=4e231eebce2cf370001d5fe20ff8f12b1ce52f08db0be584acbab4809c4322a9
+      - link "Check your internet speed, quality and performance with the AT&T Internet speed test tool." [ref=f4e75] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.att.com%2Fsupport%2Fspeedtest%2F&rut=4e231eebce2cf370001d5fe20ff8f12b1ce52f08db0be584acbab4809c4322a9
+    - generic [ref=f4e77]:
+      - heading [level=2] [ref=f4e78]:
+        - link "TEST | definition in the Cambridge English Dictionary" [ref=f4e79] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fdictionary.cambridge.org%2Fus%2Fdictionary%2Fenglish%2Ftest&rut=9314481970a0383474131d0978df2ce253b48ea2cee0b5cd1e44c75d89cd2678
+      - generic [ref=f4e81]:
+        - link [ref=f4e83] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fdictionary.cambridge.org%2Fus%2Fdictionary%2Fenglish%2Ftest&rut=9314481970a0383474131d0978df2ce253b48ea2cee0b5cd1e44c75d89cd2678
+        - link "dictionary.cambridge.org/us/dictionary/english/test" [ref=f4e84] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fdictionary.cambridge.org%2Fus%2Fdictionary%2Fenglish%2Ftest&rut=9314481970a0383474131d0978df2ce253b48ea2cee0b5cd1e44c75d89cd2678
+      - 'link "TEST meaning: 1. a way of discovering, by questions or practical activities, what someone knows, or what someone…. Learn more." [ref=f4e85] [cursor=pointer]':
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fdictionary.cambridge.org%2Fus%2Fdictionary%2Fenglish%2Ftest&rut=9314481970a0383474131d0978df2ce253b48ea2cee0b5cd1e44c75d89cd2678
+    - generic [ref=f4e87]:
+      - heading [level=2] [ref=f4e88]:
+        - link "Internet Speed Test - Measure Network Performance | Cloudflare" [ref=f4e89] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fspeed.cloudflare.com%2F&rut=2b4a05efbc7ebcab71ab9e8914b1deda9b253348ed3e090075e53dae09225fd7
+      - generic [ref=f4e91]:
+        - link [ref=f4e93] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fspeed.cloudflare.com%2F&rut=2b4a05efbc7ebcab71ab9e8914b1deda9b253348ed3e090075e53dae09225fd7
+        - link "speed.cloudflare.com" [ref=f4e94] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fspeed.cloudflare.com%2F&rut=2b4a05efbc7ebcab71ab9e8914b1deda9b253348ed3e090075e53dae09225fd7
+      - link "Test your Internet connection and network performance with Cloudflare's global edge network. See your download, upload, latency, jitter, packet loss and network quality score." [ref=f4e95] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fspeed.cloudflare.com%2F&rut=2b4a05efbc7ebcab71ab9e8914b1deda9b253348ed3e090075e53dae09225fd7
+    - generic [ref=f4e97]:
+      - heading [level=2] [ref=f4e98]:
+        - link "Internet Speed Test" [ref=f4e99] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Ftestmy.net%2F&rut=729107fba4ccb67473eb5eb59ef1edd85e8e4c328236d780034361cd9626e275
+      - generic [ref=f4e101]:
+        - link [ref=f4e103] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Ftestmy.net%2F&rut=729107fba4ccb67473eb5eb59ef1edd85e8e4c328236d780034361cd9626e275
+        - link "testmy.net" [ref=f4e104] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Ftestmy.net%2F&rut=729107fba4ccb67473eb5eb59ef1edd85e8e4c328236d780034361cd9626e275
+      - link "Accurately test your Internet connection speed with this powerful broadband speed test. Improve your bandwidth speed with the truth." [ref=f4e105] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Ftestmy.net%2F&rut=729107fba4ccb67473eb5eb59ef1edd85e8e4c328236d780034361cd9626e275
+    - generic [ref=f4e107]:
+      - heading [level=2] [ref=f4e108]:
+        - link "TEST Definition & Meaning - Merriam-Webster" [ref=f4e109] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.merriam%2Dwebster.com%2Fdictionary%2Ftest&rut=44c6b48badb1d8ad029444e2caea3f65141c69af1cc0fba6cfe0e8356809439d
+      - generic [ref=f4e111]:
+        - link [ref=f4e113] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.merriam%2Dwebster.com%2Fdictionary%2Ftest&rut=44c6b48badb1d8ad029444e2caea3f65141c69af1cc0fba6cfe0e8356809439d
+        - link "www.merriam-webster.com/dictionary/test" [ref=f4e114] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.merriam%2Dwebster.com%2Fdictionary%2Ftest&rut=44c6b48badb1d8ad029444e2caea3f65141c69af1cc0fba6cfe0e8356809439d
+        - text: 2026-08-29T00:00:00.0000000
+      - link "The meaning of TEST is a means of testing. How to use test in a sentence." [ref=f4e115] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.merriam%2Dwebster.com%2Fdictionary%2Ftest&rut=44c6b48badb1d8ad029444e2caea3f65141c69af1cc0fba6cfe0e8356809439d
+    - button "Next" [ref=f4e118] [cursor=pointer]
+    - link "Feedback" [ref=f4e120] [cursor=pointer]:
+      - /url: //duckduckgo.com/feedback.html

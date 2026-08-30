@@ -1,0 +1,330 @@
+- generic [active] [ref=f13e1]:
+  - generic [ref=f13e2]:
+    - link "Skip to content" [ref=f13e3] [cursor=pointer]:
+      - /url: "#content"
+    - banner [ref=f13e4]:
+      - generic [ref=f13e7]:
+        - link [ref=f13e8] [cursor=pointer]:
+          - /url: https://featips.com/
+          - img "FEA Tips" [ref=f13e9]
+        - generic:
+          - paragraph [ref=f13e10]:
+            - link "FEA Tips" [ref=f13e11] [cursor=pointer]:
+              - /url: https://featips.com/
+          - paragraph [ref=f13e12]: Tips and tricks for FEA with Ansys
+      - navigation "Primary Menu" [ref=f13e15]:
+        - list [ref=f13e17]:
+          - listitem [ref=f13e18]:
+            - link "Home" [ref=f13e19] [cursor=pointer]:
+              - /url: https://featips.com/
+          - listitem [ref=f13e20]:
+            - link "YouTube Channel" [ref=f13e21] [cursor=pointer]:
+              - /url: https://www.youtube.com/@FEATIPS
+          - listitem [ref=f13e22]:
+            - link "Tips and Tricks" [ref=f13e23] [cursor=pointer]:
+              - /url: https://featips.com/category/tips-and-tricks/
+          - listitem [ref=f13e24]:
+            - link "Contact Theory" [ref=f13e25] [cursor=pointer]:
+              - /url: https://featips.com/category/contact/
+          - listitem [ref=f13e26]:
+            - link "Dynamic Analysis" [ref=f13e27] [cursor=pointer]:
+              - /url: https://featips.com/category/dynamic-analysis/
+          - listitem [ref=f13e28]:
+            - link "Fatigue and Fracture Mechanics" [ref=f13e29] [cursor=pointer]:
+              - /url: https://featips.com/category/fatigue-and-fracture-mechanics/
+          - listitem [ref=f13e30]:
+            - link "Material Plasticity" [ref=f13e31] [cursor=pointer]:
+              - /url: https://featips.com/category/material-plasticity/
+          - listitem [ref=f13e32]:
+            - link "Meshing" [ref=f13e33] [cursor=pointer]:
+              - /url: https://featips.com/category/meshing/
+          - listitem [ref=f13e34]:
+            - link "Miscellaneous" [ref=f13e35] [cursor=pointer]:
+              - /url: https://featips.com/category/miscellaneous/
+          - listitem [ref=f13e36]:
+            - link "Theory" [ref=f13e37] [cursor=pointer]:
+              - /url: https://featips.com/category/theory/
+          - listitem [ref=f13e38]:
+            - link "Troubleshooting" [ref=f13e39] [cursor=pointer]:
+              - /url: https://featips.com/category/troubleshooting/
+          - listitem [ref=f13e40]:
+            - link "Automation / Scripting" [ref=f13e41] [cursor=pointer]:
+              - /url: https://featips.com/category/automation-scripting/
+          - listitem [ref=f13e42]:
+            - link "The Encyclopedia of Stresses in Solids" [ref=f13e43] [cursor=pointer]:
+              - /url: https://featips.com/the-encyclopedia-of-stresses-in-solids-and-fluids/
+          - listitem [ref=f13e44]:
+            - link "eBook on FEA" [ref=f13e45] [cursor=pointer]:
+              - /url: https://featips.com/ebook-on-fea-all-models-are-wrong/
+          - listitem [ref=f13e46]:
+            - link "Free Analysis Help" [ref=f13e47] [cursor=pointer]:
+              - /url: https://featips.com/analysis-help/
+          - listitem [ref=f13e48]:
+            - link "Newsletter" [ref=f13e49] [cursor=pointer]:
+              - /url: https://featips.com/subscribe-to-fea-tips-newsletter/
+          - listitem [ref=f13e50]:
+            - link "About" [ref=f13e51] [cursor=pointer]:
+              - /url: https://featips.com/about/
+          - listitem [ref=f13e52]:
+            - link "Toggle search form" [ref=f13e53] [cursor=pointer]:
+              - /url: "#"
+    - generic [ref=f13e58]:
+      - main [ref=f13e59]:
+        - article [ref=f13e60]:
+          - img "Structured Mesh" [ref=f13e62]
+          - generic [ref=f13e63]:
+            - heading "ANSYS Mesh Metrics Explained" [level=1] [ref=f13e64]
+            - generic [ref=f13e65]:
+              - link "Posted on November 21, 2022" [ref=f13e69] [cursor=pointer]:
+                - /url: https://featips.com/2022/11/21/ansys-mesh-metrics-explained/
+                - generic [ref=f13e70]: Posted on
+                - time [ref=f13e71]: November 21, 2022
+              - link "By Wassee Syed" [ref=f13e75] [cursor=pointer]:
+                - /url: https://featips.com/author/wassee/
+                - generic [ref=f13e76]: By
+                - text: Wassee Syed
+          - generic [ref=f13e78]:
+            - generic [ref=f13e79]:
+              - generic [ref=f13e80]:
+                - generic [ref=f13e81]: 
+                - generic [ref=f13e82]: 
+                - generic [ref=f13e83]: 
+                - generic [ref=f13e84]: 
+                - generic [ref=f13e85]: 
+              - generic [ref=f13e86]: "4.7"
+              - generic [ref=f13e87]: (26)
+            - heading "Introduction" [level=1] [ref=f13e88]
+            - paragraph [ref=f13e89]: The solution of a finite element simulation is highly dependent on the quality of the mesh. A user should strive to achieve a balance between mesh quality, and time taken for mesh generation and solution. But what is mesh quality and how is it measured? In this article we will explain the various metrics or criteria which ANSYS meshing algorithm utilizes, to determine the quality of a mesh element.
+            - heading "Mesh Metrics" [level=1] [ref=f13e90]
+            - paragraph [ref=f13e91]: When it comes to mesh elements, symmetry and uniformity are of prime importance. Symmetrical elements with uniform sides are considered high quality elements.
+            - paragraph [ref=f13e92]: "The “quality” of a mesh cell can be quantified in several ways. ANSYS performs several geometrical checks on mesh elements in order to determine their quality. These checks, or metrics are:"
+            - list [ref=f13e93]:
+              - listitem [ref=f13e94]: Element Quality
+              - listitem [ref=f13e95]: Aspect Ratio Calculation for Triangles
+              - listitem [ref=f13e96]: Aspect Ratio Calculation for Quadrilaterals
+              - listitem [ref=f13e97]: Jacobian Ratio
+              - listitem [ref=f13e98]: Warping Factor
+              - listitem [ref=f13e99]: Parallel Deviation
+              - listitem [ref=f13e100]: Maximum Corner Angle
+              - listitem [ref=f13e101]: Skewness
+              - listitem [ref=f13e102]: Orthogonal Quality
+            - paragraph [ref=f13e103]:
+              - text: Each of these metrics represent particular geometric aspects of the elements and can be measured by numbers.
+              - link "ANSYS help" [ref=f13e104] [cursor=pointer]:
+                - /url: https://ansyshelp.ansys.com/account/secured?returnurl=/Views/Secured/corp/v222/en/wb_msh/msh_metrics.html
+              - text: provides details on these metrics. Here we will provide a brief summary of each metric (taken from ANSYS documentation [1]) in a way that it can be of benefit to the average FEA analyst, without delving into the mathematical details.
+            - heading "Element Quality" [level=2] [ref=f13e105]
+            - paragraph [ref=f13e106]: The Element Quality is based on the ratio of the volume to the sum of the square of the edge lengths for 2D quad/tri elements, or the square root of the cube of the sum of the square of the edge lengths for 3D elements.
+            - paragraph [ref=f13e107]: The Element Quality is a composite quality metric that ranges between 0 and 1.
+            - paragraph [ref=f13e108]: A value of 1 indicates a perfect cube or square while a value of 0 indicates that the element has a zero or negative volume.
+            - paragraph [ref=f13e109]: "The following are Ansys recommendations for Element Quality:"
+            - figure "Ansys Element Quality Recommendations" [ref=f13e111]:
+              - img "Ansys Element Quality Recommendations" [ref=f13e112]
+            - heading "Aspect Ratio Calculation for Triangles" [level=2] [ref=f13e114]
+            - paragraph [ref=f13e115]: The aspect ratio of a triangle provides a comparison of the “height” and “width” of a triangle.
+            - paragraph [ref=f13e116]: It varies from 1 to infinite. A value of 1.0 indicate an equilateral triangle.
+            - paragraph [ref=f13e117]: The image below shows triangles with aspect ratios of 1 and 20.
+            - figure "Triangles with Aspect Ratios" [ref=f13e119]:
+              - img "Triangles with Aspect Ratios" [ref=f13e120]
+            - heading "Aspect Ratio Calculation for Quadrilaterals" [level=2] [ref=f13e122]
+            - paragraph [ref=f13e123]: The aspect ratio of quadrilaterals provides a comparison of a long side to a short side of the quadrilateral.
+            - paragraph [ref=f13e124]: It varies from 1 to infinite. A value of 1.0 indicates a square.
+            - paragraph [ref=f13e125]: The image below shows quadrilaterals with aspect ratios of 1 and 20.
+            - figure "Quadrilaterals with Aspect Ratios" [ref=f13e127]:
+              - img "Quadrilaterals with Aspect Ratios" [ref=f13e128]
+            - heading "Jacobian Ratio" [level=2] [ref=f13e130]
+            - paragraph [ref=f13e131]: The Jacobian ratio is a measurement of the shape of a given element compared to that of an ideal element. The ideal shape of an element depends on element type. The ideal Jacobian ratio is 1.0 and a good quality mesh has a Jacobian ratio between 1 and 10 for the majority of its elements (90% and above) [2].
+            - heading "Warping Factor" [level=2] [ref=f13e132]
+            - paragraph [ref=f13e133]: Warping factor is computed and tested for some quadrilateral shell elements, and the quadrilateral faces of bricks, wedges, and pyramids.
+            - paragraph [ref=f13e134]: The ideal warping factor is 0. Warping is a measure of twisting and distortion and is best understood by looking at quadrilaterals with varying warping factors.
+            - figure "Quadrilateral Shells with various Warping Factors" [ref=f13e136]:
+              - img "Quadrilateral Shells with various Warping Factors" [ref=f13e137]
+            - figure "Bricks with various Warping Factors" [ref=f13e140]:
+              - img "Bricks with various Warping Factors" [ref=f13e141]
+            - heading "Parallel Deviation" [level=2] [ref=f13e143]
+            - paragraph [ref=f13e144]: Parallel deviation is a measure of how much two parallel sides of a shape deviate. The ideal parallel deviation is 0 for a square.
+            - figure "Parallel Deviations for Quadrilaterals" [ref=f13e146]
+            - heading "Maximum Corner Angle" [level=2] [ref=f13e148]
+            - paragraph [ref=f13e149]: This is the maximum angle between adjacent edges of an element. For a triangle the best maximum angle is 60 degrees. For a quadrilateral it is 90 degrees.
+            - figure "Maximum Corner Angle for Triangles" [ref=f13e151]:
+              - img "Maximum Corner Angle for Triangles" [ref=f13e152]
+            - figure "Maximum Corner Angles for Quadrilaterals" [ref=f13e155]:
+              - img "Maximum Corner Angles for Quadrilaterals" [ref=f13e156]
+            - heading "Skewness" [level=2] [ref=f13e158]
+            - paragraph [ref=f13e159]: Skewness is one of the primary quality measures for a mesh. Skewness determines how close to ideal (equilateral or equiangular) a face or cell is.
+            - figure "Triangle and Quadrilateral Skewness" [ref=f13e161]:
+              - img "Triangle and Quadrilateral Skewness" [ref=f13e162]
+            - figure "ANSYS recommended scale for skewness" [ref=f13e165]:
+              - img "ANSYS recommended scale for skewness" [ref=f13e166]
+            - heading "Orthogonal Quality" [level=2] [ref=f13e168]
+            - paragraph [ref=f13e169]: The range for orthogonal quality is 0-1, where a value of 0 is worst and a value of 1 is best.
+            - heading "Summary" [level=2] [ref=f13e170]
+            - paragraph [ref=f13e171]:
+              - text: It is useful to summarize the information that we have seen so far in a tabular form. We have developed the table shown below for this purpose. You may use this table when
+              - link "verifying the quality of your mesh" [ref=f13e172] [cursor=pointer]:
+                - /url: https://featips.com/2021/05/07/how-to-verify-mesh-quality-in-ansys-workbench/
+              - text: .
+            - figure "ANSYS Mesh Metrics Summary" [ref=f13e173]:
+              - img "ANSYS Mesh Metrics Summary" [ref=f13e174]
+            - heading "References" [level=1] [ref=f13e176]
+            - paragraph [ref=f13e177]:
+              - text: "[1]"
+              - link "ANSYS help" [ref=f13e178] [cursor=pointer]:
+                - /url: https://ansyshelp.ansys.com/account/secured?returnurl=/Views/Secured/corp/v222/en/wb_msh/msh_metrics.html
+              - text: "[2]"
+              - link "SolidWorks help" [ref=f13e179] [cursor=pointer]:
+                - /url: https://help.solidworks.com/2021/english/SolidWorks/cworks/c_Mesh_Quality_Checks.htm
+            - paragraph
+            - group [ref=f13e181]:
+              - paragraph [ref=f13e182]: How useful was this post?
+              - paragraph [ref=f13e183]: Click on a star to rate it!
+              - radiogroup "Rating from 1 to 5" [ref=f13e185]:
+                - 'radio "1 out of 5: Not at all useful" [ref=f13e186] [cursor=pointer]':
+                  - generic [ref=f13e187]: 
+                - 'radio "2 out of 5: Somewhat useful" [ref=f13e188] [cursor=pointer]':
+                  - generic [ref=f13e189]: 
+                - 'radio "3 out of 5: Useful" [ref=f13e190] [cursor=pointer]':
+                  - generic [ref=f13e191]: 
+                - 'radio "4 out of 5: Fairly useful" [ref=f13e192] [cursor=pointer]':
+                  - generic [ref=f13e193]: 
+                - 'radio "5 out of 5: Very useful" [ref=f13e194] [cursor=pointer]':
+                  - generic [ref=f13e195]: 
+              - paragraph
+              - generic [ref=f13e196]:
+                - paragraph [ref=f13e197]: "Average rating 4.7 / 5. Vote count: 26"
+                - status
+            - generic [ref=f13e198]:
+              - generic [ref=f13e199]: 
+              - generic [ref=f13e200]: "Post Views:"
+              - generic [ref=f13e201]: 31,434
+          - link "Meshing" [ref=f13e205] [cursor=pointer]:
+            - /url: https://featips.com/category/meshing/
+        - navigation "Posts" [ref=f13e206]:
+          - heading "Post navigation" [level=2] [ref=f13e207]
+          - generic [ref=f13e208]:
+            - 'link "« Previous Post: Stress Relief vs Stress Relaxation – What is the difference?" [ref=f13e210] [cursor=pointer]':
+              - /url: https://featips.com/2022/11/15/stress-relief-vs-stress-relaxation-what-is-the-difference/
+              - text: «
+              - generic [ref=f13e211]:
+                - generic [ref=f13e212]: "Previous Post:"
+                - text: Stress Relief vs Stress Relaxation – What is the difference?
+            - 'link "Next Post: How to get the node number of the node with the maximum stress (or any other result) in Ansys Workbench? »" [ref=f13e214] [cursor=pointer]':
+              - /url: https://featips.com/2022/12/07/how-to-get-the-node-number-of-the-node-with-the-maximum-stress-or-any-other-result-in-ansys-workbench/
+              - generic [ref=f13e215]:
+                - generic [ref=f13e216]: "Next Post:"
+                - text: How to get the node number of the node with the maximum stress (or any other result) in Ansys Workbench?
+              - text: »
+        - generic [ref=f13e217]:
+          - heading "Related Posts" [level=2] [ref=f13e218]
+          - generic [ref=f13e220]:
+            - link "Dealing with Convergence Issues – Element Distortion Error Meshing" [ref=f13e223] [cursor=pointer]:
+              - /url: https://featips.com/2020/05/10/dealing-with-convergence-issues-element-distortion-error/
+              - generic [ref=f13e224]: Dealing with Convergence Issues – Element Distortion Error
+              - generic [ref=f13e225]: Meshing
+            - link "How to Mesh at Contact Interfaces in FEA Contact Theory" [ref=f13e228] [cursor=pointer]:
+              - /url: https://featips.com/2025/06/13/how-to-mesh-at-contact-interfaces-in-fea/
+              - generic [ref=f13e229]: How to Mesh at Contact Interfaces in FEA
+              - generic [ref=f13e230]: Contact Theory
+            - link "Stress Intensity A linearized Stress Result Cannot be Solved – ANSYS Message Meshing" [ref=f13e233] [cursor=pointer]:
+              - /url: https://featips.com/2022/09/30/a-linearized-stress-result-cannot-be-solved-ansys-message/
+              - img "Stress Intensity" [ref=f13e234]
+              - generic [ref=f13e235]: A linearized Stress Result Cannot be Solved – ANSYS Message
+              - generic [ref=f13e236]: Meshing
+            - link "Mesh Nodes Understanding and Applying Mesh Numbering in Ansys Mechanical Meshing" [ref=f13e239] [cursor=pointer]:
+              - /url: https://featips.com/2025/06/11/understanding-and-applying-mesh-numbering-in-ansys-mechanical/
+              - img "Mesh Nodes" [ref=f13e240]
+              - generic [ref=f13e241]: Understanding and Applying Mesh Numbering in Ansys Mechanical
+              - generic [ref=f13e242]: Meshing
+            - link "Should You Define Contacts Before or After Meshing in FEA ? Contact Theory" [ref=f13e245] [cursor=pointer]:
+              - /url: https://featips.com/2025/03/26/should-you-define-contacts-before-or-after-meshing-in-fea/
+              - generic [ref=f13e246]: Should You Define Contacts Before or After Meshing in FEA ?
+              - generic [ref=f13e247]: Contact Theory
+            - link "Nail Penetration Too Much Penetration at Contact Points – Ansys Message Contact Theory" [ref=f13e250] [cursor=pointer]:
+              - /url: https://featips.com/2021/04/06/too-much-penetration-at-contact-points-ansys-message/
+              - img "Nail Penetration" [ref=f13e251]
+              - generic [ref=f13e252]: Too Much Penetration at Contact Points – Ansys Message
+              - generic [ref=f13e253]: Contact Theory
+      - complementary [ref=f13e254]:
+        - generic [ref=f13e255]:
+          - generic [ref=f13e256]:
+            - heading "Top 5 Most Viewed Posts" [level=3] [ref=f13e257]
+            - list [ref=f13e258]:
+              - listitem [ref=f13e259]:
+                - link "ANSYS Contact Settings Explained" [ref=f13e260] [cursor=pointer]:
+                  - /url: https://featips.com/2022/09/27/ansys-contact-settings-explained/
+                - text: (87,486)
+              - listitem [ref=f13e261]:
+                - 'link "ANSYS Contact Formulations: Which one to use?" [ref=f13e262] [cursor=pointer]':
+                  - /url: https://featips.com/2022/07/13/ansys-contact-formulations-which-one-to-use/
+                - text: (52,708)
+              - listitem [ref=f13e263]:
+                - link "Selecting the contact and target sides in ANSYS" [ref=f13e264] [cursor=pointer]:
+                  - /url: https://featips.com/2022/09/27/selecting-the-contact-and-target-sides-in-ansys/
+                - text: (38,542)
+              - listitem [ref=f13e265]:
+                - link "Too Much Penetration at Contact Points – Ansys Message" [ref=f13e266] [cursor=pointer]:
+                  - /url: https://featips.com/2021/04/06/too-much-penetration-at-contact-points-ansys-message/
+                - text: (38,162)
+              - listitem [ref=f13e267]:
+                - link "MPC Contacts in ANSYS – Yes or No?" [ref=f13e268] [cursor=pointer]:
+                  - /url: https://featips.com/2022/10/08/mpc-contacts-in-ansys-yes-or-no/
+                - text: (32,970)
+          - insertion [ref=f13e271]
+      - complementary [ref=f13e275]:
+        - generic [ref=f13e276]:
+          - generic [ref=f13e277]:
+            - heading "Recent Posts" [level=3] [ref=f13e278]
+            - list [ref=f13e280]:
+              - listitem [ref=f13e281]:
+                - link "How to Apply a Thermal Gradient across Shell Elements in ANSYS Mechanical":
+                  - /url: https://featips.com/2025/11/02/how-to-apply-a-thermal-gradient-across-shell-elements-in-ansys-mechanical/
+                  - img "How to Apply a Thermal Gradient across Shell Elements in ANSYS Mechanical" [ref=f13e282] [cursor=pointer]
+                - heading [level=3] [ref=f13e283]:
+                  - link "How to Apply a Thermal Gradient across Shell Elements in ANSYS Mechanical" [ref=f13e284] [cursor=pointer]:
+                    - /url: https://featips.com/2025/11/02/how-to-apply-a-thermal-gradient-across-shell-elements-in-ansys-mechanical/
+                - time [ref=f13e285]: November 2, 2025
+              - listitem [ref=f13e286]:
+                - link "75 Mechanical Engineering Interview Questions (With Answers)":
+                  - /url: https://featips.com/2025/10/01/75-mechanical-engineering-interview-questions-with-answers/
+                  - img "75 Mechanical Engineering Interview Questions (With Answers)" [ref=f13e287] [cursor=pointer]
+                - heading [level=3] [ref=f13e288]:
+                  - link "75 Mechanical Engineering Interview Questions (With Answers)" [ref=f13e289] [cursor=pointer]:
+                    - /url: https://featips.com/2025/10/01/75-mechanical-engineering-interview-questions-with-answers/
+                - time [ref=f13e290]: October 1, 2025
+              - listitem [ref=f13e291]:
+                - 'link "53 FEA Interview Questions (with Answers): A Complete Review Guide"':
+                  - /url: https://featips.com/2025/08/04/53-fea-interview-questions-with-answers-a-complete-review-guide/
+                  - 'img "53 FEA Interview Questions (with Answers): A Complete Review Guide" [ref=f13e292] [cursor=pointer]'
+                - heading [level=3] [ref=f13e293]:
+                  - 'link "53 FEA Interview Questions (with Answers): A Complete Review Guide" [ref=f13e294] [cursor=pointer]':
+                    - /url: https://featips.com/2025/08/04/53-fea-interview-questions-with-answers-a-complete-review-guide/
+                - time [ref=f13e295]: August 4, 2025
+              - listitem [ref=f13e296]:
+                - 'link "Meshing in ANSYS: Complete Guide to Element Types, Sizing, and Mesh Quality"':
+                  - /url: https://featips.com/2025/07/31/ansys-meshing-guide-element-types-sizing-quality/
+                  - 'img "Meshing in ANSYS: Complete Guide to Element Types, Sizing, and Mesh Quality" [ref=f13e297] [cursor=pointer]'
+                - heading [level=3] [ref=f13e298]:
+                  - 'link "Meshing in ANSYS: Complete Guide to Element Types, Sizing, and Mesh Quality" [ref=f13e299] [cursor=pointer]':
+                    - /url: https://featips.com/2025/07/31/ansys-meshing-guide-element-types-sizing-quality/
+                - time [ref=f13e300]: July 31, 2025
+              - listitem [ref=f13e301]:
+                - link "What is Large Deflection in FEA and When Should You Turn It On?":
+                  - /url: https://featips.com/2025/07/23/what-is-large-deflection-in-fea-and-when-should-you-turn-it-on/
+                  - img "What is Large Deflection in FEA and When Should You Turn It On?" [ref=f13e302] [cursor=pointer]
+                - heading [level=3] [ref=f13e303]:
+                  - link "What is Large Deflection in FEA and When Should You Turn It On?" [ref=f13e304] [cursor=pointer]:
+                    - /url: https://featips.com/2025/07/23/what-is-large-deflection-in-fea-and-when-should-you-turn-it-on/
+                - time [ref=f13e305]: July 23, 2025
+          - insertion [ref=f13e308]
+    - contentinfo [ref=f13e310]:
+      - generic [ref=f13e312]:
+        - paragraph [ref=f13e313]: Copyright © 2026 FEA Tips.
+        - paragraph [ref=f13e314]:
+          - text: Powered by
+          - link "PressBook Masonry Dark" [ref=f13e315] [cursor=pointer]:
+            - /url: https://scriptstown.com/wordpress-themes/pressbook-masonry-dark/
+  - generic [ref=f13e317]:
+    - paragraph [ref=f13e319]: "#000000"
+    - link "FEA Tips eBook on Structural Analysis and ANSYS" [ref=f13e321] [cursor=pointer]:
+      - /url: https://featips.com/ebook-on-fea-all-models-are-wrong/
+    - generic [ref=f13e323] [cursor=pointer]: X

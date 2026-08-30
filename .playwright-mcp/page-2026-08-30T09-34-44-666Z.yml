@@ -1,0 +1,511 @@
+- generic [ref=f5e2]:
+  - generic [ref=f5e3]:
+    - link "Skip to content" [ref=f5e4] [cursor=pointer]:
+      - /url: "#start-of-content"
+    - banner [ref=f5e9]:
+      - heading "Navigation Menu" [level=2] [ref=f5e10]
+      - generic [ref=f5e11]:
+        - link "Homepage" [ref=f5e13] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f5e16]:
+          - navigation "Global" [ref=f5e17]:
+            - list [ref=f5e18]:
+              - listitem [ref=f5e19]:
+                - button "Platform" [ref=f5e21] [cursor=pointer]
+              - listitem [ref=f5e24]:
+                - button "Solutions" [ref=f5e26] [cursor=pointer]
+              - listitem [ref=f5e29]:
+                - button "Resources" [ref=f5e31] [cursor=pointer]
+              - listitem [ref=f5e34]:
+                - button "Open Source" [ref=f5e36] [cursor=pointer]
+              - listitem [ref=f5e39]:
+                - button "Enterprise" [ref=f5e41] [cursor=pointer]
+              - listitem [ref=f5e44]:
+                - link "Pricing" [ref=f5e45] [cursor=pointer]:
+                  - /url: https://github.com/pricing
+          - generic [ref=f5e46]:
+            - button "Search or jump to, type / to search" [ref=f5e48] [cursor=pointer]
+            - link "Sign in" [ref=f5e55] [cursor=pointer]:
+              - /url: /login?return_to=https%3A%2F%2Fgithub.com%2Freilleya%2FopenMotor
+            - link "Sign up" [ref=f5e58] [cursor=pointer]:
+              - /url: /signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E&source=header-repo&source_repo=reilleya%2FopenMotor
+            - button "Appearance settings" [ref=f5e61] [cursor=pointer]
+  - main [ref=f5e68]:
+    - generic [ref=f5e69]:
+      - generic [ref=f5e70]:
+        - generic [ref=f5e72]:
+          - link "reilleya" [ref=f5e76] [cursor=pointer]:
+            - /url: /reilleya
+          - generic [ref=f5e77]: /
+          - strong [ref=f5e78]:
+            - link "openMotor" [ref=f5e79] [cursor=pointer]:
+              - /url: /reilleya/openMotor
+          - generic [ref=f5e80]: Public
+        - generic [ref=f5e81]:
+          - list:
+            - listitem [ref=f5e82]:
+              - link "You must be signed in to change notification settings" [ref=f5e83] [cursor=pointer]:
+                - /url: /login?return_to=%2Freilleya%2FopenMotor
+                - text: Notifications
+            - listitem [ref=f5e86]:
+              - link "Fork 125" [ref=f5e87] [cursor=pointer]:
+                - /url: /login?return_to=%2Freilleya%2FopenMotor
+                - text: Fork
+                - generic "125" [ref=f5e90]
+            - listitem [ref=f5e91]:
+              - link "You must be signed in to star a repository" [ref=f5e93] [cursor=pointer]:
+                - /url: /login?return_to=%2Freilleya%2FopenMotor
+                - text: Star
+                - generic "618 users starred this repository" [ref=f5e96]: "618"
+      - navigation "Repository" [ref=f5e97]:
+        - list [ref=f5e98]:
+          - listitem [ref=f5e99]:
+            - link "Code" [ref=f5e100] [cursor=pointer]:
+              - /url: /reilleya/openMotor
+          - listitem [ref=f5e104]:
+            - link "Issues 43" [ref=f5e105] [cursor=pointer]:
+              - /url: /reilleya/openMotor/issues
+              - generic [ref=f5e109]: Issues
+              - generic "43" [ref=f5e110]
+          - listitem [ref=f5e111]:
+            - link "Pull requests 12" [ref=f5e112] [cursor=pointer]:
+              - /url: /reilleya/openMotor/pulls
+              - generic [ref=f5e115]: Pull requests
+              - generic "12" [ref=f5e116]
+          - listitem [ref=f5e117]:
+            - link "Actions" [ref=f5e118] [cursor=pointer]:
+              - /url: /reilleya/openMotor/actions
+          - listitem [ref=f5e122]:
+            - link "Projects" [ref=f5e123] [cursor=pointer]:
+              - /url: /reilleya/openMotor/projects
+          - listitem [ref=f5e127]:
+            - link "Security and quality" [ref=f5e128] [cursor=pointer]:
+              - /url: /reilleya/openMotor/security
+          - listitem [ref=f5e132]:
+            - link "Insights" [ref=f5e133] [cursor=pointer]:
+              - /url: /reilleya/openMotor/pulse
+    - generic [ref=f5e150]:
+      - generic [ref=f5e153]:
+        - generic [ref=f5e154]:
+          - generic [ref=f5e155]:
+            - button "staging branch" [ref=f5e157] [cursor=pointer]:
+              - generic [ref=f5e158]: staging
+            - generic [ref=f5e162]:
+              - link "Branches" [ref=f5e163] [cursor=pointer]:
+                - /url: /reilleya/openMotor/branches
+              - link "Tags" [ref=f5e166] [cursor=pointer]:
+                - /url: /reilleya/openMotor/tags
+          - generic [ref=f5e169]:
+            - combobox "Go to file" [ref=f5e177]
+            - button "Code" [ref=f5e178] [cursor=pointer]
+        - generic [ref=f5e181]:
+          - generic [ref=f5e182]:
+            - generic [ref=f5e184]:
+              - heading "Latest commit" [level=2] [ref=f5e185]
+              - generic [ref=f5e188]:
+                - heading "History" [level=2] [ref=f5e189]
+                - link "348 Commits" [ref=f5e190] [cursor=pointer]:
+                  - /url: /reilleya/openMotor/commits/staging/
+            - heading "Folders and files" [level=2] [ref=f5e193]
+            - table "Folders and files" [ref=f5e194]:
+              - rowgroup:
+                - row "Name Last commit message Last commit date":
+                  - columnheader "Name"
+                  - columnheader "Last commit message"
+                  - columnheader "Last commit date"
+              - rowgroup [ref=f5e195]:
+                - row ".github/workflows, (Directory)" [ref=f5e196]:
+                  - cell [ref=f5e197]:
+                    - link ".github/workflows, (Directory)" [ref=f5e204] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/tree/staging/.github/workflows
+                      - text: .github/workflows
+                  - cell [ref=f5e205]
+                  - cell [ref=f5e207]
+                - row "docs, (Directory)" [ref=f5e210]:
+                  - cell [ref=f5e211]:
+                    - link "docs, (Directory)" [ref=f5e218] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/tree/staging/docs
+                      - text: docs
+                  - cell [ref=f5e219]
+                  - cell [ref=f5e221]
+                - row "installers, (Directory)" [ref=f5e224]:
+                  - cell [ref=f5e225]:
+                    - link "installers, (Directory)" [ref=f5e232] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/tree/staging/installers
+                      - text: installers
+                  - cell [ref=f5e233]
+                  - cell [ref=f5e235]
+                - row "mathlib, (Directory)" [ref=f5e238]:
+                  - cell [ref=f5e239]:
+                    - link "mathlib, (Directory)" [ref=f5e246] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/tree/staging/mathlib
+                      - text: mathlib
+                  - cell [ref=f5e247]
+                  - cell [ref=f5e249]
+                - row "motorlib, (Directory)" [ref=f5e252]:
+                  - cell [ref=f5e253]:
+                    - link "motorlib, (Directory)" [ref=f5e260] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/tree/staging/motorlib
+                      - text: motorlib
+                  - cell [ref=f5e261]
+                  - cell [ref=f5e263]
+                - row "pyinstaller, (Directory)" [ref=f5e266]:
+                  - cell [ref=f5e267]:
+                    - link "pyinstaller, (Directory)" [ref=f5e274] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/tree/staging/pyinstaller
+                      - text: pyinstaller
+                  - cell [ref=f5e275]
+                  - cell [ref=f5e277]
+                - row "resources, (Directory)" [ref=f5e280]:
+                  - cell [ref=f5e281]:
+                    - link "resources, (Directory)" [ref=f5e288] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/tree/staging/resources
+                      - text: resources
+                  - cell [ref=f5e289]
+                  - cell [ref=f5e291]
+                - row "test, (Directory)" [ref=f5e294]:
+                  - cell [ref=f5e295]:
+                    - link "test, (Directory)" [ref=f5e302] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/tree/staging/test
+                      - text: test
+                  - cell [ref=f5e303]
+                  - cell [ref=f5e305]
+                - row "uilib, (Directory)" [ref=f5e308]:
+                  - cell [ref=f5e309]:
+                    - link "uilib, (Directory)" [ref=f5e316] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/tree/staging/uilib
+                      - text: uilib
+                  - cell [ref=f5e317]
+                  - cell [ref=f5e319]
+                - row ".gitignore, (File)" [ref=f5e322]:
+                  - cell [ref=f5e323]:
+                    - link ".gitignore, (File)" [ref=f5e330] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/blob/staging/.gitignore
+                      - text: .gitignore
+                  - cell [ref=f5e331]
+                  - cell [ref=f5e333]
+                - row ".pylintrc, (File)" [ref=f5e336]:
+                  - cell [ref=f5e337]:
+                    - link ".pylintrc, (File)" [ref=f5e344] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/blob/staging/.pylintrc
+                      - text: .pylintrc
+                  - cell [ref=f5e345]
+                  - cell [ref=f5e347]
+                - row "LICENSE, (File)" [ref=f5e350]:
+                  - cell [ref=f5e351]:
+                    - link "LICENSE, (File)" [ref=f5e358] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/blob/staging/LICENSE
+                      - text: LICENSE
+                  - cell [ref=f5e359]
+                  - cell [ref=f5e361]
+                - row "MANIFEST.in, (File)" [ref=f5e364]:
+                  - cell [ref=f5e365]:
+                    - link "MANIFEST.in, (File)" [ref=f5e372] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/blob/staging/MANIFEST.in
+                      - text: MANIFEST.in
+                  - cell [ref=f5e373]
+                  - cell [ref=f5e375]
+                - row "README.md, (File)" [ref=f5e378]:
+                  - cell [ref=f5e379]:
+                    - link "README.md, (File)" [ref=f5e386] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/blob/staging/README.md
+                      - text: README.md
+                  - cell [ref=f5e387]
+                  - cell [ref=f5e389]
+                - row "app.py, (File)" [ref=f5e392]:
+                  - cell [ref=f5e393]:
+                    - link "app.py, (File)" [ref=f5e400] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/blob/staging/app.py
+                      - text: app.py
+                  - cell [ref=f5e401]
+                  - cell [ref=f5e403]
+                - row "main.py, (File)" [ref=f5e406]:
+                  - cell [ref=f5e407]:
+                    - link "main.py, (File)" [ref=f5e414] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/blob/staging/main.py
+                      - text: main.py
+                  - cell [ref=f5e415]
+                  - cell [ref=f5e417]
+                - row "pyuic.json, (File)" [ref=f5e420]:
+                  - cell [ref=f5e421]:
+                    - link "pyuic.json, (File)" [ref=f5e428] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/blob/staging/pyuic.json
+                      - text: pyuic.json
+                  - cell [ref=f5e429]
+                  - cell [ref=f5e431]
+                - row "requirements.txt, (File)" [ref=f5e434]:
+                  - cell [ref=f5e435]:
+                    - link "requirements.txt, (File)" [ref=f5e442] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/blob/staging/requirements.txt
+                      - text: requirements.txt
+                  - cell [ref=f5e443]
+                  - cell [ref=f5e445]
+                - row "setup.py, (File)" [ref=f5e448]:
+                  - cell [ref=f5e449]:
+                    - link "setup.py, (File)" [ref=f5e456] [cursor=pointer]:
+                      - /url: /reilleya/openMotor/blob/staging/setup.py
+                      - text: setup.py
+                  - cell [ref=f5e457]
+                  - cell [ref=f5e459]
+          - generic [ref=f5e463]:
+            - generic [ref=f5e464]:
+              - heading "Repository files navigation" [level=2] [ref=f5e465]
+              - navigation "Repository files" [ref=f5e466]:
+                - list [ref=f5e467]:
+                  - listitem [ref=f5e468]:
+                    - link "README" [ref=f5e469] [cursor=pointer]:
+                      - /url: "#"
+                  - listitem [ref=f5e471]:
+                    - link "GPL-3.0 license" [ref=f5e472] [cursor=pointer]:
+                      - /url: "#"
+              - button "Outline" [ref=f5e474] [cursor=pointer]
+            - article [ref=f5e478]:
+              - generic [ref=f5e479]:
+                - heading "openMotor" [level=1] [ref=f5e480]
+                - 'link "Permalink: openMotor" [ref=f5e481] [cursor=pointer]':
+                  - /url: "#openmotor"
+              - paragraph [ref=f5e484]:
+                - link [ref=f5e485] [cursor=pointer]:
+                  - /url: /reilleya/openMotor/blob/staging/resources/oMIconCycles.png
+                  - img "Logo" [ref=f5e486]
+              - generic [ref=f5e487]:
+                - heading "Overview" [level=2] [ref=f5e488]
+                - 'link "Permalink: Overview" [ref=f5e489] [cursor=pointer]':
+                  - /url: "#overview"
+              - paragraph [ref=f5e492]: openMotor is an open-source internal ballistics simulator for rocket motor experimenters. The software estimates a rocket motor's chamber pressure and thrust based on propellant properties, grain geometry, and nozzle specifications. It uses the Fast Marching Method to determine how a propellant grain regresses, which allows the use of arbitrary core geometries.
+              - paragraph [ref=f5e493]: "Current Features:"
+              - list [ref=f5e494]:
+                - listitem [ref=f5e495]: Metric and imperial units
+                - listitem [ref=f5e496]: Support for common grain geometries such as BATES, Finocyl, Star and more
+                - listitem [ref=f5e497]: Loading custom grain geometry from DXF files
+                - listitem [ref=f5e498]: A propellant editor that allows the user to enter the properties of as many propellants as they wish
+                - listitem [ref=f5e499]: The grain editor displays how a grain will regress to cut down on the guesswork involved in tweaking geometry
+                - listitem [ref=f5e500]: ENG file exporting
+                - listitem [ref=f5e501]: Burnsim importing and exporting
+                - listitem [ref=f5e502]: A UI that supports saving and loading designs along with undo and redo
+                - listitem [ref=f5e503]: Tools for easily tweaking and optimizing your design
+              - paragraph [ref=f5e504]:
+                - text: The calculations involved were sourced from Rocket Propulsion Elements by George Sutton and from
+                - link "Richard Nakka's website" [ref=f5e505] [cursor=pointer]:
+                  - /url: https://www.nakka-rocketry.net/rtheory.html
+                - text: .
+              - paragraph [ref=f5e506]:
+                - link [ref=f5e507] [cursor=pointer]:
+                  - /url: https://camo.githubusercontent.com/3a01b63d8ba7b73cd81a26dd25d1bf649a3ff6c21e24bc9fb4564482f6e98e80/68747470733a2f2f7265696c6c65792e6e65742f6f70656e4d6f746f722f73637265656e73686f742e706e67
+                  - img "Screenshot" [ref=f5e508]
+              - generic [ref=f5e509]:
+                - heading "Download" [level=2] [ref=f5e510]
+                - 'link "Permalink: Download" [ref=f5e511] [cursor=pointer]':
+                  - /url: "#download"
+              - paragraph [ref=f5e514]:
+                - text: You can download the latest version for your system
+                - link "here" [ref=f5e515] [cursor=pointer]:
+                  - /url: https://github.com/reilleya/openMotor/releases/latest
+                - text: . From there, just unzip the file and run it. Alternatively, you can run it from source code to get the latest features. openMotor is avaliable on the AUR as
+                - code [ref=f5e516]: openmotor
+                - text: and on debian apt as
+                - code [ref=f5e517]: openmotor
+              - generic [ref=f5e518]:
+                - heading "Building from Source" [level=2] [ref=f5e519]
+                - 'link "Permalink: Building from Source" [ref=f5e520] [cursor=pointer]':
+                  - /url: "#building-from-source"
+              - paragraph [ref=f5e523]:
+                - text: The program is currently being developed using python 3.10. The dependencies are outlined in
+                - code [ref=f5e524]: requirements.txt
+                - text: ", the main ones include"
+                - code [ref=f5e525]: PyQt6
+                - text: ","
+                - code [ref=f5e526]: matplot
+                - text: ","
+                - code [ref=f5e527]: numpy
+                - text: ","
+                - code [ref=f5e528]: scipy
+                - text: ","
+                - code [ref=f5e529]: scikit-fmm
+                - text: ", and"
+                - code [ref=f5e530]: scikit-image
+                - text: . Because the PyQt6 bindings are used for the GUI, Qt6 must also be installed.
+              - paragraph [ref=f5e531]: "The easiest way to build/run from source code is to clone the repository and install the required dependencies into a virtual environment:"
+              - generic [ref=f5e532]:
+                - code [ref=f5e534]: $ git clone https://github.com/reilleya/openMotor $ cd openMotor $ python3 -m venv .venv $ source .venv/bin/activate $ pip install -r requirements.txt
+                - button "Copy code to clipboard" [ref=f5e536] [cursor=pointer]
+              - paragraph [ref=f5e540]:
+                - text: If you are using a version of python that does not have a prebuilt version of one of the dependencies, the
+                - code [ref=f5e541]: pip
+                - text: "command above might fail with an error like:"
+              - generic [ref=f5e542]:
+                - code [ref=f5e544]: "Failed building wheel for scikit-fmm skfmm/fmm.cpp:4:10: fatal error: Python.h: No such file or directory"
+                - button "Copy code to clipboard" [ref=f5e546] [cursor=pointer]
+              - paragraph [ref=f5e550]:
+                - text: The fix is to install
+                - code [ref=f5e551]: python3-dev
+                - text: or the equivalent with your system package manager.
+              - paragraph [ref=f5e552]:
+                - text: If you are running Windows and get errors like
+                - code [ref=f5e553]: DLL load failed while importing _cext
+                - text: when trying to run the application after installing the dependencies, you may need to install the latest Microsoft Visual C++ Redistributable.
+              - generic [ref=f5e554]:
+                - heading "UI Files:" [level=4] [ref=f5e555]
+                - 'link "Permalink: UI Files:" [ref=f5e556] [cursor=pointer]':
+                  - /url: "#ui-files"
+              - paragraph [ref=f5e559]:
+                - text: openMotor uses Qt Designer to lay out the GUI, which generates
+                - code [ref=f5e560]: .ui
+                - text: files describing the user interface. We use
+                - code [ref=f5e561]: pyuic6
+                - text: to compile these files into Python source code which is then included in the program as ordinary source code.
+              - paragraph [ref=f5e562]: "Because these autogenerated files are not committed to the source tree, you must build them by running:"
+              - generic [ref=f5e563]:
+                - code [ref=f5e565]: $ python setup.py build_ui
+                - button "Copy code to clipboard" [ref=f5e567] [cursor=pointer]
+              - paragraph [ref=f5e571]:
+                - text: Note that if you make changes to the UI using the
+                - code [ref=f5e572]: .ui
+                - text: forms, you must re-build using the same command.
+              - generic [ref=f5e573]:
+                - heading "Cython Files:" [level=4] [ref=f5e574]
+                - 'link "Permalink: Cython Files:" [ref=f5e575] [cursor=pointer]':
+                  - /url: "#cython-files"
+              - paragraph [ref=f5e578]: to speed up some more computationally expensive parts of the codebase, openMotor uses the Cython programming language to run calculations in C.
+              - paragraph [ref=f5e579]: "because the Cython code must be compiled separately for each system, you must build the library by running:"
+              - generic [ref=f5e580]:
+                - code [ref=f5e582]: $ python setup.py build_ext --inplace
+                - button "Copy code to clipboard" [ref=f5e584] [cursor=pointer]
+              - paragraph [ref=f5e588]:
+                - text: Note that if you make changes to any of the
+                - code [ref=f5e589]: .pyx
+                - text: files, you must re-compile the Cython library using the same command.
+              - generic [ref=f5e590]:
+                - heading "Run the Application:" [level=4] [ref=f5e591]
+                - 'link "Permalink: Run the Application:" [ref=f5e592] [cursor=pointer]':
+                  - /url: "#run-the-application"
+              - paragraph [ref=f5e595]:
+                - text: "Once everything is set up, you can start openMotor by running:"
+                - code [ref=f5e596]: python main.py
+              - generic [ref=f5e597]:
+                - heading [level=6] [ref=f5e598]:
+                  - text: "Note: On some systems, Python 2 and 3 are installed simultaneously, so you may have to specify which version to run when creating the venv. After the venv has been activated, the programs"
+                  - code [ref=f5e599]: python
+                  - text: and
+                  - code [ref=f5e600]: pip
+                  - text: are aliased to the python runtime specific for your venv, so use those (instead of
+                  - code [ref=f5e601]: pip3
+                  - text: and
+                  - code [ref=f5e602]: python3
+                  - text: ", on e.g. Debian Linux)"
+                - 'link "Permalink: Note: On some systems, Python 2 and 3 are installed simultaneously, so you may have to specify which version to run when creating the venv. After the venv has been activated, the programs python and pip are aliased to the python runtime specific for your venv, so use those (instead of pip3 and python3, on e.g. Debian Linux)" [ref=f5e603] [cursor=pointer]':
+                  - /url: "#note-on-some-systems-python-2-and-3-are-installed-simultaneously-so-you-may-have-to-specify-which-version-to-run-when-creating-the-venv-after-the-venv-has-been-activated-the-programs-python-and-pip-are-aliased-to-the-python-runtime-specific-for-your-venv-so-use-those-instead-of-pip3-and-python3-on-eg-debian-linux"
+              - generic [ref=f5e606]:
+                - heading "Data Files" [level=2] [ref=f5e607]
+                - 'link "Permalink: Data Files" [ref=f5e608] [cursor=pointer]':
+                  - /url: "#data-files"
+              - paragraph [ref=f5e611]:
+                - text: openMotor uses
+                - link "YAML" [ref=f5e612] [cursor=pointer]:
+                  - /url: https://en.wikipedia.org/wiki/YAML
+                - text: for data storage. Motor files have the extension
+                - code [ref=f5e613]: .ric
+                - text: to differentiate them, but internally they are YAML and can be edited in a text editor if desired. The recommended MIME type for these files is
+                - code [ref=f5e614]: application/vnd.openmotor+yaml
+                - text: .
+              - paragraph [ref=f5e615]:
+                - text: The remaining user information, like propellant data and preferences, is stored in plain YAML files in
+                - code [ref=f5e616]: <AppData>\Local\openMotor
+                - text: on Windows,
+                - code [ref=f5e617]: /Users/<username>/Library/Application Support/openMotor
+                - text: on Mac OS, and
+                - code [ref=f5e618]: /home/<username>/.local/share/openMotor
+                - text: on Linux.
+              - generic [ref=f5e619]:
+                - heading "License" [level=2] [ref=f5e620]
+                - 'link "Permalink: License" [ref=f5e621] [cursor=pointer]':
+                  - /url: "#license"
+              - paragraph [ref=f5e624]: openMotor is released under the GNU GPL v3 license. The source code is distributed so you can build cool stuff with it, and so you don't have to trust the calculations are being done correctly. Check for yourself (and file an issue ticket!) if you doubt the results.
+              - generic [ref=f5e625]:
+                - heading "Contributing" [level=2] [ref=f5e626]
+                - 'link "Permalink: Contributing" [ref=f5e627] [cursor=pointer]':
+                  - /url: "#contributing"
+              - paragraph [ref=f5e630]: As openMotor is open source, one of the goals of the project is to have as many eyes on the code as possible. I believe this is the best way to avoid bugs and also the easiest way to get new features added to the software. If you have ideas on how to improve the program or find an error, please open an issue ticket for discussion or file a pull request if possible.
+              - generic [ref=f5e631]:
+                - heading "Disclaimer" [level=2] [ref=f5e632]
+                - 'link "Permalink: Disclaimer" [ref=f5e633] [cursor=pointer]':
+                  - /url: "#disclaimer"
+              - paragraph [ref=f5e636]: Rocket motors can be dangerous! Always verify calculations before testing a motor, and test far enough away from people and structures to avoid damage. The results from this program are provided as an estimate, and come with NO guarantees!
+      - generic [ref=f5e639]:
+        - generic [ref=f5e640]:
+          - heading "About" [level=2] [ref=f5e641]
+          - paragraph [ref=f5e642]: An open-source internal ballistics simulator for rocket motor experimenters
+          - heading "Topics" [level=3] [ref=f5e643]
+          - generic [ref=f5e644]:
+            - link "rocket" [ref=f5e645] [cursor=pointer]:
+              - /url: /topics/rocket
+            - link "rocketry" [ref=f5e646] [cursor=pointer]:
+              - /url: /topics/rocketry
+            - link "rockets" [ref=f5e647] [cursor=pointer]:
+              - /url: /topics/rockets
+            - link "science" [ref=f5e648] [cursor=pointer]:
+              - /url: /topics/science
+            - link "solid-rocket-motor" [ref=f5e649] [cursor=pointer]:
+              - /url: /topics/solid-rocket-motor
+          - heading "Resources" [level=3] [ref=f5e650]
+          - link "Readme" [ref=f5e652] [cursor=pointer]:
+            - /url: "#readme-ov-file"
+          - link "GPL-3.0 license" [ref=f5e656] [cursor=pointer]:
+            - /url: "#GPL-3.0-1-ov-file"
+          - link "Activity" [ref=f5e660] [cursor=pointer]:
+            - /url: /reilleya/openMotor/activity
+          - heading "Stars" [level=3] [ref=f5e663]
+          - generic [ref=f5e665]:
+            - strong [ref=f5e668]: "618"
+            - text: stars
+          - heading "Watchers" [level=3] [ref=f5e669]
+          - generic [ref=f5e671]:
+            - strong [ref=f5e674]: "29"
+            - text: watching
+          - heading "Forks" [level=3] [ref=f5e675]
+          - link [ref=f5e677] [cursor=pointer]:
+            - /url: /reilleya/openMotor/forks
+            - strong [ref=f5e681]: "125"
+            - text: forks
+          - link "Report repository" [ref=f5e683] [cursor=pointer]:
+            - /url: /contact/report-content?content_url=https%3A%2F%2Fgithub.com%2Freilleya%2FopenMotor&report=reilleya+%28user%29
+        - heading "Releases" [level=2] [ref=f5e685]
+        - heading "Packages" [level=2] [ref=f5e689]
+        - heading "Used by" [level=2] [ref=f5e692]
+        - heading "Contributors" [level=2] [ref=f5e695]
+        - heading "Languages" [level=2] [ref=f5e698]
+  - contentinfo [ref=f5e701]:
+    - heading "Footer" [level=2] [ref=f5e702]
+    - generic [ref=f5e703]:
+      - generic [ref=f5e704]:
+        - link "GitHub Homepage" [ref=f5e705] [cursor=pointer]:
+          - /url: https://github.com
+        - generic [ref=f5e708]: © 2026 GitHub, Inc.
+      - navigation "Footer" [ref=f5e709]:
+        - heading "Footer navigation" [level=3] [ref=f5e710]
+        - list "Footer navigation" [ref=f5e711]:
+          - listitem [ref=f5e712]:
+            - link "Terms" [ref=f5e713] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/github-terms/github-terms-of-service
+          - listitem [ref=f5e714]:
+            - link "Privacy" [ref=f5e715] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/privacy-policies/github-privacy-statement
+          - listitem [ref=f5e716]:
+            - link "Security" [ref=f5e717] [cursor=pointer]:
+              - /url: https://github.com/security
+          - listitem [ref=f5e718]:
+            - link "Status" [ref=f5e719] [cursor=pointer]:
+              - /url: https://www.githubstatus.com/
+          - listitem [ref=f5e720]:
+            - link "Community" [ref=f5e721] [cursor=pointer]:
+              - /url: https://github.community/
+          - listitem [ref=f5e722]:
+            - link "Docs" [ref=f5e723] [cursor=pointer]:
+              - /url: https://docs.github.com/
+          - listitem [ref=f5e724]:
+            - link "Contact" [ref=f5e725] [cursor=pointer]:
+              - /url: https://support.github.com?tags=dotcom-footer
+          - listitem [ref=f5e726]:
+            - button "Manage cookies" [ref=f5e728] [cursor=pointer]
+          - listitem [ref=f5e729]:
+            - button "Do not share my personal information" [ref=f5e731] [cursor=pointer]

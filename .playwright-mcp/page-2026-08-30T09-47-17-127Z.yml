@@ -1,0 +1,146 @@
+- generic [ref=f151e2]:
+  - navigation [ref=f151e3]:
+    - navigation "Navigation menu" [ref=f151e5]:
+      - heading "Nuitka the Python Compiler" [ref=f151e6]
+      - list [ref=f151e7]:
+        - listitem [ref=f151e8]:
+          - link "Free Download" [ref=f151e9] [cursor=pointer]:
+            - /url: download.html
+        - listitem [ref=f151e12]:
+          - link "User Documentation" [ref=f151e13] [cursor=pointer]:
+            - /url: ../user-documentation
+        - listitem [ref=f151e16]:
+          - link "Get Support" [ref=f151e17] [cursor=pointer]:
+            - /url: ../pages/support.html
+        - listitem [ref=f151e20]:
+          - link "Contribute" [ref=f151e21] [cursor=pointer]:
+            - /url: ../pages/contribute.html
+      - heading "Commercial Users" [ref=f151e24]
+      - list [ref=f151e25]:
+        - listitem [ref=f151e26]:
+          - link "Purchase Now" [ref=f151e27] [cursor=pointer]:
+            - /url: ../commercial/purchase.html
+        - listitem [ref=f151e30]:
+          - link "Commercial Features" [ref=f151e31] [cursor=pointer]:
+            - /url: commercial.html
+        - listitem [ref=f151e34]:
+          - link "Reseller Information" [ref=f151e35] [cursor=pointer]:
+            - /url: ../commercial/resellers.html
+        - listitem [ref=f151e38]:
+          - link "Nuitka VM" [ref=f151e39] [cursor=pointer]:
+            - /url: bundles.html
+        - listitem [ref=f151e42]:
+          - link "Refund Policy" [ref=f151e43] [cursor=pointer]:
+            - /url: ../commercial/refund-policy.html
+        - listitem [ref=f151e46]:
+          - link "Cancellation" [ref=f151e47] [cursor=pointer]:
+            - /url: ../commercial/cancellation-policy.html
+      - heading "News and Blog" [ref=f151e50]
+      - list [ref=f151e51]:
+        - listitem [ref=f151e52]:
+          - link "Release Information" [ref=f151e53] [cursor=pointer]:
+            - /url: ../changelog
+        - listitem [ref=f151e56]:
+          - link "Blog" [ref=f151e57] [cursor=pointer]:
+            - /url: ../news.html
+        - listitem [ref=f151e60]:
+          - link "Streaming" [ref=f151e61] [cursor=pointer]:
+            - /url: ../pages/Streaming.html
+      - heading "Other" [ref=f151e64]
+      - list [ref=f151e65]:
+        - listitem [ref=f151e66]:
+          - link "Credits" [ref=f151e67] [cursor=pointer]:
+            - /url: Credits.html
+        - listitem [ref=f151e70]:
+          - link "Impressum" [ref=f151e71] [cursor=pointer]:
+            - /url: ../pages/impressum.html
+        - listitem [ref=f151e74]:
+          - link "Privacy Policy" [ref=f151e75] [cursor=pointer]:
+            - /url: ../pages/privacy-policy.html
+        - listitem [ref=f151e78]:
+          - link "Nuitka PySide2 support" [ref=f151e79] [cursor=pointer]:
+            - /url: ../pages/pyside2.html
+        - listitem [ref=f151e80]:
+          - link "Nuitka PyQt5 support" [ref=f151e81] [cursor=pointer]:
+            - /url: ../pages/pyqt5.html
+  - generic [ref=f151e84]:
+    - navigation "Page navigation": /
+    - main [ref=f151e85]:
+      - generic [ref=f151e87]:
+        - navigation [ref=f151e89]:
+          - list [ref=f151e90]:
+            - listitem [ref=f151e91]:
+              - link [ref=f151e93] [cursor=pointer]:
+                - /url: /
+            - listitem [ref=f151e101]:
+              - link "Manual" [ref=f151e102] [cursor=pointer]:
+                - /url: /user-documentation/
+            - listitem [ref=f151e103]:
+              - link "Commercial" [ref=f151e104] [cursor=pointer]:
+                - /url: /doc/commercial.html
+            - listitem [ref=f151e105]:
+              - link "Blog" [ref=f151e106] [cursor=pointer]:
+                - /url: /news.html
+            - listitem [ref=f151e107]:
+              - generic "Search Box" [ref=f151e110]:
+                - form [ref=f151e111]:
+                  - searchbox "search input" [ref=f151e112]
+                  - button "search by voice" [ref=f151e113] [cursor=pointer]
+                  - button "Search" [ref=f151e114] [cursor=pointer]
+          - generic [ref=f151e116]:
+            - link [ref=f151e117] [cursor=pointer]:
+              - /url: https://twitter.com/share?url=https://nuitka.net/doc/commercial-license.html&hashtags=nuitka
+              - generic [ref=f151e118]:
+                - paragraph [ref=f151e119]
+                - paragraph [ref=f151e122]: share
+            - link [ref=f151e123] [cursor=pointer]:
+              - /url: https://www.facebook.com/sharer.php?u=https://nuitka.net/doc/commercial-license.html&hashtag=%23nuitka
+              - generic [ref=f151e124]:
+                - paragraph [ref=f151e125]
+                - paragraph [ref=f151e128]: share
+            - link [ref=f151e129] [cursor=pointer]:
+              - /url: https://mastodonshare.com/?url=https://nuitka.net/doc/commercial-license.html
+              - generic [ref=f151e130]:
+                - paragraph [ref=f151e131]
+                - paragraph [ref=f151e134]: share
+            - link [ref=f151e135] [cursor=pointer]:
+              - /url: http://www.reddit.com/submit?url=https://nuitka.net/doc/commercial-license.html
+              - generic [ref=f151e136]:
+                - paragraph [ref=f151e137]
+                - paragraph [ref=f151e140]: share
+        - heading [level=1] [ref=f151e141]:
+          - text: License of Nuitka Commercial
+          - link "Link to this heading" [ref=f151e142] [cursor=pointer]:
+            - /url: "#license-of-nuitka-commercial"
+        - generic [ref=f151e145]:
+          - heading [level=2] [ref=f151e146]:
+            - text: Overview
+            - link "Link to this heading" [ref=f151e147] [cursor=pointer]:
+              - /url: "#overview"
+          - paragraph [ref=f151e150]:
+            - text: Nuitka Commercial is unlike Nuitka
+            - strong [ref=f151e151]: not
+            - text: Free Software. It is under a license that forbids the distribution of its source code or binaries.
+          - paragraph [ref=f151e152]: That however does not impact your software at all, nor how you use compiled binaries of your software. You are free to distribute those without any restrictions.
+        - generic [ref=f151e153]:
+          - heading [level=2] [ref=f151e154]:
+            - text: License Text
+            - link "Link to this heading" [ref=f151e155] [cursor=pointer]:
+              - /url: "#license-text"
+          - paragraph [ref=f151e158]: This is the license text of Nuitka Commercial.
+          - generic [ref=f151e160]:
+            - generic [ref=f151e161]: Part of Nuitka Commercial. Commercial grade license of Nuitka. No distribution to outside of the buyer is allowed, the file must be kept secret. Usage is limited to Nuitka. Changed versions, or versions of changes sent to the copyright holder Kay Hayen are automatically licensed to him under the Apache License, Version 2.0 to allow opening and closing of the code by his discretion. Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+            - button "Copy to clipboard" [ref=f151e162] [cursor=pointer]:
+              - img "Copy to clipboard" [ref=f151e163]
+          - paragraph [ref=f151e167]: Intended consequences are
+          - list [ref=f151e168]:
+            - listitem [ref=f151e169]:
+              - paragraph [ref=f151e170]: You do not get to sue me, just like with Nuitka itself.
+            - listitem [ref=f151e171]:
+              - paragraph [ref=f151e172]: You have to keep Nuitka Commercial secret, but you get its source code so you can check that there is no malice.
+            - listitem [ref=f151e173]:
+              - paragraph [ref=f151e174]: If you modify Nuitka Commercial and send it to me, you automatically relicense to Apache license, such that I effectively can use it in any way, including keeping it in Nuitka Commercial, and also making it part of Nuitka Standard (the Free Software) edition.
+    - generic [ref=f151e175]:
+      - separator [ref=f151e176]
+      - contentinfo [ref=f151e177]:
+        - paragraph [ref=f151e178]: © Copyright 2026, Kay Hayen. All rights reserved. Content from this site may not be republished without prior written permission..

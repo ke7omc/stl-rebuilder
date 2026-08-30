@@ -1,0 +1,193 @@
+- generic [ref=f150e2]:
+  - generic [ref=f150e3]:
+    - link "DuckDuckGo" [ref=f150e4] [cursor=pointer]:
+      - /url: /html/
+    - generic [ref=f150e5]:
+      - generic [ref=f150e6]:
+        - textbox [ref=f150e7]: z
+        - button "Submit" [ref=f150e8] [cursor=pointer]
+      - combobox [ref=f150e10] [cursor=pointer]:
+        - option "All Regions" [selected]
+        - option "Argentina"
+        - option "Australia"
+        - option "Austria"
+        - option "Belgium (fr)"
+        - option "Belgium (nl)"
+        - option "Brazil"
+        - option "Bulgaria"
+        - option "Canada (en)"
+        - option "Canada (fr)"
+        - option "Catalonia"
+        - option "Chile"
+        - option "China"
+        - option "Colombia"
+        - option "Croatia"
+        - option "Czech Republic"
+        - option "Denmark"
+        - option "Estonia"
+        - option "Finland"
+        - option "France"
+        - option "Germany"
+        - option "Greece"
+        - option "Hong Kong"
+        - option "Hungary"
+        - option "Iceland"
+        - option "India (en)"
+        - option "Indonesia (en)"
+        - option "Ireland"
+        - option "Israel (en)"
+        - option "Italy"
+        - option "Japan"
+        - option "Korea"
+        - option "Latvia"
+        - option "Lithuania"
+        - option "Malaysia (en)"
+        - option "Mexico"
+        - option "Netherlands"
+        - option "New Zealand"
+        - option "Norway"
+        - option "Pakistan (en)"
+        - option "Peru"
+        - option "Philippines (en)"
+        - option "Poland"
+        - option "Portugal"
+        - option "Romania"
+        - option "Russia"
+        - option "Saudi Arabia"
+        - option "Singapore"
+        - option "Slovakia"
+        - option "Slovenia"
+        - option "South Africa"
+        - option "Spain (ca)"
+        - option "Spain (es)"
+        - option "Sweden"
+        - option "Switzerland (de)"
+        - option "Switzerland (fr)"
+        - option "Taiwan"
+        - option "Thailand (en)"
+        - option "Turkey"
+        - option "US (English)"
+        - option "US (Spanish)"
+        - option "Ukraine"
+        - option "United Kingdom"
+        - option "Vietnam (en)"
+      - combobox [ref=f150e12] [cursor=pointer]:
+        - option "Any Time" [selected]
+        - option "Past Day"
+        - option "Past Week"
+        - option "Past Month"
+        - option "Past Year"
+  - generic [ref=f150e15]:
+    - generic [ref=f150e17]:
+      - heading [level=2] [ref=f150e18]:
+        - link "Z - Wikipedia" [ref=f150e19] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FZ&rut=8181f43b163c20ac766e2973520b548308ec0602c0aeed5a0fb832131d61502d
+      - generic [ref=f150e21]:
+        - link [ref=f150e23] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FZ&rut=8181f43b163c20ac766e2973520b548308ec0602c0aeed5a0fb832131d61502d
+        - link "en.wikipedia.org/wiki/Z" [ref=f150e24] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FZ&rut=8181f43b163c20ac766e2973520b548308ec0602c0aeed5a0fb832131d61502d
+      - 'link "Z (minuscule: z) is the twenty-sixth and last letter of the Latin alphabet. It is used in the modern English alphabet, in the alphabets of other Western European languages, and in others worldwide. Its usual names in English are zed (/ ˈzɛd /), which is most commonly used in British English, and zee (/ ˈziː / ⓘ), most commonly used in American English, [1] with an occasional archaic ..." [ref=f150e25] [cursor=pointer]':
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FZ&rut=8181f43b163c20ac766e2973520b548308ec0602c0aeed5a0fb832131d61502d
+    - generic [ref=f150e27]:
+      - heading [level=2] [ref=f150e28]:
+        - link "The Letter Z | Alphabet A-Z | Jack Hartmann ABC Song" [ref=f150e29] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DiiXAbuuWFgk&rut=76e42a6647f42d473fc55bc1cd0e7fe16e2f60e24d1655af349234876131e842
+      - generic [ref=f150e31]:
+        - link [ref=f150e33] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DiiXAbuuWFgk&rut=76e42a6647f42d473fc55bc1cd0e7fe16e2f60e24d1655af349234876131e842
+        - link "www.youtube.com/watch?v=iiXAbuuWFgk" [ref=f150e34] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DiiXAbuuWFgk&rut=76e42a6647f42d473fc55bc1cd0e7fe16e2f60e24d1655af349234876131e842
+      - link "This Jack Hartmann's Alphabet A-Z series for the letter Z z. Learn about the Letter Z.Learn that Z is a consonant in the alphabet. Learn to recognize the up..." [ref=f150e35] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DiiXAbuuWFgk&rut=76e42a6647f42d473fc55bc1cd0e7fe16e2f60e24d1655af349234876131e842
+    - generic [ref=f150e37]:
+      - heading [level=2] [ref=f150e38]:
+        - link "Zebra | Letter Z | Baby Shark's ABC Song | Learn ABCs with ... - YouTube" [ref=f150e39] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3D2vP_oZ57Kgo&rut=ffb1a32493f923cc1eadda26b3730ccfc1ce452c22ec27fa15831f64eedff3d4
+      - generic [ref=f150e41]:
+        - link [ref=f150e43] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3D2vP_oZ57Kgo&rut=ffb1a32493f923cc1eadda26b3730ccfc1ce452c22ec27fa15831f64eedff3d4
+        - link "www.youtube.com/watch?v=2vP_oZ57Kgo" [ref=f150e44] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3D2vP_oZ57Kgo&rut=ffb1a32493f923cc1eadda26b3730ccfc1ce452c22ec27fa15831f64eedff3d4
+      - link "Zebra | Letter Z | Baby Shark's ABC Song | Learn ABCs with Baby Shark Official Baby Shark Official 15.7M subscribers 560" [ref=f150e45] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3D2vP_oZ57Kgo&rut=ffb1a32493f923cc1eadda26b3730ccfc1ce452c22ec27fa15831f64eedff3d4
+    - generic [ref=f150e47]:
+      - heading [level=2] [ref=f150e48]:
+        - link "Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash" [ref=f150e49] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fz.ai%2F&rut=e9486988597a8987f6fb9c718b59fc512285bc65dece5e41a5842734262c9628
+      - generic [ref=f150e51]:
+        - link [ref=f150e53] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fz.ai%2F&rut=e9486988597a8987f6fb9c718b59fc512285bc65dece5e41a5842734262c9628
+        - link "z.ai" [ref=f150e54] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fz.ai%2F&rut=e9486988597a8987f6fb9c718b59fc512285bc65dece5e41a5842734262c9628
+      - link "Meet Z.ai, the AI assistant powered by GLM-5.3-Flash. Build websites, write code, handle long-horizon tasks, and get instant answers. Fast, smart, and reliable." [ref=f150e55] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fz.ai%2F&rut=e9486988597a8987f6fb9c718b59fc512285bc65dece5e41a5842734262c9628
+    - generic [ref=f150e57]:
+      - heading [level=2] [ref=f150e58]:
+        - link "Official Website | ZZ Top" [ref=f150e59] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.zztop.com%2F&rut=0265ee2b89d4cedf3d14b2ee466ed391fd38fb8cc08a46d65dbdc102c4436de0
+      - generic [ref=f150e61]:
+        - link [ref=f150e63] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.zztop.com%2F&rut=0265ee2b89d4cedf3d14b2ee466ed391fd38fb8cc08a46d65dbdc102c4436de0
+        - link "www.zztop.com" [ref=f150e64] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.zztop.com%2F&rut=0265ee2b89d4cedf3d14b2ee466ed391fd38fb8cc08a46d65dbdc102c4436de0
+      - link "The Official Website of ZZ Top It was announced today that Frank Beard, ZZ Top's drummer for the past 56 years, has died. He was in hospice care when he passed away at his ranch in Richmond, TX with family members at his side. Beard, together with guitarist Billy Gibbons and bassist Dusty Hill were one of music's most enduring line-ups continuing until 2021 when Hill's passing saw Elwood ..." [ref=f150e65] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.zztop.com%2F&rut=0265ee2b89d4cedf3d14b2ee466ed391fd38fb8cc08a46d65dbdc102c4436de0
+    - generic [ref=f150e67]:
+      - heading [level=2] [ref=f150e68]:
+        - link "Z - Simple English Wikipedia, the free encyclopedia" [ref=f150e69] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fsimple.wikipedia.org%2Fwiki%2FZ&rut=cf1b4346126716d9d1d056607a7350a68bbcfbcc6ed09136f021c782547d1568
+      - generic [ref=f150e71]:
+        - link [ref=f150e73] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fsimple.wikipedia.org%2Fwiki%2FZ&rut=cf1b4346126716d9d1d056607a7350a68bbcfbcc6ed09136f021c782547d1568
+        - link "simple.wikipedia.org/wiki/Z" [ref=f150e74] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fsimple.wikipedia.org%2Fwiki%2FZ&rut=cf1b4346126716d9d1d056607a7350a68bbcfbcc6ed09136f021c782547d1568
+      - link "Z is the last letter in the English alphabet and has different pronunciations and meanings. Learn about its origin, usage, and examples in cartoons, physics, chemistry, and politics." [ref=f150e75] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fsimple.wikipedia.org%2Fwiki%2FZ&rut=cf1b4346126716d9d1d056607a7350a68bbcfbcc6ed09136f021c782547d1568
+    - generic [ref=f150e77]:
+      - heading [level=2] [ref=f150e78]:
+        - link "Z (disambiguation) - Wikipedia" [ref=f150e79] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FZ_(disambiguation)&rut=cbf124db64ec786f984706b90823d8e5ab4005d70ef30d43091a0954e99d5030
+      - generic [ref=f150e81]:
+        - link [ref=f150e83] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FZ_(disambiguation)&rut=cbf124db64ec786f984706b90823d8e5ab4005d70ef30d43091a0954e99d5030
+        - link "en.wikipedia.org/wiki/Z_(disambiguation)" [ref=f150e84] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FZ_(disambiguation)&rut=cbf124db64ec786f984706b90823d8e5ab4005d70ef30d43091a0954e99d5030
+      - link "Z (disambiguation) Look up Z, z, -z, z', or z- in Wiktionary, the free dictionary. Z, or z, is the twenty-sixth and last letter of the English alphabet. Z may also refer to:" [ref=f150e85] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FZ_(disambiguation)&rut=cbf124db64ec786f984706b90823d8e5ab4005d70ef30d43091a0954e99d5030
+    - generic [ref=f150e87]:
+      - heading [level=2] [ref=f150e88]:
+        - link "Phonics Letter Z - ABC's - video Dailymotion" [ref=f150e89] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.dailymotion.com%2Fvideo%2Fx28d3lz&rut=57341b1a62310b958436a21da2f133472b00226855b1df7a77e53e80a291bbcc
+      - generic [ref=f150e91]:
+        - link [ref=f150e93] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.dailymotion.com%2Fvideo%2Fx28d3lz&rut=57341b1a62310b958436a21da2f133472b00226855b1df7a77e53e80a291bbcc
+        - link "www.dailymotion.com/video/x28d3lz" [ref=f150e94] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.dailymotion.com%2Fvideo%2Fx28d3lz&rut=57341b1a62310b958436a21da2f133472b00226855b1df7a77e53e80a291bbcc
+      - link "This phonics Letter Z video from Tea Time with Tayla is a great way to learn all about the Letter Z. Use this video to teach and learn the Alphabet, Phonics, the Letter Z Sound, Vocabulary Words with the Letter Z, and How to Write the Uppercase and Lowercase Letter Z. -- SUBSCRIBE to TEA TIME WITH TAYLA --" [ref=f150e95] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.dailymotion.com%2Fvideo%2Fx28d3lz&rut=57341b1a62310b958436a21da2f133472b00226855b1df7a77e53e80a291bbcc
+    - generic [ref=f150e97]:
+      - heading [level=2] [ref=f150e98]:
+        - link "Letter Z Song, Z for Zebra, Learn Alphabets with Bob The Train" [ref=f150e99] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fkidvideo.org%2Fvideo%2Fletter%2Dz%2Dsong%2Dz%2Dfor%2Dzebra%2Dlearn%2Dalphabets%2Dwith%2Dbob%2Dthe%2Dtrain%2Di52154.html&rut=d13b81718563d2f265c243f1e0ceb4f8b65fcb1eccfc3e8640aad5e8da955855
+      - generic [ref=f150e101]:
+        - link [ref=f150e103] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fkidvideo.org%2Fvideo%2Fletter%2Dz%2Dsong%2Dz%2Dfor%2Dzebra%2Dlearn%2Dalphabets%2Dwith%2Dbob%2Dthe%2Dtrain%2Di52154.html&rut=d13b81718563d2f265c243f1e0ceb4f8b65fcb1eccfc3e8640aad5e8da955855
+        - link "kidvideo.org/video/letter-z-song-z-for-zebra-learn-alphabets-with-bob-the-train-i52154.html" [ref=f150e104] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fkidvideo.org%2Fvideo%2Fletter%2Dz%2Dsong%2Dz%2Dfor%2Dzebra%2Dlearn%2Dalphabets%2Dwith%2Dbob%2Dthe%2Dtrain%2Di52154.html&rut=d13b81718563d2f265c243f1e0ceb4f8b65fcb1eccfc3e8640aad5e8da955855
+      - link "Letter Z Song, Z for Zebra, Learn Alphabets with Bob The Train with tags letter z song, letter z phonics, sounds letters and words, nursery rhymes, baby songs" [ref=f150e105] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fkidvideo.org%2Fvideo%2Fletter%2Dz%2Dsong%2Dz%2Dfor%2Dzebra%2Dlearn%2Dalphabets%2Dwith%2Dbob%2Dthe%2Dtrain%2Di52154.html&rut=d13b81718563d2f265c243f1e0ceb4f8b65fcb1eccfc3e8640aad5e8da955855
+    - generic [ref=f150e107]:
+      - heading [level=2] [ref=f150e108]:
+        - link "Z - Wikipedia, la enciclopedia libre" [ref=f150e109] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fes.wikipedia.org%2Fwiki%2FZ&rut=49254f7340c5ebc4f5dd96bd7c1e12f903fdeeb1383255c4fb1a2924048d8db4
+      - generic [ref=f150e111]:
+        - link [ref=f150e113] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fes.wikipedia.org%2Fwiki%2FZ&rut=49254f7340c5ebc4f5dd96bd7c1e12f903fdeeb1383255c4fb1a2924048d8db4
+        - link "es.wikipedia.org/wiki/Z" [ref=f150e114] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fes.wikipedia.org%2Fwiki%2FZ&rut=49254f7340c5ebc4f5dd96bd7c1e12f903fdeeb1383255c4fb1a2924048d8db4
+      - link "La z es la última letra del alfabeto español y la vigesimosexta del latino. Su origen se remonta al fenicio zayin, que significaba arma, y al griego zeta, que representaba el sonido /z/." [ref=f150e115] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fes.wikipedia.org%2Fwiki%2FZ&rut=49254f7340c5ebc4f5dd96bd7c1e12f903fdeeb1383255c4fb1a2924048d8db4
+    - button "Next" [ref=f150e118] [cursor=pointer]
+    - link "Feedback" [ref=f150e120] [cursor=pointer]:
+      - /url: //duckduckgo.com/feedback.html

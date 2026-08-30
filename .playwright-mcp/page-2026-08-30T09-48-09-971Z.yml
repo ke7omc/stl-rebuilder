@@ -1,0 +1,193 @@
+- generic [ref=f153e2]:
+  - generic [ref=f153e3]:
+    - link "DuckDuckGo" [ref=f153e4] [cursor=pointer]:
+      - /url: /html/
+    - generic [ref=f153e5]:
+      - generic [ref=f153e6]:
+        - textbox [ref=f153e7]: Fluent axisymmetric solver requires axis of rotation x-axis y positive mesh requirement
+        - button "Submit" [ref=f153e8] [cursor=pointer]
+      - combobox [ref=f153e10] [cursor=pointer]:
+        - option "All Regions" [selected]
+        - option "Argentina"
+        - option "Australia"
+        - option "Austria"
+        - option "Belgium (fr)"
+        - option "Belgium (nl)"
+        - option "Brazil"
+        - option "Bulgaria"
+        - option "Canada (en)"
+        - option "Canada (fr)"
+        - option "Catalonia"
+        - option "Chile"
+        - option "China"
+        - option "Colombia"
+        - option "Croatia"
+        - option "Czech Republic"
+        - option "Denmark"
+        - option "Estonia"
+        - option "Finland"
+        - option "France"
+        - option "Germany"
+        - option "Greece"
+        - option "Hong Kong"
+        - option "Hungary"
+        - option "Iceland"
+        - option "India (en)"
+        - option "Indonesia (en)"
+        - option "Ireland"
+        - option "Israel (en)"
+        - option "Italy"
+        - option "Japan"
+        - option "Korea"
+        - option "Latvia"
+        - option "Lithuania"
+        - option "Malaysia (en)"
+        - option "Mexico"
+        - option "Netherlands"
+        - option "New Zealand"
+        - option "Norway"
+        - option "Pakistan (en)"
+        - option "Peru"
+        - option "Philippines (en)"
+        - option "Poland"
+        - option "Portugal"
+        - option "Romania"
+        - option "Russia"
+        - option "Saudi Arabia"
+        - option "Singapore"
+        - option "Slovakia"
+        - option "Slovenia"
+        - option "South Africa"
+        - option "Spain (ca)"
+        - option "Spain (es)"
+        - option "Sweden"
+        - option "Switzerland (de)"
+        - option "Switzerland (fr)"
+        - option "Taiwan"
+        - option "Thailand (en)"
+        - option "Turkey"
+        - option "US (English)"
+        - option "US (Spanish)"
+        - option "Ukraine"
+        - option "United Kingdom"
+        - option "Vietnam (en)"
+      - combobox [ref=f153e12] [cursor=pointer]:
+        - option "Any Time" [selected]
+        - option "Past Day"
+        - option "Past Week"
+        - option "Past Month"
+        - option "Past Year"
+  - generic [ref=f153e15]:
+    - generic [ref=f153e17]:
+      - heading [level=2] [ref=f153e18]:
+        - link "What are the requirements for an axisymmetric analysis ... - Ansys ..." [ref=f153e19] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Finnovationspace.ansys.com%2Fknowledge%2Fforums%2Ftopic%2Fwhat%2Dare%2Dthe%2Drequirements%2Dfor%2Dan%2Daxisymmetric%2Danalysis%2F&rut=234f979058ef55ff7679a1672c47ee9f40339254aae6a48a2e8e22a0bfe07c2c
+      - generic [ref=f153e21]:
+        - link [ref=f153e23] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Finnovationspace.ansys.com%2Fknowledge%2Fforums%2Ftopic%2Fwhat%2Dare%2Dthe%2Drequirements%2Dfor%2Dan%2Daxisymmetric%2Danalysis%2F&rut=234f979058ef55ff7679a1672c47ee9f40339254aae6a48a2e8e22a0bfe07c2c
+        - link "innovationspace.ansys.com/knowledge/forums/topic/what-are-the-requirements-for-an-axisymmetric-analysis/" [ref=f153e24] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Finnovationspace.ansys.com%2Fknowledge%2Fforums%2Ftopic%2Fwhat%2Dare%2Dthe%2Drequirements%2Dfor%2Dan%2Daxisymmetric%2Danalysis%2F&rut=234f979058ef55ff7679a1672c47ee9f40339254aae6a48a2e8e22a0bfe07c2c
+      - 'link "WARNING: Invalid axisymmetric mesh: 6 nodes lie below the x-axis. and WARNING: Mesh check failed. If you do, Use Mesh->Translate and move the geometry so ymin is +ve. Be sure to change the zone type of the axis of rotation to \"axis\" and not symmetry, using the Boundary Conditions task page." [ref=f153e25] [cursor=pointer]':
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Finnovationspace.ansys.com%2Fknowledge%2Fforums%2Ftopic%2Fwhat%2Dare%2Dthe%2Drequirements%2Dfor%2Dan%2Daxisymmetric%2Danalysis%2F&rut=234f979058ef55ff7679a1672c47ee9f40339254aae6a48a2e8e22a0bfe07c2c
+    - generic [ref=f153e27]:
+      - heading [level=2] [ref=f153e28]:
+        - link "Axisymmetric FSI - Innovation Space" [ref=f153e29] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Finnovationspace.ansys.com%2Fforum%2Fforums%2Ftopic%2Faxisymmetric%2Dfsi%2F&rut=ff03180522bd1db1f722a70bd20ffc1a8a45884593b7c0b9ede4a28286153aeb
+      - generic [ref=f153e31]:
+        - link [ref=f153e33] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Finnovationspace.ansys.com%2Fforum%2Fforums%2Ftopic%2Faxisymmetric%2Dfsi%2F&rut=ff03180522bd1db1f722a70bd20ffc1a8a45884593b7c0b9ede4a28286153aeb
+        - link "innovationspace.ansys.com/forum/forums/topic/axisymmetric-fsi/" [ref=f153e34] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Finnovationspace.ansys.com%2Fforum%2Fforums%2Ftopic%2Faxisymmetric%2Dfsi%2F&rut=ff03180522bd1db1f722a70bd20ffc1a8a45884593b7c0b9ede4a28286153aeb
+      - link "I need to do an axisymmetric model due to computational time (12 months for the fluid flow without axisymmetrical boundary conditions). Fluent uses the X-axis for the axis, but Structural uses the Y axis." [ref=f153e35] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Finnovationspace.ansys.com%2Fforum%2Fforums%2Ftopic%2Faxisymmetric%2Dfsi%2F&rut=ff03180522bd1db1f722a70bd20ffc1a8a45884593b7c0b9ede4a28286153aeb
+    - generic [ref=f153e37]:
+      - heading [level=2] [ref=f153e38]:
+        - link "9.3. Swirling and Rotating Flows - Ansys" [ref=f153e39] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fansyshelp.ansys.com%2Fpublic%2FViews%2FSecured%2Fcorp%2Fv242%2Fen%2Fflu_ug%2Fflu_ug_uns_sec_models_swirl.html&rut=d5e32fae6b3ff382a7659fd68c6f718ffd10fe44a760afe657f0bb097e92b75b
+      - generic [ref=f153e41]:
+        - link [ref=f153e43] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fansyshelp.ansys.com%2Fpublic%2FViews%2FSecured%2Fcorp%2Fv242%2Fen%2Fflu_ug%2Fflu_ug_uns_sec_models_swirl.html&rut=d5e32fae6b3ff382a7659fd68c6f718ffd10fe44a760afe657f0bb097e92b75b
+        - link "ansyshelp.ansys.com/public/Views/Secured/corp/v242/en/flu_ug/flu_ug_uns_sec_models_swirl.html" [ref=f153e44] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fansyshelp.ansys.com%2Fpublic%2FViews%2FSecured%2Fcorp%2Fv242%2Fen%2Fflu_ug%2Fflu_ug_uns_sec_models_swirl.html&rut=d5e32fae6b3ff382a7659fd68c6f718ffd10fe44a760afe657f0bb097e92b75b
+      - link "9.3.3.1. Coordinate System Restrictions Recall that for an axisymmetric problem, the axis of rotation must be the axis and the mesh must lie on or above the line. 9.3.3.2. Mesh Sensitivity in Swirling and Rotating Flows" [ref=f153e45] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fansyshelp.ansys.com%2Fpublic%2FViews%2FSecured%2Fcorp%2Fv242%2Fen%2Fflu_ug%2Fflu_ug_uns_sec_models_swirl.html&rut=d5e32fae6b3ff382a7659fd68c6f718ffd10fe44a760afe657f0bb097e92b75b
+    - generic [ref=f153e47]:
+      - heading [level=2] [ref=f153e48]:
+        - link "6.2. Mesh Requirements and Considerations" [ref=f153e49] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fansyshelp.ansys.com%2Fpublic%2FViews%2FSecured%2Fcorp%2Fv251%2Fen%2Fflu_ug%2Fflu_ug_GridQuality.html&rut=deb47f4f02c35e766a24698ede42306b749f9f50bd3d4e629c4dd8866ad78a93
+      - generic [ref=f153e51]:
+        - link [ref=f153e53] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fansyshelp.ansys.com%2Fpublic%2FViews%2FSecured%2Fcorp%2Fv251%2Fen%2Fflu_ug%2Fflu_ug_GridQuality.html&rut=deb47f4f02c35e766a24698ede42306b749f9f50bd3d4e629c4dd8866ad78a93
+        - link "ansyshelp.ansys.com/public/Views/Secured/corp/v251/en/flu_ug/flu_ug_GridQuality.html" [ref=f153e54] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fansyshelp.ansys.com%2Fpublic%2FViews%2FSecured%2Fcorp%2Fv251%2Fen%2Fflu_ug%2Fflu_ug_GridQuality.html&rut=deb47f4f02c35e766a24698ede42306b749f9f50bd3d4e629c4dd8866ad78a93
+      - 'link "Axisymmetric geometries must be defined such that the axis of rotation is the axis of the Cartesian coordinates used to define the geometry (Figure 6.21: Setup of Axisymmetric Geometries with the x Axis as the Centerline)." [ref=f153e55] [cursor=pointer]':
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fansyshelp.ansys.com%2Fpublic%2FViews%2FSecured%2Fcorp%2Fv251%2Fen%2Fflu_ug%2Fflu_ug_GridQuality.html&rut=deb47f4f02c35e766a24698ede42306b749f9f50bd3d4e629c4dd8866ad78a93
+    - generic [ref=f153e57]:
+      - heading [level=2] [ref=f153e58]:
+        - link "Orifice Plate - Fluent" [ref=f153e59] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fmee.group.shef.ac.uk%2FpracticalCFD%2Ftutorials%2Forifice_axisymmetric%2Forifice_axisymmetric%2DFluent.html&rut=0278fde079165b314afb7a3d57f3296f517588aaada82dcbf4ca94af931b5409
+      - generic [ref=f153e61]:
+        - link [ref=f153e63] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fmee.group.shef.ac.uk%2FpracticalCFD%2Ftutorials%2Forifice_axisymmetric%2Forifice_axisymmetric%2DFluent.html&rut=0278fde079165b314afb7a3d57f3296f517588aaada82dcbf4ca94af931b5409
+        - link "mee.group.shef.ac.uk/practicalCFD/tutorials/orifice_axisymmetric/orifice_axisymmetric-Fluent.html" [ref=f153e64] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fmee.group.shef.ac.uk%2FpracticalCFD%2Ftutorials%2Forifice_axisymmetric%2Forifice_axisymmetric%2DFluent.html&rut=0278fde079165b314afb7a3d57f3296f517588aaada82dcbf4ca94af931b5409
+      - link "The Axisymmetric model will calculate the simulation on the 2D mesh assuming that it represents a slice of a 3D object that would be created if the slice were rotated 360 degrees around the x-axis. The code has no option to specify the axis of rotation, it always uses the positive x-axis. Axisymmetric meshes must be built with this in mind." [ref=f153e65] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fmee.group.shef.ac.uk%2FpracticalCFD%2Ftutorials%2Forifice_axisymmetric%2Forifice_axisymmetric%2DFluent.html&rut=0278fde079165b314afb7a3d57f3296f517588aaada82dcbf4ca94af931b5409
+    - generic [ref=f153e67]:
+      - heading [level=2] [ref=f153e68]:
+        - link "Bellmouth Inlet - Fluent" [ref=f153e69] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fmee.group.shef.ac.uk%2FpracticalCFD%2Ftutorials%2Fbellmouth_inlet%2Fbellmouth_inlet_axisymmetric%2DFluent.html&rut=9b884d92a2c9d8f7ea2385fb59020029d922ea11ad5ae1e4e46a3372f814bede
+      - generic [ref=f153e71]:
+        - link [ref=f153e73] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fmee.group.shef.ac.uk%2FpracticalCFD%2Ftutorials%2Fbellmouth_inlet%2Fbellmouth_inlet_axisymmetric%2DFluent.html&rut=9b884d92a2c9d8f7ea2385fb59020029d922ea11ad5ae1e4e46a3372f814bede
+        - link "mee.group.shef.ac.uk/practicalCFD/tutorials/bellmouth_inlet/bellmouth_inlet_axisymmetric-Fluent.html" [ref=f153e74] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fmee.group.shef.ac.uk%2FpracticalCFD%2Ftutorials%2Fbellmouth_inlet%2Fbellmouth_inlet_axisymmetric%2DFluent.html&rut=9b884d92a2c9d8f7ea2385fb59020029d922ea11ad5ae1e4e46a3372f814bede
+      - link "The Axisymmetric model will calculate the simulation on the 2D mesh assuming that it represents a slice of a 3D object that would be created if the slice were rotated 360 degrees around the x-axis." [ref=f153e75] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fmee.group.shef.ac.uk%2FpracticalCFD%2Ftutorials%2Fbellmouth_inlet%2Fbellmouth_inlet_axisymmetric%2DFluent.html&rut=9b884d92a2c9d8f7ea2385fb59020029d922ea11ad5ae1e4e46a3372f814bede
+    - generic [ref=f153e77]:
+      - heading [level=2] [ref=f153e78]:
+        - link "ANSYS FLUENT 12.0 User's Guide - 9.3.4 Modeling Axisymmetric ... - ENEA" [ref=f153e79] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.afs.enea.it%2Fproject%2Fneptunius%2Fdocs%2Ffluent%2Fhtml%2Fug%2Fnode353.htm&rut=2142880a328c28f8b4e2d113f51bdb4bb7206eabd8bf26f6e4e11049c9696336
+      - generic [ref=f153e81]:
+        - link [ref=f153e83] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.afs.enea.it%2Fproject%2Fneptunius%2Fdocs%2Ffluent%2Fhtml%2Fug%2Fnode353.htm&rut=2142880a328c28f8b4e2d113f51bdb4bb7206eabd8bf26f6e4e11049c9696336
+        - link "www.afs.enea.it/project/neptunius/docs/fluent/html/ug/node353.htm" [ref=f153e84] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.afs.enea.it%2Fproject%2Fneptunius%2Fdocs%2Ffluent%2Fhtml%2Fug%2Fnode353.htm&rut=2142880a328c28f8b4e2d113f51bdb4bb7206eabd8bf26f6e4e11049c9696336
+      - link "9.3.4 Modeling Axisymmetric Flows with Swirl or Rotation As discussed in Section 9.3.1, you can solve a 2D axisymmetric problem that includes the prediction of the circumferential or swirl velocity. The assumption of axisymmetry implies that there are no circumferential gradients in the flow, but that there may be non-zero circumferential ..." [ref=f153e85] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.afs.enea.it%2Fproject%2Fneptunius%2Fdocs%2Ffluent%2Fhtml%2Fug%2Fnode353.htm&rut=2142880a328c28f8b4e2d113f51bdb4bb7206eabd8bf26f6e4e11049c9696336
+    - generic [ref=f153e87]:
+      - heading [level=2] [ref=f153e88]:
+        - link "axis for axisymmetric solver -- CFD Online Discussion Forums" [ref=f153e89] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.cfd%2Donline.com%2FForums%2Ffluent%2F31966%2Daxis%2Daxisymmetric%2Dsolver.html&rut=acff7f48ebf5e855b4a8996b659b26d071294b42f4e09304721779cbc4e4fe97
+      - generic [ref=f153e91]:
+        - link [ref=f153e93] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.cfd%2Donline.com%2FForums%2Ffluent%2F31966%2Daxis%2Daxisymmetric%2Dsolver.html&rut=acff7f48ebf5e855b4a8996b659b26d071294b42f4e09304721779cbc4e4fe97
+        - link "www.cfd-online.com/Forums/fluent/31966-axis-axisymmetric-solver.html" [ref=f153e94] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.cfd%2Donline.com%2FForums%2Ffluent%2F31966%2Daxis%2Daxisymmetric%2Dsolver.html&rut=acff7f48ebf5e855b4a8996b659b26d071294b42f4e09304721779cbc4e4fe97
+      - link "I found that I can only set X-axis as axis-type boundary condition for axisymmetric solver. Otherwise, there is error as \"non-positive cell area&q" [ref=f153e95] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.cfd%2Donline.com%2FForums%2Ffluent%2F31966%2Daxis%2Daxisymmetric%2Dsolver.html&rut=acff7f48ebf5e855b4a8996b659b26d071294b42f4e09304721779cbc4e4fe97
+    - generic [ref=f153e97]:
+      - heading [level=2] [ref=f153e98]:
+        - link "ANSYS FLUENT 12.0 User's Guide - 9.3.3 Mesh Setup for Swirling and ..." [ref=f153e99] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwwwafs.portici.enea.it%2Fproject%2Fneptunius%2Fdocs%2Ffluent%2Fhtml%2Fug%2Fnode352.htm&rut=ed8b00d045ff83483c0e406acdc92a923792ed1b5d3b47f41179e78ccc7cd7b1
+      - generic [ref=f153e101]:
+        - link [ref=f153e103] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwwwafs.portici.enea.it%2Fproject%2Fneptunius%2Fdocs%2Ffluent%2Fhtml%2Fug%2Fnode352.htm&rut=ed8b00d045ff83483c0e406acdc92a923792ed1b5d3b47f41179e78ccc7cd7b1
+        - link "wwwafs.portici.enea.it/project/neptunius/docs/fluent/html/ug/node352.htm" [ref=f153e104] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwwwafs.portici.enea.it%2Fproject%2Fneptunius%2Fdocs%2Ffluent%2Fhtml%2Fug%2Fnode352.htm&rut=ed8b00d045ff83483c0e406acdc92a923792ed1b5d3b47f41179e78ccc7cd7b1
+      - link "Recall that for an axisymmetric problem, the axis of rotation must be the axis and the mesh must lie on or above the line. Mesh Sensitivity in Swirling and Rotating Flows In addition to the setup constraint described above, you should be aware of the need for sufficient resolution in your mesh when solving flows that include swirl or rotation." [ref=f153e105] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwwwafs.portici.enea.it%2Fproject%2Fneptunius%2Fdocs%2Ffluent%2Fhtml%2Fug%2Fnode352.htm&rut=ed8b00d045ff83483c0e406acdc92a923792ed1b5d3b47f41179e78ccc7cd7b1
+    - generic [ref=f153e107]:
+      - heading [level=2] [ref=f153e108]:
+        - link "10.3. Swirling and Rotating Flows" [ref=f153e109] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fansyshelp.ansys.com%2Fpublic%2FViews%2FSecured%2Fcorp%2Fv252%2Fen%2Fflu_ug%2Fflu_ug_uns_sec_models_swirl.html&rut=8ec789ed6f8f364627319cec9a6db68ab2324c6359d8448818c038d30b8a10a1
+      - generic [ref=f153e111]:
+        - link [ref=f153e113] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fansyshelp.ansys.com%2Fpublic%2FViews%2FSecured%2Fcorp%2Fv252%2Fen%2Fflu_ug%2Fflu_ug_uns_sec_models_swirl.html&rut=8ec789ed6f8f364627319cec9a6db68ab2324c6359d8448818c038d30b8a10a1
+        - link "ansyshelp.ansys.com/public/Views/Secured/corp/v252/en/flu_ug/flu_ug_uns_sec_models_swirl.html" [ref=f153e114] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fansyshelp.ansys.com%2Fpublic%2FViews%2FSecured%2Fcorp%2Fv252%2Fen%2Fflu_ug%2Fflu_ug_uns_sec_models_swirl.html&rut=8ec789ed6f8f364627319cec9a6db68ab2324c6359d8448818c038d30b8a10a1
+      - link "10.3.1.1. Axisymmetric Flows with Swirl or Rotation Your problem may be axisymmetric with respect to geometry and flow conditions but still include swirl or rotation. In this case, you can model the flow in 2D (that is, solve the axisymmetric problem) and include the prediction of the circumferential (or swirl) velocity." [ref=f153e115] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fansyshelp.ansys.com%2Fpublic%2FViews%2FSecured%2Fcorp%2Fv252%2Fen%2Fflu_ug%2Fflu_ug_uns_sec_models_swirl.html&rut=8ec789ed6f8f364627319cec9a6db68ab2324c6359d8448818c038d30b8a10a1
+    - button "Next" [ref=f153e118] [cursor=pointer]
+    - link "Feedback" [ref=f153e120] [cursor=pointer]:
+      - /url: //duckduckgo.com/feedback.html

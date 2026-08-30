@@ -1,0 +1,258 @@
+- generic [active] [ref=f107e1]:
+  - main [ref=f107e4]:
+    - heading "Grain Types" [level=1] [ref=f107e5]
+    - generic [ref=f107e6]:
+      - link "Jump to navigation" [ref=f107e7] [cursor=pointer]:
+        - /url: "#mw-head"
+      - link "Jump to search" [ref=f107e8] [cursor=pointer]:
+        - /url: "#searchInput"
+      - generic [ref=f107e10]:
+        - navigation [ref=f107e11]:
+          - button "Hide the table of contents" [ref=f107e12]
+          - generic [ref=f107e13]:
+            - heading "Contents" [level=2] [ref=f107e14]
+            - generic [ref=f107e15]:
+              - text: "["
+              - generic [ref=f107e16] [cursor=pointer]: hide
+              - text: "]"
+          - list [ref=f107e17]:
+            - listitem [ref=f107e18]:
+              - link "1 BATES Grain (and EndBurner)" [ref=f107e19] [cursor=pointer]:
+                - /url: "#BATES_Grain_(and_EndBurner)"
+                - generic [ref=f107e20]: "1"
+                - generic [ref=f107e21]: BATES Grain (and EndBurner)
+            - listitem [ref=f107e22]:
+              - link "2 C-Slot Grain" [ref=f107e23] [cursor=pointer]:
+                - /url: "#C-Slot_Grain"
+                - generic [ref=f107e24]: "2"
+                - generic [ref=f107e25]: C-Slot Grain
+            - listitem [ref=f107e26]:
+              - link "3 D-Grain" [ref=f107e27] [cursor=pointer]:
+                - /url: "#D-Grain"
+                - generic [ref=f107e28]: "3"
+                - generic [ref=f107e29]: D-Grain
+            - listitem [ref=f107e30]:
+              - link "4 Moon Burner" [ref=f107e31] [cursor=pointer]:
+                - /url: "#Moon_Burner"
+                - generic [ref=f107e32]: "4"
+                - generic [ref=f107e33]: Moon Burner
+            - listitem [ref=f107e34]:
+              - link "5 Star Grain" [ref=f107e35] [cursor=pointer]:
+                - /url: "#Star_Grain"
+                - generic [ref=f107e36]: "5"
+                - generic [ref=f107e37]: Star Grain
+            - listitem [ref=f107e38]:
+              - link "6 X-Core" [ref=f107e39] [cursor=pointer]:
+                - /url: "#X-Core"
+                - generic [ref=f107e40]: "6"
+                - generic [ref=f107e41]: X-Core
+            - listitem [ref=f107e42]:
+              - link "7 Fin-o-cyl" [ref=f107e43] [cursor=pointer]:
+                - /url: "#Fin-o-cyl"
+                - generic [ref=f107e44]: "7"
+                - generic [ref=f107e45]: Fin-o-cyl
+            - listitem [ref=f107e46]:
+              - link "8 Tapered Core (BurnSim 4)" [ref=f107e47] [cursor=pointer]:
+                - /url: "#Tapered_Core_(BurnSim_4)"
+                - generic [ref=f107e48]: "8"
+                - generic [ref=f107e49]: Tapered Core (BurnSim 4)
+            - listitem [ref=f107e50]:
+              - link "9 Custom Grains (BurnSim 4)" [ref=f107e51] [cursor=pointer]:
+                - /url: "#Custom_Grains_(BurnSim_4)"
+                - generic [ref=f107e52]: "9"
+                - generic [ref=f107e53]: Custom Grains (BurnSim 4)
+        - heading "BATES Grain (and EndBurner)" [level=2] [ref=f107e54]
+        - figure [ref=f107e55]:
+          - link [ref=f107e56] [cursor=pointer]:
+            - /url: /wiki/File:Bates_Grain.png
+        - paragraph [ref=f107e59]: A BATES grain is a simple cored cylinder which burns on the core and end surfaces. End surfaces can be inhibited. This is the most common propellant grain type. A BATES grain can be configured to burn progressively or regressively depending on length. If you want an End Burning grain, specify the core diameter as zero. When doing so, BurnSim will assume one end is inhibited and the other is not, thus only burning from one end.
+        - heading "C-Slot Grain" [level=2] [ref=f107e60]
+        - figure [ref=f107e61]:
+          - link [ref=f107e62] [cursor=pointer]:
+            - /url: /wiki/File:Slot.png
+        - paragraph [ref=f107e65]: A C-Slot grain consists of a cylinder with a lengthwise slot removed from the side of the grain. The grain burns on the slot/core surface and grain ends. End surfaces can be inhibited. C-Slot grains are often used to give a longer burn time by providing a larger web thickness than is possible with a BATES grain in the same diameter. Disadvantages include increased case insulation requirements along the edge of the grain surrounding the slot.
+        - heading "D-Grain" [level=2] [ref=f107e66]
+        - figure [ref=f107e67]:
+          - link [ref=f107e68] [cursor=pointer]:
+            - /url: /wiki/File:Dgrain.png
+        - paragraph [ref=f107e71]: A D-Grain is a simple cylinder with a slice removed from the side, resulting in the end of the grain appearing in the shape of the letter D. The grain burns on the ends and flat surface of the 'D'. The ends can be inhibited. D-Grains can provide a very large web thickness in a given grain diameter, allowing for long burns. Thermal issues are more of a concern with this configuration due to the large area of the motor case that is exposed to the flame front for the entire burn.
+        - heading "Moon Burner" [level=2] [ref=f107e72]
+        - figure [ref=f107e73]:
+          - link [ref=f107e74] [cursor=pointer]:
+            - /url: /wiki/File:Moon.png
+        - paragraph [ref=f107e77]: A moon burner grain so named due to the shape of the grain as the propellant burns. The grain is similar to a BATES grain, with the exception of the core being offset rather than down the center. The grain burns on the end surfaces and in the core, the ends can be inhibited. The moon burner grain is another way to increase web thickness but reduces thermal concerns since the flame front is only exposed to the side of the motor case for part of the burn.
+        - heading "Star Grain" [level=2] [ref=f107e78]
+        - figure [ref=f107e79]:
+          - link [ref=f107e80] [cursor=pointer]:
+            - /url: /wiki/File:Star.png
+        - paragraph [ref=f107e83]: The star grain has a core in the shape of a star. The grain burns on the core surface as well as the ends, and the ends can be inhibited. A star grain can be used to get a neutral burn, and reduce the amount of heat transferred to the case.
+        - heading "X-Core" [level=2] [ref=f107e84]
+        - figure [ref=f107e85]:
+          - link [ref=f107e86] [cursor=pointer]:
+            - /url: /wiki/File:Xcore.png
+        - paragraph [ref=f107e89]: An X-Core grain is similar to a star grain except the core is in the shape of an X instead of a star. Its primary advantage is ease of manufacture compared to a star grain.
+        - heading "Fin-o-cyl" [level=2] [ref=f107e90]
+        - figure [ref=f107e91]:
+          - link [ref=f107e92] [cursor=pointer]:
+            - /url: /wiki/File:Finocyl.png
+        - paragraph [ref=f107e95]: A Fin-o-cyl grain consists of a grain with a cylindrical core, like a BATES grain, but then has 'fins' added. Its advantages are similar to that of the star grain but is easier to manufacture.
+        - heading "Tapered Core (BurnSim 4)" [level=2] [ref=f107e96]
+        - paragraph [ref=f107e97]: A Tapered Core grain is an end burner with a hole drilled part-way (or all the way) down its axis. The core can be a straight cylinder or a taper - a diameter at base (the aft, mouth end) narrowing to a smaller core tip diameter further in. If the core stops short of the forward end (a blind core), the plug of propellant ahead of the tip can't burn from the closed side, so the head end is normally inhibited; a core that runs the full length behaves like a tapered BATES grain instead. The grain burns on the core surface and the aft face (the core mouth), and the head end can optionally be left uninhibited only when the core runs the whole length.
+        - paragraph [ref=f107e98]:
+          - text: Unlike every other grain type, a Tapered Core's cross-section genuinely changes along the axis - it's an annulus near the mouth, a smaller annulus further in if tapered, and a full disc past the core tip - so BurnSim simulates and draws it from a meridional half-section rather than the usual constant-cross-section extrusion every other type uses. Both cross-section views (end view and longitudinal cutaway) reflect this directly. Because a blind core builds up mass flow fast over a short axial run, erosive burning (see
+          - link "Erosive Burning" [ref=f107e99] [cursor=pointer]:
+            - /url: /wiki/Erosive_Burning
+          - text: ) is particularly relevant to this grain type.
+        - heading "Custom Grains (BurnSim 4)" [level=2] [ref=f107e100]
+        - paragraph [ref=f107e101]:
+          - text: BurnSim 4 adds a custom grain shape editor for cores that don't fit any of the standard types above - you can sketch a shape directly, or import one from a DXF, SVG, or raster image. The custom shape is still simulated through the same pixel-based eroder used for every other grain type. See
+          - link "Custom Grain Import" [ref=f107e102] [cursor=pointer]:
+            - /url: /wiki/Custom_Grain_Import
+          - text: for how to build or import a custom cross-section.
+      - generic [ref=f107e104]:
+        - link "Category" [ref=f107e105] [cursor=pointer]:
+          - /url: /wiki/Special:Categories
+        - text: ":"
+        - list [ref=f107e106]:
+          - listitem [ref=f107e107]:
+            - link "BurnSim 4" [ref=f107e108] [cursor=pointer]:
+              - /url: /index.php?title=Category:BurnSim_4&action=edit&redlink=1
+  - generic:
+    - heading "Navigation menu" [level=2] [ref=f107e109]
+    - generic [ref=f107e110]:
+      - navigation "Personal tools" [ref=f107e111]:
+        - list [ref=f107e113]:
+          - listitem [ref=f107e114]:
+            - link "Log in" [ref=f107e115] [cursor=pointer]:
+              - /url: /index.php?title=Special:UserLogin&returnto=Grain+Types
+      - navigation "Namespaces" [ref=f107e117]:
+        - list [ref=f107e118]:
+          - listitem [ref=f107e119]:
+            - link "Page" [ref=f107e120] [cursor=pointer]:
+              - /url: /wiki/Grain_Types
+          - listitem [ref=f107e121]:
+            - link "Discussion" [ref=f107e122] [cursor=pointer]:
+              - /url: /index.php?title=Talk:Grain_Types&action=edit&redlink=1
+      - generic [ref=f107e123]:
+        - navigation "Views" [ref=f107e124]:
+          - list [ref=f107e125]:
+            - listitem [ref=f107e126]:
+              - link "Read" [ref=f107e127] [cursor=pointer]:
+                - /url: /wiki/Grain_Types
+            - listitem [ref=f107e128]:
+              - link "View source" [ref=f107e129] [cursor=pointer]:
+                - /url: /index.php?title=Grain_Types&action=edit
+            - listitem [ref=f107e130]:
+              - link "View history" [ref=f107e131] [cursor=pointer]:
+                - /url: /index.php?title=Grain_Types&action=history
+        - search [ref=f107e132]:
+          - heading "Search" [level=3] [ref=f107e133]
+          - generic [ref=f107e135]:
+            - searchbox "Search BurnSim Wiki" [ref=f107e136]
+            - button "Search" [ref=f107e137] [cursor=pointer]
+            - button "Go" [ref=f107e138] [cursor=pointer]
+    - generic [ref=f107e139]:
+      - banner [ref=f107e140]:
+        - link "Visit the main page" [ref=f107e141] [cursor=pointer]:
+          - /url: /wiki/Main_Page
+      - navigation "Navigation" [ref=f107e142]:
+        - list [ref=f107e144]:
+          - listitem [ref=f107e145]:
+            - link "Main page" [ref=f107e146] [cursor=pointer]:
+              - /url: /wiki/Main_Page
+          - listitem [ref=f107e147]:
+            - link "About BurnSim" [ref=f107e148] [cursor=pointer]:
+              - /url: /wiki/About_BurnSim
+          - listitem [ref=f107e149]:
+            - link "FAQ" [ref=f107e150] [cursor=pointer]:
+              - /url: /wiki/FAQ
+          - listitem [ref=f107e151]:
+            - link "Download BurnSim" [ref=f107e152] [cursor=pointer]:
+              - /url: https://burnsim.com/Download.asp
+          - listitem [ref=f107e153]:
+            - link "Recent changes" [ref=f107e154] [cursor=pointer]:
+              - /url: /wiki/Special:RecentChanges
+          - listitem [ref=f107e155]:
+            - link "Random page" [ref=f107e156] [cursor=pointer]:
+              - /url: /wiki/Special:Random
+          - listitem [ref=f107e157]:
+            - link "Help" [ref=f107e158] [cursor=pointer]:
+              - /url: https://www.mediawiki.org/wiki/Special:MyLanguage/Help:Contents
+      - navigation [ref=f107e159]:
+        - heading "BurnSim 4" [level=3] [ref=f107e160]
+        - list [ref=f107e162]:
+          - listitem [ref=f107e163]:
+            - link "Getting Started" [ref=f107e164] [cursor=pointer]:
+              - /url: /wiki/Getting_Started_with_a_Basic_Simulation
+          - listitem [ref=f107e165]:
+            - link "BurnSim Fields" [ref=f107e166] [cursor=pointer]:
+              - /url: /wiki/BurnSim_Fields
+          - listitem [ref=f107e167]:
+            - link "Grain Types" [ref=f107e168] [cursor=pointer]:
+              - /url: /wiki/Grain_Types
+          - listitem [ref=f107e169]:
+            - link "Propellant Characterization" [ref=f107e170] [cursor=pointer]:
+              - /url: /wiki/Propellant_Characterization
+          - listitem [ref=f107e171]:
+            - link "Propellant Thermochemistry" [ref=f107e172] [cursor=pointer]:
+              - /url: /wiki/Propellant_Thermochemistry
+          - listitem [ref=f107e173]:
+            - link "Erosive Burning" [ref=f107e174] [cursor=pointer]:
+              - /url: /wiki/Erosive_Burning
+          - listitem [ref=f107e175]:
+            - link "Data Acquisition" [ref=f107e176] [cursor=pointer]:
+              - /url: /wiki/Data_Acquisition
+          - listitem [ref=f107e177]:
+            - link "Test Data Tab" [ref=f107e178] [cursor=pointer]:
+              - /url: /wiki/Test_Data_Tab
+          - listitem [ref=f107e179]:
+            - link "Import from CSV" [ref=f107e180] [cursor=pointer]:
+              - /url: /wiki/Import_from_CSV
+      - navigation [ref=f107e181]:
+        - heading "Tools" [level=3] [ref=f107e182]
+        - list [ref=f107e184]:
+          - listitem [ref=f107e185]:
+            - link "What links here" [ref=f107e186] [cursor=pointer]:
+              - /url: /wiki/Special:WhatLinksHere/Grain_Types
+          - listitem [ref=f107e187]:
+            - link "Related changes" [ref=f107e188] [cursor=pointer]:
+              - /url: /wiki/Special:RecentChangesLinked/Grain_Types
+          - listitem [ref=f107e189]:
+            - link "Special pages" [ref=f107e190] [cursor=pointer]:
+              - /url: /wiki/Special:SpecialPages
+          - listitem [ref=f107e191]:
+            - link "Printable version" [ref=f107e192] [cursor=pointer]:
+              - /url: javascript:print();
+          - listitem [ref=f107e193]:
+            - link "Permanent link" [ref=f107e194] [cursor=pointer]:
+              - /url: https://wiki.burnsim.com/index.php?title=Grain_Types&oldid=166
+          - listitem [ref=f107e195]:
+            - link "Page information" [ref=f107e196] [cursor=pointer]:
+              - /url: /index.php?title=Grain_Types&action=info
+  - contentinfo [ref=f107e197]:
+    - list [ref=f107e198]:
+      - listitem [ref=f107e199]: This page was last edited on 17 August 2026, at 10:43.
+      - listitem [ref=f107e200]:
+        - text: Content is available under
+        - link "GNU Free Documentation License 1.3 or later" [ref=f107e201] [cursor=pointer]:
+          - /url: https://www.gnu.org/copyleft/fdl.html
+        - text: unless otherwise noted.
+    - list:
+      - listitem [ref=f107e202]:
+        - link "Privacy policy" [ref=f107e203] [cursor=pointer]:
+          - /url: /wiki/BurnSim_Wiki:Privacy_policy
+      - listitem [ref=f107e204]:
+        - link "About BurnSim Wiki" [ref=f107e205] [cursor=pointer]:
+          - /url: /wiki/BurnSim_Wiki:About
+      - listitem [ref=f107e206]:
+        - link "Disclaimers" [ref=f107e207] [cursor=pointer]:
+          - /url: /wiki/BurnSim_Wiki:General_disclaimer
+    - list [ref=f107e208]:
+      - listitem [ref=f107e209]:
+        - link [ref=f107e210] [cursor=pointer]:
+          - /url: https://www.gnu.org/copyleft/fdl.html
+          - img "GNU Free Documentation License 1.3 or later" [ref=f107e211]
+      - listitem [ref=f107e212]:
+        - link [ref=f107e213] [cursor=pointer]:
+          - /url: https://www.mediawiki.org/
+          - img "Powered by MediaWiki" [ref=f107e214]

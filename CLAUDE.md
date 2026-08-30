@@ -1,7 +1,17 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
-- **2026-08-29 20:41 — THE LOOP IS DONE.** 25 iterations, ≈$103 API-equivalent, one day. All
+- **2026-08-30 — ROUND 2 STARTED.** Plan approved (`~/.claude/plans/1-is-this-saved-golden-taco.md`
+  on the laptop): engine robustness first (M6–M13 + MR per MISSION §6.2/§7.2 — loft, loop
+  matching, feature-aware stations, marching-cubes inputs with skew/noise, x-axis/off-origin/
+  inches/small scale, multi-body, near-burnout cavity decomposition, real-STL slot), then Round 3
+  = PySide6 desktop GUI (MISSION §12). The loop re-entered M0 to extend the harness
+  (`driver/prompt_m0_round2.md`; harness is NOT restored from its tag while at M0), then the Opus
+  review pass re-freezes it, then the driver fast-forwards through M1–M5 to M6. Drop a real
+  burnback STL into `real_inputs/` (gitignored) whenever work authorises one — MR picks it up.
+  Driver additions: `fast_forward`, `LOOP_STOP_AT=<milestone>`, `SCORE_TIMEOUT_S` 60 min.
+  Expected cost ≈ $200–340, 3–5 days of loop time. **Brady: `git push` (the driver never pushes).**
+- **2026-08-29 20:41 — Round 1 done.** 25 iterations, ≈$103 API-equivalent, one day. All
   five milestones pass on commit `1b4ff91` (verified together by the driver's regression sweep):
   M1 annular cylinder, M2 ellipsoidal domes, M3 6-point star bore, M4 finocyl with a topology
   event at z=6000, M5 domes + fins with two events. Volume errors ≤ 0.02 %, deviation max

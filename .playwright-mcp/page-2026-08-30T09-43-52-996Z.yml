@@ -1,0 +1,193 @@
+- generic [ref=f137e2]:
+  - generic [ref=f137e3]:
+    - link "DuckDuckGo" [ref=f137e4] [cursor=pointer]:
+      - /url: /html/
+    - generic [ref=f137e5]:
+      - generic [ref=f137e6]:
+        - textbox [ref=f137e7]: go
+        - button "Submit" [ref=f137e8] [cursor=pointer]
+      - combobox [ref=f137e10] [cursor=pointer]:
+        - option "All Regions" [selected]
+        - option "Argentina"
+        - option "Australia"
+        - option "Austria"
+        - option "Belgium (fr)"
+        - option "Belgium (nl)"
+        - option "Brazil"
+        - option "Bulgaria"
+        - option "Canada (en)"
+        - option "Canada (fr)"
+        - option "Catalonia"
+        - option "Chile"
+        - option "China"
+        - option "Colombia"
+        - option "Croatia"
+        - option "Czech Republic"
+        - option "Denmark"
+        - option "Estonia"
+        - option "Finland"
+        - option "France"
+        - option "Germany"
+        - option "Greece"
+        - option "Hong Kong"
+        - option "Hungary"
+        - option "Iceland"
+        - option "India (en)"
+        - option "Indonesia (en)"
+        - option "Ireland"
+        - option "Israel (en)"
+        - option "Italy"
+        - option "Japan"
+        - option "Korea"
+        - option "Latvia"
+        - option "Lithuania"
+        - option "Malaysia (en)"
+        - option "Mexico"
+        - option "Netherlands"
+        - option "New Zealand"
+        - option "Norway"
+        - option "Pakistan (en)"
+        - option "Peru"
+        - option "Philippines (en)"
+        - option "Poland"
+        - option "Portugal"
+        - option "Romania"
+        - option "Russia"
+        - option "Saudi Arabia"
+        - option "Singapore"
+        - option "Slovakia"
+        - option "Slovenia"
+        - option "South Africa"
+        - option "Spain (ca)"
+        - option "Spain (es)"
+        - option "Sweden"
+        - option "Switzerland (de)"
+        - option "Switzerland (fr)"
+        - option "Taiwan"
+        - option "Thailand (en)"
+        - option "Turkey"
+        - option "US (English)"
+        - option "US (Spanish)"
+        - option "Ukraine"
+        - option "United Kingdom"
+        - option "Vietnam (en)"
+      - combobox [ref=f137e12] [cursor=pointer]:
+        - option "Any Time" [selected]
+        - option "Past Day"
+        - option "Past Week"
+        - option "Past Month"
+        - option "Past Year"
+  - generic [ref=f137e15]:
+    - generic [ref=f137e17]:
+      - heading [level=2] [ref=f137e18]:
+        - link "Google" [ref=f137e19] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.google.com%2F&rut=ad869d394402d2575b4f55556fd250cb4315d418c9189c8aea4d138750a27ddf
+      - generic [ref=f137e21]:
+        - link [ref=f137e23] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.google.com%2F&rut=ad869d394402d2575b4f55556fd250cb4315d418c9189c8aea4d138750a27ddf
+        - link "www.google.com" [ref=f137e24] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.google.com%2F&rut=ad869d394402d2575b4f55556fd250cb4315d418c9189c8aea4d138750a27ddf
+      - link "Search the world's information, including webpages, images, videos and more. Google has many special features to help you find exactly what you're looking for." [ref=f137e25] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.google.com%2F&rut=ad869d394402d2575b4f55556fd250cb4315d418c9189c8aea4d138750a27ddf
+    - generic [ref=f137e27]:
+      - heading [level=2] [ref=f137e28]:
+        - link "The Go Programming Language" [ref=f137e29] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2F&rut=2266e91394fc8f83414471f694612ed461333f38154ceec43813cf55d24a4517
+      - generic [ref=f137e31]:
+        - link [ref=f137e33] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2F&rut=2266e91394fc8f83414471f694612ed461333f38154ceec43813cf55d24a4517
+        - link "go.dev" [ref=f137e34] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2F&rut=2266e91394fc8f83414471f694612ed461333f38154ceec43813cf55d24a4517
+      - link "Go is an open source programming language that makes it simple to build secure, scalable systems." [ref=f137e35] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2F&rut=2266e91394fc8f83414471f694612ed461333f38154ceec43813cf55d24a4517
+    - generic [ref=f137e37]:
+      - heading [level=2] [ref=f137e38]:
+        - link "Download and install - The Go Programming Language" [ref=f137e39] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2Fdoc%2Finstall&rut=85ad76a03a42cdeab52d11eac69724c2462bf3bd147c65f0eab397797dddf9fb
+      - generic [ref=f137e41]:
+        - link [ref=f137e43] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2Fdoc%2Finstall&rut=85ad76a03a42cdeab52d11eac69724c2462bf3bd147c65f0eab397797dddf9fb
+        - link "go.dev/doc/install" [ref=f137e44] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2Fdoc%2Finstall&rut=85ad76a03a42cdeab52d11eac69724c2462bf3bd147c65f0eab397797dddf9fb
+      - link "Managing Go installations -- How to install multiple versions and uninstall. Installing Go from source -- How to check out the sources, build them on your own machine, and run them. Download (1.27.0) Go installation Select the tab for your computer's operating system below, then follow its installation instructions." [ref=f137e45] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2Fdoc%2Finstall&rut=85ad76a03a42cdeab52d11eac69724c2462bf3bd147c65f0eab397797dddf9fb
+    - generic [ref=f137e47]:
+      - heading [level=2] [ref=f137e48]:
+        - link "The Go Programming Language - YouTube" [ref=f137e49] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.youtube.com%2F%40golang&rut=431c32e0bdb724c861097d50785bc7b1cde5da0bd1019a32dfe13d5564de3006
+      - generic [ref=f137e51]:
+        - link [ref=f137e53] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.youtube.com%2F%40golang&rut=431c32e0bdb724c861097d50785bc7b1cde5da0bd1019a32dfe13d5564de3006
+        - link "www.youtube.com/@golang" [ref=f137e54] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.youtube.com%2F%40golang&rut=431c32e0bdb724c861097d50785bc7b1cde5da0bd1019a32dfe13d5564de3006
+      - link "Welcome to the Go channel, where we hope to make you love programming again! Go is an open-source programming language supported by Google. Join our community and learn about working with the Go ..." [ref=f137e55] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.youtube.com%2F%40golang&rut=431c32e0bdb724c861097d50785bc7b1cde5da0bd1019a32dfe13d5564de3006
+    - generic [ref=f137e57]:
+      - heading [level=2] [ref=f137e58]:
+        - link "Go (programming language) - Wikipedia" [ref=f137e59] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FGo_(programming_language)&rut=2aadda028e80c012c3d6d2de64f4d35402575bdf49c5903ebf5726cb368e4e3d
+      - generic [ref=f137e61]:
+        - link [ref=f137e63] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FGo_(programming_language)&rut=2aadda028e80c012c3d6d2de64f4d35402575bdf49c5903ebf5726cb368e4e3d
+        - link "en.wikipedia.org/wiki/Go_(programming_language)" [ref=f137e64] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FGo_(programming_language)&rut=2aadda028e80c012c3d6d2de64f4d35402575bdf49c5903ebf5726cb368e4e3d
+      - link "Go is a compiled, concurrent, and garbage-collected language that was designed at Google in 2007. It has a simple syntax, a large standard library, and a 3-clause BSD license." [ref=f137e65] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FGo_(programming_language)&rut=2aadda028e80c012c3d6d2de64f4d35402575bdf49c5903ebf5726cb368e4e3d
+    - generic [ref=f137e67]:
+      - heading [level=2] [ref=f137e68]:
+        - link "Go (game) - Wikipedia" [ref=f137e69] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FGo_(game)&rut=d2e7c38790ea0c77e2eb8e248a4bb6ac7aeb2fa604604106cccc61bd3241c564
+      - generic [ref=f137e71]:
+        - link [ref=f137e73] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FGo_(game)&rut=d2e7c38790ea0c77e2eb8e248a4bb6ac7aeb2fa604604106cccc61bd3241c564
+        - link "en.wikipedia.org/wiki/Go_(game)" [ref=f137e74] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FGo_(game)&rut=d2e7c38790ea0c77e2eb8e248a4bb6ac7aeb2fa604604106cccc61bd3241c564
+      - link "Go, Weiqi, or Baduk is an abstract strategy board game for two players in which the aim is to fence off more territory than the opponent. The game was invented in China more than 2,500 years ago and is believed to be the oldest board game continuously played to the present day. [1][2][3][4][5] A 2016 survey by the International Go Federation 's 75 member nations found that there are over 46 ..." [ref=f137e75] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FGo_(game)&rut=d2e7c38790ea0c77e2eb8e248a4bb6ac7aeb2fa604604106cccc61bd3241c564
+    - generic [ref=f137e77]:
+      - heading [level=2] [ref=f137e78]:
+        - 'link "GitHub - golang/go: The Go programming language · GitHub" [ref=f137e79] [cursor=pointer]':
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fgolang%2Fgo&rut=1fb8e3e47e978b0926d73b2d240793f18edadcd1d566d48aed257edaafe03deb
+      - generic [ref=f137e81]:
+        - link [ref=f137e83] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fgolang%2Fgo&rut=1fb8e3e47e978b0926d73b2d240793f18edadcd1d566d48aed257edaafe03deb
+        - link "github.com/golang/go" [ref=f137e84] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fgolang%2Fgo&rut=1fb8e3e47e978b0926d73b2d240793f18edadcd1d566d48aed257edaafe03deb
+      - link "Go is an open source programming language that makes it easy to build simple, reliable, and efficient software. Gopher image by Renee French, licensed under Creative Commons 4.0 Attribution license." [ref=f137e85] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fgolang%2Fgo&rut=1fb8e3e47e978b0926d73b2d240793f18edadcd1d566d48aed257edaafe03deb
+    - generic [ref=f137e87]:
+      - heading [level=2] [ref=f137e88]:
+        - link "Play Go" [ref=f137e89] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fonline%2Dgo.com%2Fplay&rut=e199c855fe0a1897882899fb4df8459cea21ff4ed2b692f2275407970d40c61b
+      - generic [ref=f137e91]:
+        - link [ref=f137e93] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fonline%2Dgo.com%2Fplay&rut=e199c855fe0a1897882899fb4df8459cea21ff4ed2b692f2275407970d40c61b
+        - link "online-go.com/play" [ref=f137e94] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fonline%2Dgo.com%2Fplay&rut=e199c855fe0a1897882899fb4df8459cea21ff4ed2b692f2275407970d40c61b
+      - link "Find a Go opponent and start a game on Online-Go.com, the friendliest place to play Go online for free." [ref=f137e95] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fonline%2Dgo.com%2Fplay&rut=e199c855fe0a1897882899fb4df8459cea21ff4ed2b692f2275407970d40c61b
+    - generic [ref=f137e97]:
+      - heading [level=2] [ref=f137e98]:
+        - link "Go Tutorial - W3Schools" [ref=f137e99] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.w3schools.com%2Fgo%2Findex.php&rut=965115f5d43ca35928be1101498d3aea96037fd72f69c1514140c832a9f9e619
+      - generic [ref=f137e101]:
+        - link [ref=f137e103] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.w3schools.com%2Fgo%2Findex.php&rut=965115f5d43ca35928be1101498d3aea96037fd72f69c1514140c832a9f9e619
+        - link "www.w3schools.com/go/index.php" [ref=f137e104] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.w3schools.com%2Fgo%2Findex.php&rut=965115f5d43ca35928be1101498d3aea96037fd72f69c1514140c832a9f9e619
+      - link "Go is a popular programming language. Go is used to create computer programs." [ref=f137e105] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.w3schools.com%2Fgo%2Findex.php&rut=965115f5d43ca35928be1101498d3aea96037fd72f69c1514140c832a9f9e619
+    - generic [ref=f137e107]:
+      - heading [level=2] [ref=f137e108]:
+        - link "Go Game - Math is Fun" [ref=f137e109] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.mathsisfun.com%2Fgames%2Fgo.html&rut=06f5eca983a07364dfabb6b43af218cf775ccf36d9c29717383fd74dc03ddb13
+      - generic [ref=f137e111]:
+        - link [ref=f137e113] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.mathsisfun.com%2Fgames%2Fgo.html&rut=06f5eca983a07364dfabb6b43af218cf775ccf36d9c29717383fd74dc03ddb13
+        - link "www.mathsisfun.com/games/go.html" [ref=f137e114] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.mathsisfun.com%2Fgames%2Fgo.html&rut=06f5eca983a07364dfabb6b43af218cf775ccf36d9c29717383fd74dc03ddb13
+      - link "Go is a strategy game where you try to encircle your opponent's stones and gain territory. You can play against the computer or challenge other players online. Learn the rules, strategies and tips on this web page." [ref=f137e115] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.mathsisfun.com%2Fgames%2Fgo.html&rut=06f5eca983a07364dfabb6b43af218cf775ccf36d9c29717383fd74dc03ddb13
+    - button "Next" [ref=f137e118] [cursor=pointer]
+    - link "Feedback" [ref=f137e120] [cursor=pointer]:
+      - /url: //duckduckgo.com/feedback.html

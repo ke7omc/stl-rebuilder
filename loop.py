@@ -70,7 +70,8 @@ CONFIG = {
     "ESCALATED_TIMEOUT_S": 7200,   # 120 min: escalated (Opus) iterations
     "REVIEW_TIMEOUT_S": 7200,      # 120 min: the M0 review-harness pass
     "TOURNAMENT_TIMEOUT_S": 10800, # 180 min
-    "SCORE_TIMEOUT_S": 2400,       # 40 min for a selftest / scorer run (MEM_LIMIT_GB is the real backstop)
+    "SCORE_TIMEOUT_S": 3600,       # 60 min for a selftest / scorer run (MEM_LIMIT_GB is the real backstop)
+    "STOP_AT": "",                 # stop cleanly when this milestone is reached (e.g. LOOP_STOP_AT=HANDOFF)
     "COMMIT_BY_PCT": 80.0,         # header tells the agent to have working state committed by this % of its budget
     "BUDGET_USD_DEFAULT": 10.0,    # --max-budget-usd per iteration (Sonnet M1/M2 iterations ran $5–6 in 10–14 min)
     "BUDGET_USD_ESCALATE": 15.0,
@@ -98,7 +99,10 @@ for _k in list(CONFIG):
 INFRA_PATHS = ["loop.py", "loop.sh", "driver", "PROMPT.md", "MISSION.md", "CLAUDE.md",
                ".claude", "README.md"]
 INFRA_TAG, HARNESS_TAG = "infra-frozen", "harness-frozen"
-MILESTONES = ["M0", "M1", "M2", "M3", "M4", "M5", "HANDOFF", "DONE"]
+MILESTONES = ["M0", "M1", "M2", "M3", "M4", "M5",                       # Round 1 (frozen 2026-08-29)
+              "M6", "M7", "M8", "M9", "M10", "M11", "M12", "M13", "MR",  # Round 2 (MISSION §6.2)
+              "HANDOFF", "DONE"]
+SCORED = [m for m in MILESTONES if m.startswith("M") and m != "M0"]   # milestones the frozen scorer grades
 REQUIRED_FLAGS = ["--effort", "--max-budget-usd", "--permission-mode", "--output-format",
                   "--strict-mcp-config", "--mcp-config", "--setting-sources", "--verbose",
                   "--disable-slash-commands", "--disallowedTools"]
@@ -321,11 +325,13 @@ def release_lock() -> None:
 
 
 # ----------------------------------------------------------------------------- frozen files
-def restore_frozen(report: bool = True) -> list[str]:
-    """Restore infra (and harness once frozen) from their tags. Returns paths that changed."""
+def restore_frozen(report: bool = True, include_harness: bool = True) -> list[str]:
+    """Restore infra (and harness once frozen) from their tags. Returns paths that changed.
+    While the milestone is M0 (building or extending the harness) the harness is NOT restored —
+    that is the one phase in which the agent is allowed to edit it; the freeze re-tags it after."""
     changed: list[str] = []
     plans = [(INFRA_TAG, INFRA_PATHS)]
-    if tag_exists(HARNESS_TAG):
+    if include_harness and tag_exists(HARNESS_TAG):
         plans.append((HARNESS_TAG, ["harness"]))
     for tag, paths in plans:
         if not tag_exists(tag):
@@ -789,11 +795,11 @@ def check_regressions(upto: str, iteration: int) -> list[tuple[str, str]]:
     the ones that no longer pass — a later milestone may not be bought by breaking an earlier one."""
     failing: list[tuple[str, str]] = []
     for m in MILESTONES[1:MILESTONES.index(upto)]:
-        if m in ("HANDOFF", "DONE"):
+        if m not in SCORED:
             continue
         code, score, _ = run_scorer(m, iteration, out_name=f"score.{m}.json")
         if score and score.get("pass"):
-            log(f"regression check: {m} still passes")
+            log(f"regression check: {m} still passes" + (" (skipped)" if score.get("skipped") else ""))
             continue
         ff = (score or {}).get("first_failure") or {}
         why = f"{ff.get('check')}={ff.get('value')} — {str(ff.get('hint', ''))[:160]}"
@@ -892,7 +898,8 @@ def compose_prompt(st: dict, mode: dict, iteration: int) -> str:
         "handoff": "driver/prompt_handoff.md",
     }.get(mode["mode"])
     if st["milestone"] == "M0" and mode["mode"] != "review-harness":
-        frag = "driver/prompt_m0.md"
+        # Round 1 builds the harness from nothing; Round 2+ extends an already-frozen one
+        frag = "driver/prompt_m0_round2.md" if tag_exists(HARNESS_TAG) else "driver/prompt_m0.md"
     if frag:
         parts.append((ROOT / frag).read_text())
     return "\n\n".join(parts)
@@ -977,10 +984,12 @@ def evaluate(st: dict, iteration: int, mode: str) -> None:
         git("tag", "-f", HARNESS_TAG)
         log(f"M0: harness FROZEN at {git_head()[:10]} (tag {HARNESS_TAG})")
         advance(st, "harness frozen")
+        fast_forward(st, iteration)
         return
     if ms == "HANDOFF":
         h = ROOT / "HANDOFF.md"
-        ok = h.exists() and len(h.read_text()) > 1500 and all(f"M{i}" in h.read_text() for i in range(1, 6))
+        text = h.read_text() if h.exists() else ""
+        ok = len(text) > 1500 and all(m in text for m in SCORED)
         failing = check_regressions("HANDOFF", iteration)
         if failing:
             demote(st, failing, iteration, "at HANDOFF")
@@ -1002,8 +1011,27 @@ def evaluate(st: dict, iteration: int, mode: str) -> None:
             return
         keep_artifacts(score, ms)
         advance(st, f"scorer pass at iteration {iteration}")
+        fast_forward(st, iteration)
         return
     update_stall(st, progress)
+
+
+def fast_forward(st: dict, iteration: int) -> None:
+    """After an advance, score the new milestone without spending an agent iteration; keep
+    advancing while it already passes (Round 2 starts with M1–M5 already green; an optional MR
+    with no real input scores as a skip-pass). Stops at the first failing milestone and leaves
+    its verdict in out/score.json for the next prompt."""
+    while st["milestone"] in SCORED:
+        ms = st["milestone"]
+        code, score, tail = run_scorer(ms, iteration)
+        if score and score.get("pass"):
+            log(f"fast-forward: {ms} already passes on HEAD" + (" (skipped)" if score.get("skipped") else ""))
+            keep_artifacts(score, ms)
+            advance(st, f"fast-forward at iteration {iteration}")
+            continue
+        set_last_eval(st, iteration, f"scorer {ms}", False, latest_verdict_line(), tail)
+        st["best_progress"] = 0.0
+        break
 
 
 def keep_artifacts(score: dict, ms: str) -> list[str]:
@@ -1201,7 +1229,7 @@ def finish_pending(st: dict) -> None:
     n = p["iteration"]
     set_current({"iteration": n, "mode": p["mode"], "model": p.get("model", ""), "started": p.get("started", now().isoformat()),
                  "timeout_s": p.get("timeout_s", 0), "phase": "evaluating", "pid": os.getpid()})
-    restore_frozen()
+    restore_frozen(include_harness=st["milestone"] != "M0")
     auto_commit(n)
     head_after = git_head()
     evaluate(st, n, p["mode"])
@@ -1238,7 +1266,10 @@ def iterate(st: dict, once: bool) -> int:
         if st["stall"] >= CONFIG["STALL_MAX"]:
             write_status(st, f"no progress for STALL_MAX={CONFIG['STALL_MAX']} iterations on {st['milestone']}")
             return 2
-        restore_frozen()
+        if CONFIG["STOP_AT"] and st["milestone"] == CONFIG["STOP_AT"]:
+            write_status(st, f"reached LOOP_STOP_AT={CONFIG['STOP_AT']} — stopping as requested")
+            return 0
+        restore_frozen(include_harness=st["milestone"] != "M0")
         usage_gate(st)
         if stop_requested():
             continue

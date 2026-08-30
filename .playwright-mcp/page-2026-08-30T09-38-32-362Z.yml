@@ -1,0 +1,686 @@
+- generic [active] [ref=f31e1]:
+  - generic [ref=f31e2]:
+    - link "Skip to content" [ref=f31e3] [cursor=pointer]:
+      - /url: "#content"
+    - paragraph [ref=f31e4]: Mechead.com
+    - paragraph [ref=f31e5]:
+      - text: Engineering, Analysis and
+      - link "Design" [ref=f31e6] [cursor=pointer]:
+        - /url: "#"
+    - generic [ref=f31e11]:
+      - generic [ref=f31e12]:
+        - generic [ref=f31e13]:
+          - generic [ref=f31e14]: 
+          - text: Saturday, August 29, 2026
+          - link "Hiring Civil Engineers" [ref=f31e15] [cursor=pointer]
+        - list [ref=f31e19]:
+          - listitem [ref=f31e20]:
+            - link "About Us" [ref=f31e21] [cursor=pointer]:
+              - /url: https://www.mechead.com/about-us/
+          - listitem [ref=f31e22]:
+            - link "Contact" [ref=f31e23] [cursor=pointer]:
+              - /url: https://www.mechead.com/contact-2/
+      - list [ref=f31e25]:
+        - listitem [ref=f31e26]:
+          - link "Email" [ref=f31e27] [cursor=pointer]:
+            - /url: mailto:info@mechead.com
+            - generic [ref=f31e28]: 
+        - listitem [ref=f31e29]:
+          - link "Facebook" [ref=f31e30] [cursor=pointer]:
+            - /url: https://www.facebook.com/mecheadcom
+            - generic [ref=f31e31]: 
+        - listitem [ref=f31e32]:
+          - link "Twitter" [ref=f31e33] [cursor=pointer]:
+            - /url: http://twitter.com/mecheadcom
+            - generic [ref=f31e34]: 
+        - listitem [ref=f31e35]:
+          - link "YouTube" [ref=f31e36] [cursor=pointer]:
+            - /url: https://www.youtube.com/channel/UC3EBC1ow16oLNXZ8Rzw3ctw
+            - generic [ref=f31e37]: 
+        - listitem [ref=f31e38]:
+          - link "LinkedIn" [ref=f31e39] [cursor=pointer]:
+            - /url: https://www.linkedin.com/company/27157537
+            - generic [ref=f31e40]: 
+        - listitem [ref=f31e41]:
+          - link "Instagram" [ref=f31e42] [cursor=pointer]:
+            - /url: http://instagram.com/mecheadcom
+            - generic [ref=f31e43]: 
+        - listitem [ref=f31e44]:
+          - link "RSS" [ref=f31e45] [cursor=pointer]:
+            - /url: https://www.mechead.com/feed/
+            - generic [ref=f31e46]: 
+    - banner [ref=f31e47]:
+      - generic [ref=f31e49]:
+        - generic [ref=f31e51]:
+          - text: 
+          - link [ref=f31e52] [cursor=pointer]:
+            - /url: https://www.mechead.com/
+            - img "Mechead.com" [ref=f31e53]
+          - text: 
+          - link "Subscribe" [ref=f31e55] [cursor=pointer]:
+            - /url: " http://eepurl.com/hoNrgX "
+        - generic [ref=f31e57]:
+          - navigation [ref=f31e58]:
+            - list [ref=f31e59]:
+              - listitem [ref=f31e60]:
+                - link "HOMEPAGE" [ref=f31e61] [cursor=pointer]:
+                  - /url: https://www.mechead.com/
+              - listitem [ref=f31e62]:
+                - link "INNOVATION" [ref=f31e63] [cursor=pointer]:
+                  - /url: https://www.mechead.com/category/innovation/
+              - listitem [ref=f31e64]:
+                - link "ENGINEERING" [ref=f31e65] [cursor=pointer]:
+                  - /url: https://www.mechead.com/category/engineering/
+              - listitem [ref=f31e66]:
+                - link "ANALYSIS" [ref=f31e67] [cursor=pointer]:
+                  - /url: https://www.mechead.com/category/analysis/
+              - listitem [ref=f31e68]:
+                - link "DESIGN" [ref=f31e69] [cursor=pointer]:
+                  - /url: https://www.mechead.com/category/design/
+              - listitem [ref=f31e70]:
+                - link "FROM EDITORS" [ref=f31e71] [cursor=pointer]:
+                  - /url: https://www.mechead.com/category/from-our-editors/
+              - listitem [ref=f31e72]:
+                - link "DISCUSSIONSNEW" [ref=f31e73] [cursor=pointer]:
+                  - /url: https://www.mechead.com/discussions/
+          - link [ref=f31e75] [cursor=pointer]:
+            - /url: "#search-popup"
+            - generic [ref=f31e76]: 
+    - main [ref=f31e81]:
+      - article [ref=f31e82]:
+        - generic [ref=f31e84]:
+          - generic [ref=f31e85]:
+            - generic [ref=f31e86]:
+              - list [ref=f31e87]:
+                - listitem [ref=f31e88]:
+                  - link "Home" [ref=f31e89] [cursor=pointer]:
+                    - /url: https://www.mechead.com/
+                - listitem [ref=f31e90]:
+                  - text: 
+                  - link "Analysis" [ref=f31e91] [cursor=pointer]:
+                    - /url: https://www.mechead.com/category/analysis/
+                - listitem [ref=f31e92]:  Ansys Mesh Metrics Explained
+              - heading "Ansys Mesh Metrics Explained" [level=1] [ref=f31e93]
+              - list [ref=f31e95]:
+                - listitem [ref=f31e96]:
+                  - text: 
+                  - link "özgün" [ref=f31e97] [cursor=pointer]:
+                    - /url: https://www.mechead.com/author/ozgunsunar/
+                - listitem [ref=f31e98]:  15th December 2023
+            - link [ref=f31e101] [cursor=pointer]:
+              - /url: https://www.mechead.com/wp-content/uploads/2018/02/image6.jpg
+            - generic [ref=f31e103]:
+              - paragraph [ref=f31e104]:
+                - text: The use of mesh quality metrics is an essential part of the automatic generation of unstructured initial meshes for finite elements. Without them, it is difficult to determine if the generated mesh possesses even the minimal quality necessary to undertake a computational analysis. This is especially true for the automatic generation of hexahedral meshes because few hexahedral mesh generation algorithms provide guarantees of even minimal mesh quality.
+                - link "Exploring Design Services" [ref=f31e105] [cursor=pointer]
+              - insertion [ref=f31e110]:
+                - iframe [ref=f31e112]:
+                  - generic [ref=f41e1]:
+                    - generic [ref=f41e6]:
+                      - generic [ref=f41e7]:
+                        - generic "View PDF" [ref=f41e9]:
+                          - link "View PDF" [ref=f41e10] [cursor=pointer]:
+                            - /url: https://www.googleadservices.com/pagead/aclk?sa=L&ai=CIwATFPqTaq_CFv7JuvQP-ebikAGciOmgiQGYzYOi1hTp3ZCRrA4QASD--bOfAWDJhoCA6KSMGKAB7LHI_QLIAQGoAwHIA8sEqgSZAk_QI6DVXdq8v4_HCBlAG7GQ31gDJkFMop7TYsZKxadIVDsDlcLjpgn4c3uL4nmY4_wNVWs8TdsuWDWttprze15DkQu_0ZSekCLldDDmKwo9qbnGNdOqJrxPw8IRRtr213jQIf8rt5LTIWFLa10Nad0cmKiK-QQKmwU1oOGX2k6VzqjWA6lK_6yHUWAmLPt57I0ZC8lBbkv0Zn2RoDPObQS9mBeGBhZzuKCD1nzyc89f91oyFS-wn126VhassqcOOAY_a6IO2_JF4uaAmZ0bYXgG9Cvccr4d5Dr2VBUPgVv5kq6DZqcVmURTSGa58YORIozYKI_2PtCpFLiw2JQTFz8hEgPIulg3F5DjjYrZQDiJdSYve5bvRwqowASR-ZuWsQWIBbqqoclUgAf8zbeCAagHp8yxAqgHpr4bqAfMzrECqAfz0RuoB5bYG6gHqpuxAqgH_uixAqgHjs4bqAeT2BuoB_DgG6gH7paxAqgH_p6xAqgHr76xAqgHn-GxAqgHpuuxAqgH1ckbqAfZtrECqAeaBqgH_56xAqgH35-xAqgH-MKxAqgH-8KxAtgHAdIIMwiAYRABGJ8DMgiKgoCAgICACDoPgECAwICAgICogAKog5AQSL39wTpY4t6klYfIlgNgAbEJKCKkdDcsD2eACgGYCwHICwGiDAwqCgoIjt-xApXisQKqDQJVU8gNAeoNEwikoqWVh8iWAxX-pI4IHXmzGBLwDQKIDgnYEwyIFAHQFQHKFgIKAPgWAYAXAbIXEBgBKgoxMjQ3NTI3NzAwUAa6FwI4AaoYFwkAAAAAuIgEQRIKMTI0NzUyNzcwMBgBshgJEgKxXxgBIgEA0BgB6BgBwhkCCAE&ae=1&gclid=EAIaIQobChMIr5yllYfIlgMV_qSOCB15sxgSEAEYASAAEgLB9PD_BwE&num=1&cid=CAQSiwIAQM4h3FgEaUQ0Vo_nyg6S0FTlQRbPCJnXuCiKYX3XUU8Qe57vkCcLUclekz9bxmcS9g0ryH68YO8MmB_LDtF4dS-IyA5xCRqkX5nsP08kTw0UYOq2xZiyNJC_9A9Qy5g_-X76tBcK6mn9sOIzdTvXPhR9fMU0H-q0r6CK4kkA9wEGmG3XupdEWd2D9ryt7BOWyiyDD3-fjxT7OWU9wuciUqK06be8aN8MZcpa1dcygn0uVroIiqxs0UKaGHZxZzeHYOIcwlciCf6qQqRotwDRATecEE6LZT7mExu4Fq3OeFNlLQtTLz8JwAGeGCm5v5Ab_WbRq1VGIjm_zcpXb0BommsUNHjZcECx30oYAQ&sig=AOD64_236IzQTeb-KZFzpQ7QudSNykmUkQ&client=ca-pub-6144089600654980&rf=1&nb=0&adurl=https://easypdfviewer.net/lp1-a%3Fplacement%3Dwww.mechead.com%26gad_source%3D5%26gad_campaignid%3D22702216506%26gclid%3DEAIaIQobChMIr5yllYfIlgMV_qSOCB15sxgSEAEYASAAEgLB9PD_BwE
+                        - generic [ref=f41e11]:
+                          - link "View PDF" [ref=f41e13] [cursor=pointer]:
+                            - /url: https://www.googleadservices.com/pagead/aclk?sa=L&ai=CIwATFPqTaq_CFv7JuvQP-ebikAGciOmgiQGYzYOi1hTp3ZCRrA4QASD--bOfAWDJhoCA6KSMGKAB7LHI_QLIAQGoAwHIA8sEqgSZAk_QI6DVXdq8v4_HCBlAG7GQ31gDJkFMop7TYsZKxadIVDsDlcLjpgn4c3uL4nmY4_wNVWs8TdsuWDWttprze15DkQu_0ZSekCLldDDmKwo9qbnGNdOqJrxPw8IRRtr213jQIf8rt5LTIWFLa10Nad0cmKiK-QQKmwU1oOGX2k6VzqjWA6lK_6yHUWAmLPt57I0ZC8lBbkv0Zn2RoDPObQS9mBeGBhZzuKCD1nzyc89f91oyFS-wn126VhassqcOOAY_a6IO2_JF4uaAmZ0bYXgG9Cvccr4d5Dr2VBUPgVv5kq6DZqcVmURTSGa58YORIozYKI_2PtCpFLiw2JQTFz8hEgPIulg3F5DjjYrZQDiJdSYve5bvRwqowASR-ZuWsQWIBbqqoclUgAf8zbeCAagHp8yxAqgHpr4bqAfMzrECqAfz0RuoB5bYG6gHqpuxAqgH_uixAqgHjs4bqAeT2BuoB_DgG6gH7paxAqgH_p6xAqgHr76xAqgHn-GxAqgHpuuxAqgH1ckbqAfZtrECqAeaBqgH_56xAqgH35-xAqgH-MKxAqgH-8KxAtgHAdIIMwiAYRABGJ8DMgiKgoCAgICACDoPgECAwICAgICogAKog5AQSL39wTpY4t6klYfIlgNgAbEJKCKkdDcsD2eACgGYCwHICwGiDAwqCgoIjt-xApXisQKqDQJVU8gNAeoNEwikoqWVh8iWAxX-pI4IHXmzGBLwDQKIDgnYEwyIFAHQFQHKFgIKAPgWAYAXAbIXEBgBKgoxMjQ3NTI3NzAwUAa6FwI4AaoYFwkAAAAAuIgEQRIKMTI0NzUyNzcwMBgBshgJEgKxXxgBIgEA0BgB6BgBwhkCCAE&ae=1&gclid=EAIaIQobChMIr5yllYfIlgMV_qSOCB15sxgSEAEYASAAEgLB9PD_BwE&num=1&cid=CAQSiwIAQM4h3FgEaUQ0Vo_nyg6S0FTlQRbPCJnXuCiKYX3XUU8Qe57vkCcLUclekz9bxmcS9g0ryH68YO8MmB_LDtF4dS-IyA5xCRqkX5nsP08kTw0UYOq2xZiyNJC_9A9Qy5g_-X76tBcK6mn9sOIzdTvXPhR9fMU0H-q0r6CK4kkA9wEGmG3XupdEWd2D9ryt7BOWyiyDD3-fjxT7OWU9wuciUqK06be8aN8MZcpa1dcygn0uVroIiqxs0UKaGHZxZzeHYOIcwlciCf6qQqRotwDRATecEE6LZT7mExu4Fq3OeFNlLQtTLz8JwAGeGCm5v5Ab_WbRq1VGIjm_zcpXb0BommsUNHjZcECx30oYAQ&sig=AOD64_236IzQTeb-KZFzpQ7QudSNykmUkQ&client=ca-pub-6144089600654980&rf=1&nb=7&adurl=https://easypdfviewer.net/lp1-a%3Fplacement%3Dwww.mechead.com%26gad_source%3D5%26gad_campaignid%3D22702216506%26gclid%3DEAIaIQobChMIr5yllYfIlgMV_qSOCB15sxgSEAEYASAAEgLB9PD_BwE
+                          - link [ref=f41e14] [cursor=pointer]:
+                            - /url: https://www.googleadservices.com/pagead/aclk?sa=L&ai=CIwATFPqTaq_CFv7JuvQP-ebikAGciOmgiQGYzYOi1hTp3ZCRrA4QASD--bOfAWDJhoCA6KSMGKAB7LHI_QLIAQGoAwHIA8sEqgSZAk_QI6DVXdq8v4_HCBlAG7GQ31gDJkFMop7TYsZKxadIVDsDlcLjpgn4c3uL4nmY4_wNVWs8TdsuWDWttprze15DkQu_0ZSekCLldDDmKwo9qbnGNdOqJrxPw8IRRtr213jQIf8rt5LTIWFLa10Nad0cmKiK-QQKmwU1oOGX2k6VzqjWA6lK_6yHUWAmLPt57I0ZC8lBbkv0Zn2RoDPObQS9mBeGBhZzuKCD1nzyc89f91oyFS-wn126VhassqcOOAY_a6IO2_JF4uaAmZ0bYXgG9Cvccr4d5Dr2VBUPgVv5kq6DZqcVmURTSGa58YORIozYKI_2PtCpFLiw2JQTFz8hEgPIulg3F5DjjYrZQDiJdSYve5bvRwqowASR-ZuWsQWIBbqqoclUgAf8zbeCAagHp8yxAqgHpr4bqAfMzrECqAfz0RuoB5bYG6gHqpuxAqgH_uixAqgHjs4bqAeT2BuoB_DgG6gH7paxAqgH_p6xAqgHr76xAqgHn-GxAqgHpuuxAqgH1ckbqAfZtrECqAeaBqgH_56xAqgH35-xAqgH-MKxAqgH-8KxAtgHAdIIMwiAYRABGJ8DMgiKgoCAgICACDoPgECAwICAgICogAKog5AQSL39wTpY4t6klYfIlgNgAbEJKCKkdDcsD2eACgGYCwHICwGiDAwqCgoIjt-xApXisQKqDQJVU8gNAeoNEwikoqWVh8iWAxX-pI4IHXmzGBLwDQKIDgnYEwyIFAHQFQHKFgIKAPgWAYAXAbIXEBgBKgoxMjQ3NTI3NzAwUAa6FwI4AaoYFwkAAAAAuIgEQRIKMTI0NzUyNzcwMBgBshgJEgKxXxgBIgEA0BgB6BgBwhkCCAE&ae=1&gclid=EAIaIQobChMIr5yllYfIlgMV_qSOCB15sxgSEAEYASAAEgLB9PD_BwE&num=1&cid=CAQSiwIAQM4h3FgEaUQ0Vo_nyg6S0FTlQRbPCJnXuCiKYX3XUU8Qe57vkCcLUclekz9bxmcS9g0ryH68YO8MmB_LDtF4dS-IyA5xCRqkX5nsP08kTw0UYOq2xZiyNJC_9A9Qy5g_-X76tBcK6mn9sOIzdTvXPhR9fMU0H-q0r6CK4kkA9wEGmG3XupdEWd2D9ryt7BOWyiyDD3-fjxT7OWU9wuciUqK06be8aN8MZcpa1dcygn0uVroIiqxs0UKaGHZxZzeHYOIcwlciCf6qQqRotwDRATecEE6LZT7mExu4Fq3OeFNlLQtTLz8JwAGeGCm5v5Ab_WbRq1VGIjm_zcpXb0BommsUNHjZcECx30oYAQ&sig=AOD64_236IzQTeb-KZFzpQ7QudSNykmUkQ&client=ca-pub-6144089600654980&rf=1&nb=8&adurl=https://easypdfviewer.net/lp1-a%3Fplacement%3Dwww.mechead.com%26gad_source%3D5%26gad_campaignid%3D22702216506%26gclid%3DEAIaIQobChMIr5yllYfIlgMV_qSOCB15sxgSEAEYASAAEgLB9PD_BwE
+                      - generic "View PDF" [ref=f41e17]:
+                        - link "View PDF" [ref=f41e18] [cursor=pointer]:
+                          - /url: https://www.googleadservices.com/pagead/aclk?sa=L&ai=CIwATFPqTaq_CFv7JuvQP-ebikAGciOmgiQGYzYOi1hTp3ZCRrA4QASD--bOfAWDJhoCA6KSMGKAB7LHI_QLIAQGoAwHIA8sEqgSZAk_QI6DVXdq8v4_HCBlAG7GQ31gDJkFMop7TYsZKxadIVDsDlcLjpgn4c3uL4nmY4_wNVWs8TdsuWDWttprze15DkQu_0ZSekCLldDDmKwo9qbnGNdOqJrxPw8IRRtr213jQIf8rt5LTIWFLa10Nad0cmKiK-QQKmwU1oOGX2k6VzqjWA6lK_6yHUWAmLPt57I0ZC8lBbkv0Zn2RoDPObQS9mBeGBhZzuKCD1nzyc89f91oyFS-wn126VhassqcOOAY_a6IO2_JF4uaAmZ0bYXgG9Cvccr4d5Dr2VBUPgVv5kq6DZqcVmURTSGa58YORIozYKI_2PtCpFLiw2JQTFz8hEgPIulg3F5DjjYrZQDiJdSYve5bvRwqowASR-ZuWsQWIBbqqoclUgAf8zbeCAagHp8yxAqgHpr4bqAfMzrECqAfz0RuoB5bYG6gHqpuxAqgH_uixAqgHjs4bqAeT2BuoB_DgG6gH7paxAqgH_p6xAqgHr76xAqgHn-GxAqgHpuuxAqgH1ckbqAfZtrECqAeaBqgH_56xAqgH35-xAqgH-MKxAqgH-8KxAtgHAdIIMwiAYRABGJ8DMgiKgoCAgICACDoPgECAwICAgICogAKog5AQSL39wTpY4t6klYfIlgNgAbEJKCKkdDcsD2eACgGYCwHICwGiDAwqCgoIjt-xApXisQKqDQJVU8gNAeoNEwikoqWVh8iWAxX-pI4IHXmzGBLwDQKIDgnYEwyIFAHQFQHKFgIKAPgWAYAXAbIXEBgBKgoxMjQ3NTI3NzAwUAa6FwI4AaoYFwkAAAAAuIgEQRIKMTI0NzUyNzcwMBgBshgJEgKxXxgBIgEA0BgB6BgBwhkCCAE&ae=1&gclid=EAIaIQobChMIr5yllYfIlgMV_qSOCB15sxgSEAEYASAAEgLB9PD_BwE&num=1&cid=CAQSiwIAQM4h3FgEaUQ0Vo_nyg6S0FTlQRbPCJnXuCiKYX3XUU8Qe57vkCcLUclekz9bxmcS9g0ryH68YO8MmB_LDtF4dS-IyA5xCRqkX5nsP08kTw0UYOq2xZiyNJC_9A9Qy5g_-X76tBcK6mn9sOIzdTvXPhR9fMU0H-q0r6CK4kkA9wEGmG3XupdEWd2D9ryt7BOWyiyDD3-fjxT7OWU9wuciUqK06be8aN8MZcpa1dcygn0uVroIiqxs0UKaGHZxZzeHYOIcwlciCf6qQqRotwDRATecEE6LZT7mExu4Fq3OeFNlLQtTLz8JwAGeGCm5v5Ab_WbRq1VGIjm_zcpXb0BommsUNHjZcECx30oYAQ&sig=AOD64_236IzQTeb-KZFzpQ7QudSNykmUkQ&client=ca-pub-6144089600654980&rf=1&nb=1&adurl=https://easypdfviewer.net/lp1-a%3Fplacement%3Dwww.mechead.com%26gad_source%3D5%26gad_campaignid%3D22702216506%26gclid%3DEAIaIQobChMIr5yllYfIlgMV_qSOCB15sxgSEAEYASAAEgLB9PD_BwE
+                    - generic [ref=f41e19] [cursor=pointer]
+                    - button [ref=f41e26] [cursor=pointer]
+                    - iframe
+              - paragraph [ref=f31e113]: "The “quality” of a mesh cell can be quantified in several ways. ANSYS performs several geometrical checks on mesh elements in order to determine their quality. These checks, or metrics are:"
+              - list [ref=f31e114]:
+                - listitem [ref=f31e115]: Element Quality
+                - listitem [ref=f31e116]: Aspect Ratio Calculation for Triangles
+                - listitem [ref=f31e117]: Aspect Ratio Calculation for Quadrilaterals
+                - listitem [ref=f31e118]: Jacobian Ratio
+                - listitem [ref=f31e119]: Warping Factor
+                - listitem [ref=f31e120]: Parallel Deviation
+                - listitem [ref=f31e121]: Maximum Corner Angle
+                - listitem [ref=f31e122]: Skewness
+                - listitem [ref=f31e123]: Orthogonal Quality
+              - heading "Element Quality" [level=2] [ref=f31e124]
+              - paragraph [ref=f31e125]:
+                - text: The Element Quality is based on the ratio of the volume to the sum of the square of the edge lengths for 2D quad/tri elements, or the square root of the cube of the sum of the square of the edge lengths for 3D elements.
+                - link "Comparing CAD Software" [ref=f31e126] [cursor=pointer]
+              - figure [ref=f31e130]
+              - paragraph [ref=f31e131]:
+                - text: A value of 1 indicates a perfect cube or square while a value of 0 indicates that the element has a zero or negative volume.
+                - link "Trying Animation Software" [ref=f31e132] [cursor=pointer]
+              - heading "Aspect Ratio" [level=2] [ref=f31e136]
+              - paragraph [ref=f31e137]: The aspect ratio of a triangle provides a comparison of the “height” and “width” of a triangle. It varies from 1 to infinite. A value of 1.0 indicates an equilateral triangle. The image below shows triangles with aspect ratios of 1 and 20.
+              - figure [ref=f31e138]
+              - paragraph [ref=f31e139]: The aspect ratio of quadrilaterals provides a comparison of a long side to a short side of the quadrilateral. It varies from 1 to infinite. A value of 1.0 indicates a square. The image below shows quadrilaterals with aspect ratios of 1 and 20.
+              - figure [ref=f31e140]
+              - heading "Jacobian Ratio" [level=2] [ref=f31e141]
+              - paragraph [ref=f31e142]:
+                - text: The Jacobian ratio is a measurement of the shape of a given element compared to that of an ideal element. The ideal shape of an element depends on element type. The ideal Jacobian ratio is 1.0 and a good quality mesh has a Jacobian ratio between 1 and 10 for the majority of its elements (90% and above).
+                - link "Finding Math Tutors" [ref=f31e143] [cursor=pointer]
+              - figure [ref=f31e147]
+              - heading "Warping Factor" [level=2] [ref=f31e148]
+              - paragraph [ref=f31e149]:
+                - text: The warping factor is computed and tested for some quadrilateral shell elements, and the quadrilateral faces of bricks, wedges, and pyramids. The ideal warping factor is 0. Warping is a measure of twisting and distortion and is best understood by looking at quadrilaterals with varying warping factors.
+                - link "Trying Animation Software" [ref=f31e150] [cursor=pointer]
+              - figure [ref=f31e154]
+              - heading "Parallel Deviation" [level=2] [ref=f31e155]
+              - paragraph [ref=f31e156]: Parallel deviation is a measure of how much two parallel sides of a shape deviate. The ideal parallel deviation is 0 for a square.
+              - figure [ref=f31e157]
+              - heading "Maximum Corner Angle" [level=2] [ref=f31e158]
+              - paragraph [ref=f31e159]: This is the maximum angle between adjacent edges of an element. For a triangle the best maximum angle is 60 degrees. For a quadrilateral it is 90 degrees.
+              - figure [ref=f31e160]
+              - heading "Skewness" [level=2] [ref=f31e161]
+              - paragraph [ref=f31e162]: Skewness is one of the primary quality measures for a mesh. Skewness determines how close to ideal (equilateral or equiangular) a face or cell is.
+              - figure [ref=f31e163]
+              - figure [ref=f31e164]
+              - heading "Orthogonal Quality" [level=2] [ref=f31e165]
+              - paragraph [ref=f31e166]:
+                - text: It involves the angle between the vector connecting two mesh nodes (or control volumes) and the normal vector for each surface integration point (n) associated with that edge. The range for orthogonal quality is 0-1, where a value of 0 is worst and a value of 1 is best.
+                - link "Trying Animation Software" [ref=f31e167] [cursor=pointer]
+              - figure [ref=f31e171]
+              - heading "Overall" [level=2] [ref=f31e172]
+              - figure [ref=f31e173]
+              - figure [ref=f31e174]:
+                - generic [ref=f31e175]:
+                  - blockquote [ref=f31e176]:
+                    - link "Mesh Methods and Element Types in ANSYS Workbench" [ref=f31e177] [cursor=pointer]:
+                      - /url: https://www.mechead.com/mesh-methods-and-element-types-in-ansys-workbench/
+                  - iframe [ref=f31e178]
+              - separator [ref=f31e179]
+              - paragraph [ref=f31e180]: References
+              - paragraph [ref=f31e181]: 1-https://www.sciencedirect.com/science/article/pii/S0168874X02000707#:~:text=Mesh%20quality%20metrics%20are%20built,positions%20of%20the%20element%20nodes.
+              - paragraph [ref=f31e182]: 2-Featips.com
+              - generic [ref=f31e184]:
+                - link "" [ref=f31e186] [cursor=pointer]:
+                  - /url: http://www.facebook.com/sharer.php?u=https://www.mechead.com/mesh-quality-checking-ansys-workbench/
+                - link "" [ref=f31e189] [cursor=pointer]:
+                  - /url: http://pinterest.com/pin/create/button/?url=https://www.mechead.com/mesh-quality-checking-ansys-workbench/&description=Ansys+Mesh+Metrics+Explained&media=https://www.mechead.com/wp-content/uploads/2018/02/image6.jpg
+                - link "" [ref=f31e192] [cursor=pointer]:
+                  - /url: https://twitter.com/intent/tweet?text=Ansys+Mesh+Metrics+Explained%20via%20%40mecheadcom&url=https://www.mechead.com/mesh-quality-checking-ansys-workbench/
+                - link "" [ref=f31e195] [cursor=pointer]:
+                  - /url: http://www.linkedin.com/shareArticle?mini=true&url=https://www.mechead.com/mesh-quality-checking-ansys-workbench/&title=Ansys+Mesh+Metrics+Explained
+              - insertion [ref=f31e200]
+              - generic [ref=f31e203]:
+                - generic [ref=f31e204]:
+                  - generic [ref=f31e205]: 
+                  - text: "Tags:"
+                - link "Ansys" [ref=f31e206] [cursor=pointer]:
+                  - /url: https://www.mechead.com/tag/ansys/
+                - text: ","
+                - link "Mesh Quality" [ref=f31e207] [cursor=pointer]:
+                  - /url: https://www.mechead.com/tag/mesh-quality/
+            - text: 
+            - navigation [ref=f31e208]:
+              - 'link "Previous Post An Engineering Approach: the Secret Behind Cybertruck’s Stainless Steel" [ref=f31e211] [cursor=pointer]':
+                - /url: https://www.mechead.com/an-engineering-approach-the-secret-behind-cybertrucks-stainless-steel/
+                - generic [ref=f31e212]: Previous Post
+                - 'heading "An Engineering Approach: the Secret Behind Cybertruck’s Stainless Steel" [level=5] [ref=f31e213]'
+            - generic [ref=f31e217]:
+              - heading [level=6] [ref=f31e218]:
+                - link "özgün" [ref=f31e219] [cursor=pointer]:
+                  - /url: https://www.mechead.com/author/ozgunsunar/
+              - generic [ref=f31e220]:
+                - text: Researcher Solid Mechanics, Finite Element and Material
+                - link "Science" [ref=f31e221] [cursor=pointer]:
+                  - /url: "#"
+                - list
+            - generic [ref=f31e224]:
+              - heading "Related Articles" [level=4] [ref=f31e226]
+              - generic [ref=f31e228]:
+                - button "" [ref=f31e229] [cursor=pointer]
+                - generic [ref=f31e231]:
+                  - article [ref=f31e235]:
+                    - link [ref=f31e237] [cursor=pointer]:
+                      - /url: https://www.mechead.com/mesh-good-enough/
+                    - heading [level=3] [ref=f31e240]:
+                      - link [ref=f31e241] [cursor=pointer]:
+                        - /url: https://www.mechead.com/mesh-good-enough/
+                        - text: Is Your Mesh Good Enough?
+                  - article [ref=f31e245]:
+                    - link [ref=f31e247] [cursor=pointer]:
+                      - /url: https://www.mechead.com/ansys-modal-analysis/
+                    - heading [level=3] [ref=f31e250]:
+                      - link [ref=f31e251] [cursor=pointer]:
+                        - /url: https://www.mechead.com/ansys-modal-analysis/
+                        - text: What Is Modal Analysis and How is It Interpreted
+                  - article [ref=f31e255]:
+                    - link [ref=f31e257] [cursor=pointer]:
+                      - /url: https://www.mechead.com/mesh-methods-and-element-types-in-ansys-workbench/
+                    - heading [level=3] [ref=f31e260]:
+                      - link [ref=f31e261] [cursor=pointer]:
+                        - /url: https://www.mechead.com/mesh-methods-and-element-types-in-ansys-workbench/
+                        - text: Mesh Methods and Element Types in ANSYS Workbench
+                  - article [ref=f31e265]:
+                    - link "What is Explicit Dynamics in Ansys?" [ref=f31e267] [cursor=pointer]:
+                      - /url: https://www.mechead.com/what-is-explicit-dynamics-in-ansys/
+                    - generic [ref=f31e269]:
+                      - heading [level=3] [ref=f31e270]:
+                        - link "What is Explicit Dynamics in Ansys?" [ref=f31e271] [cursor=pointer]:
+                          - /url: https://www.mechead.com/what-is-explicit-dynamics-in-ansys/
+                      - list
+                  - article [ref=f31e275]:
+                    - link "Link Thermal Analysis To Independent Structural Analysis" [ref=f31e277] [cursor=pointer]:
+                      - /url: https://www.mechead.com/link-thermal-analysis-independent-structural-analysis/
+                    - generic [ref=f31e279]:
+                      - heading [level=3] [ref=f31e280]:
+                        - link "Link Thermal Analysis To Independent Structural Analysis" [ref=f31e281] [cursor=pointer]:
+                          - /url: https://www.mechead.com/link-thermal-analysis-independent-structural-analysis/
+                      - list
+                  - article [ref=f31e285]:
+                    - link "What is Large Deflection in Ansys?" [ref=f31e287] [cursor=pointer]:
+                      - /url: https://www.mechead.com/what-is-large-deflection-in-ansys/
+                    - generic [ref=f31e289]:
+                      - heading [level=3] [ref=f31e290]:
+                        - link "What is Large Deflection in Ansys?" [ref=f31e291] [cursor=pointer]:
+                          - /url: https://www.mechead.com/what-is-large-deflection-in-ansys/
+                      - list
+                  - article [ref=f31e295]:
+                    - link [ref=f31e297] [cursor=pointer]:
+                      - /url: https://www.mechead.com/mesh-good-enough/
+                    - heading [level=3] [ref=f31e300]:
+                      - link [ref=f31e301] [cursor=pointer]:
+                        - /url: https://www.mechead.com/mesh-good-enough/
+                        - text: Is Your Mesh Good Enough?
+                  - article [ref=f31e305]:
+                    - link [ref=f31e307] [cursor=pointer]:
+                      - /url: https://www.mechead.com/ansys-modal-analysis/
+                    - heading [level=3] [ref=f31e310]:
+                      - link [ref=f31e311] [cursor=pointer]:
+                        - /url: https://www.mechead.com/ansys-modal-analysis/
+                        - text: What Is Modal Analysis and How is It Interpreted
+                  - article [ref=f31e315]:
+                    - link [ref=f31e317] [cursor=pointer]:
+                      - /url: https://www.mechead.com/mesh-methods-and-element-types-in-ansys-workbench/
+                    - heading [level=3] [ref=f31e320]:
+                      - link [ref=f31e321] [cursor=pointer]:
+                        - /url: https://www.mechead.com/mesh-methods-and-element-types-in-ansys-workbench/
+                        - text: Mesh Methods and Element Types in ANSYS Workbench
+                  - article [ref=f31e325]:
+                    - link [ref=f31e327] [cursor=pointer]:
+                      - /url: https://www.mechead.com/what-is-explicit-dynamics-in-ansys/
+                    - heading [level=3] [ref=f31e330]:
+                      - link [ref=f31e331] [cursor=pointer]:
+                        - /url: https://www.mechead.com/what-is-explicit-dynamics-in-ansys/
+                        - text: What is Explicit Dynamics in Ansys?
+                  - article [ref=f31e335]:
+                    - link [ref=f31e337] [cursor=pointer]:
+                      - /url: https://www.mechead.com/link-thermal-analysis-independent-structural-analysis/
+                    - heading [level=3] [ref=f31e340]:
+                      - link [ref=f31e341] [cursor=pointer]:
+                        - /url: https://www.mechead.com/link-thermal-analysis-independent-structural-analysis/
+                        - text: Link Thermal Analysis To Independent Structural Analysis
+                  - article [ref=f31e345]:
+                    - link [ref=f31e347] [cursor=pointer]:
+                      - /url: https://www.mechead.com/what-is-large-deflection-in-ansys/
+                    - heading [level=3] [ref=f31e350]:
+                      - link [ref=f31e351] [cursor=pointer]:
+                        - /url: https://www.mechead.com/what-is-large-deflection-in-ansys/
+                        - text: What is Large Deflection in Ansys?
+                  - article [ref=f31e355]:
+                    - link [ref=f31e357] [cursor=pointer]:
+                      - /url: https://www.mechead.com/mesh-good-enough/
+                    - heading [level=3] [ref=f31e360]:
+                      - link [ref=f31e361] [cursor=pointer]:
+                        - /url: https://www.mechead.com/mesh-good-enough/
+                        - text: Is Your Mesh Good Enough?
+                  - article [ref=f31e365]:
+                    - link [ref=f31e367] [cursor=pointer]:
+                      - /url: https://www.mechead.com/ansys-modal-analysis/
+                    - heading [level=3] [ref=f31e370]:
+                      - link [ref=f31e371] [cursor=pointer]:
+                        - /url: https://www.mechead.com/ansys-modal-analysis/
+                        - text: What Is Modal Analysis and How is It Interpreted
+                  - article [ref=f31e375]:
+                    - link [ref=f31e377] [cursor=pointer]:
+                      - /url: https://www.mechead.com/mesh-methods-and-element-types-in-ansys-workbench/
+                    - heading [level=3] [ref=f31e380]:
+                      - link [ref=f31e381] [cursor=pointer]:
+                        - /url: https://www.mechead.com/mesh-methods-and-element-types-in-ansys-workbench/
+                        - text: Mesh Methods and Element Types in ANSYS Workbench
+                - button "" [ref=f31e382] [cursor=pointer]
+            - generic [ref=f31e383]:
+              - heading "1 Comment" [level=4] [ref=f31e385]
+              - list [ref=f31e386]:
+                - listitem [ref=f31e387]:
+                  - generic [ref=f31e388]:
+                    - generic [ref=f31e389]: Kali Prescott
+                    - generic [ref=f31e391]:
+                      - generic [ref=f31e392]:
+                        - heading "Kali Prescott" [level=6] [ref=f31e393]
+                        - generic [ref=f31e394]: 23rd May 2024 at 2:43 am
+                      - generic [ref=f31e396]:
+                        - paragraph [ref=f31e397]: Hello,
+                        - paragraph [ref=f31e398]:
+                          - text: What publications have determined the parameters that ANSYS uses to establish these mesh quality cut-offs? I am using ANSYS for my thesis and need to cite where these cut off come from
+                          - link "Finding Math Tutors" [ref=f31e399] [cursor=pointer]
+                      - link "Reply to Kali Prescott" [ref=f31e403] [cursor=pointer]:
+                        - /url: "#comment-7374"
+                        - text: Reply
+              - generic [ref=f31e404]:
+                - heading "Leave a Reply" [level=4] [ref=f31e406]
+                - generic [ref=f31e407]:
+                  - paragraph [ref=f31e408]:
+                    - text: Your email address will not be published.
+                    - generic [ref=f31e409]: Required fields are marked *
+                  - paragraph [ref=f31e410]:
+                    - generic [ref=f31e411]: Comment *
+                    - textbox "Comment *" [ref=f31e412]
+                  - generic [ref=f31e413]:
+                    - generic [ref=f31e414]:
+                      - generic [ref=f31e415]: Name*
+                      - textbox "Name*" [ref=f31e416]
+                    - generic [ref=f31e417]:
+                      - generic [ref=f31e418]: Email*
+                      - textbox "Email*" [ref=f31e419]
+                    - generic [ref=f31e420]:
+                      - text: Website
+                      - textbox "Website" [ref=f31e421]
+                  - paragraph [ref=f31e422]:
+                    - button "Post Comment" [ref=f31e423] [cursor=pointer]
+          - complementary [ref=f31e424]:
+            - generic [ref=f31e425]:
+              - insertion [ref=f31e428]:
+                - iframe [ref=f31e430]:
+                  - iframe [ref=f79e1]:
+                    - generic [ref=f90e2]:
+                      - iframe [ref=f90e5]:
+                        - generic [ref=f95e1] [cursor=pointer]:
+                          - figure
+                          - figure
+                          - figure
+                          - figure
+                          - generic: Buzzer beatersand cliffhangers,in one place
+                          - generic [ref=f95e8]: Try it free
+                          - generic [ref=f95e14]: New users only. Terms andblackout restrictions apply.Cancel anytime.
+                      - generic [ref=f90e6]:
+                        - generic:
+                          - generic [ref=f90e7] [cursor=pointer]
+                          - button [ref=f90e14] [cursor=pointer]
+              - generic [ref=f31e432]:
+                - heading "Recent Posts" [level=4] [ref=f31e434]
+                - generic [ref=f31e438]:
+                  - article [ref=f31e440]:
+                    - 'link "An Engineering Approach: the Secret Behind Cybertruck’s Stainless Steel" [ref=f31e443] [cursor=pointer]':
+                      - /url: https://www.mechead.com/an-engineering-approach-the-secret-behind-cybertrucks-stainless-steel/
+                    - generic [ref=f31e446]:
+                      - heading [level=3] [ref=f31e447]:
+                        - 'link "An Engineering Approach: the Secret Behind Cybertruck’s Stainless Steel" [ref=f31e448] [cursor=pointer]':
+                          - /url: https://www.mechead.com/an-engineering-approach-the-secret-behind-cybertrucks-stainless-steel/
+                      - list [ref=f31e449]:
+                        - listitem [ref=f31e450]:  6th December 2023
+                  - article [ref=f31e452]:
+                    - link "What is Archard Law?" [ref=f31e455] [cursor=pointer]:
+                      - /url: https://www.mechead.com/what-is-archard-law/
+                    - generic [ref=f31e458]:
+                      - heading [level=3] [ref=f31e459]:
+                        - link "What is Archard Law?" [ref=f31e460] [cursor=pointer]:
+                          - /url: https://www.mechead.com/what-is-archard-law/
+                      - list [ref=f31e461]:
+                        - listitem [ref=f31e462]:  4th December 2023
+                  - article [ref=f31e464]:
+                    - link "Top 10 Free Software Tools Every Engineering Student Should Use" [ref=f31e467] [cursor=pointer]:
+                      - /url: https://www.mechead.com/top-10-free-software-tools-every-engineering-student-should-use/
+                    - generic [ref=f31e470]:
+                      - heading [level=3] [ref=f31e471]:
+                        - link "Top 10 Free Software Tools Every Engineering Student Should Use" [ref=f31e472] [cursor=pointer]:
+                          - /url: https://www.mechead.com/top-10-free-software-tools-every-engineering-student-should-use/
+                      - list [ref=f31e473]:
+                        - listitem [ref=f31e474]:  30th November 2023
+                  - insertion [ref=f31e476]:
+                    - iframe [ref=f31e478]:
+                      - iframe [ref=f80e1]:
+                        - generic [ref=f82e3]:
+                          - link [ref=f82e4] [cursor=pointer]:
+                            - /url: //www.admaster.cc/privacy
+                          - link "Sleep Apnea is Linked to This Household Item (Stop Using It) Sleep Apnea is Linked to This Household Item (Stop Using It) derila-ergo-official.com" [ref=f82e7] [cursor=pointer]:
+                            - /url: https://tracenep.admaster.cc/ju/ic?tn=2ce2e6e33746b4224011d22068a89c02&trackingid=ed5b4c1960b830d43a87c695803cb9e7&acid=34267&data=bpVC2TMWP3oq0oDDtPxMGXAQcCSpJDQF2-ULw-S6ZCx9oYSX6s8p3RfKMdE1h_w8gjAvrrKxRYJgwjWmVy0AULCpLJZCWWkQXXzyuAhtUARB5L46bumoclMnaIn3d5TgxU-mAt6J6vmOSX-ACYgPn5WwDHdfdSA-cR6-JVbhBV4xdIsNngmGXE81Ma9NXaCsw0UamlIn9bwUvJzBHbRRg_6O7uLB3IVGCnZw_bqgADsMqEqwVDSxV6piwJkgy8qqoHuApgAtH-Lyh2Uurp8ee3WldZeRZ9THuZKKE4JwmzPNNd1chwRuPTjm0bbaqfpNeGaUaS7PwQKfywipomDOS7tw76uwZsRb6X77PJ4ioDw8EGMpLEGhEsUpO18rNrLfyCoeDpjJiZWlpS7II82V4oBGibw-Ujv5K10PsvE-RqM-CwJ1th6CqBhOk_3fYjAe2OQBNaCtoVPa9fBs6fC72QzDIZN30UllODnTU0l02Q7_mYyu_fdr-uXCqObd5CI54ZlUVaRs8l1n3HuLLeZoP41JcElLpU2izTaL6_bl1vRSEA1ickuuhq9p07HB3IYa-OFvk8teu1h20u28IwPy5lFsd-5QmVpvx9-ngFpHgnYVT6Tk6LUhsCSgmryEEcCjsmwy94f40pEQTQK3jV78P_PH-_Lk6Fqd6abaZYQSxUt2noiqWEykmifdErkNsCNV1RLjVzaPxoAzufTebaYSjJgMNLfQ32ZJdEJbhg8Cijz2aO4pjXegNa9seYRX5q680OG6AFZ1j4AVq0XIObyrqMZ4Z_nkt0664I8ALnd-WAwxTfhGsALX4GZvNSzQY5Ej6pmsRQut5lOdH_NK1NQk__4EUBLcRoEzlPglx5zdyYpNQm15WI4e0qwBmaQDchM7SrtB4RlaWTV_3b-H6XAN3qmXaWfzHzDAlEGcW1KuKdlBE8-xkQNhxQS-CVFExyzXo8k438aV4L45OvvwtN5jFINmfabhSJNBstm7ev328gv2MNgcttzbwEO5m26JyfL-CBXyoi_htMoeGbUB_Yzmlhyb1R1Tuzc3g7E8RMipelbGvRmUibk9qxbihVm2KhamERDISsrVtUqoV8vgzbb2sWRQScKYysJxQPI_0K-HyvGsqipSI_7Xt9RHQBEGCvDkH_pfVOac_c434Vjos11_qgZ7h5DL8PDto0-i3GVt9ci2gBL7cVMvF3KmBxZIKASqzODoZNrX7EnRSB3PiuOUltr7z1Ta-1FwMhR91ePuJgtrtLx_2d63FkLN8zOnHBzyE6e37eobqxrzPfpUB2oRoIp0ljY-RBY6j6vxzxPsbOPEBGGAeX96fxUW2brP1Eg_2FVZD3up_hJmhoNJ7kE9xgwaCS8-mwL95XaRNYzDjJebnUZLxfTijW9gQwgbAs-9m1vRntBdac5mHYxUdDFPcyHHJkeruugmrhoj8d6IbqGcsvg_EFHVVKaSe9lCqIPFHXzLu6n0hu_cEJXw8XNrtVEFHrlCk4OTl3rbSiGbZJNNkyklwwlrhvBmRz4eO0H16hJGh_qROap5qX9JPEeZ87jFwo-UT0mx-ZrpuuJINCiEWdwwvttEhVMkrBz9WgX0-vxq2s1UlV2xhXqXdWIMlTdFWoznlFfvsZFU6OBMphZao38ajcuTRyq9JeShs5gatcthUcbndVCraaNw6OLcZObSbdsWp9Q37mXcvjK-6Leemz8JmvfXqIDJBg_mEi3JKMVoIlFGq0ylG80tozfTU1JILbHf8HH2lDNNlzFkmUpvrKgQozLfUUk3HaCRObu0qfvgNX2CMAfRzNSlnMZMCqrQDZUE8gQMoRDr9qojSc6FD6ICoYpkdoXvNXy65dwV8FfiBzrgaCQBwUWoi0OSqZKYhbZf6-PKxaYFXZur4ZUnuk_yguUPruVkglrUMqfAF_MTLpl7bFvEEnYaZ2YoA7llEqe1MSQFh_R-wzh4ytVdGJphU28TFUjM9UuC41UhJOkToi7fy-_HOUEyvGkirLoB2Oi5lqgF1ZWDjNllDNWlA8syFUQVWi8tGA2QCGvyQawruVv-Y6nUV_6oBrBfkLh3Icf0eA9_x_4fycsXb42UGwzvWRhHDl-jhd_dCqIw&ap=0.035578&tid=82&gprice=5CGQCJQUKiJcoyHbK8WAuXmBorMx_1LlQaaChuAuOBM&campaignid=5370297&c_sync=1&google_click_url=https://adclick.g.doubleclick.net/aclk%3Fsa%3DL%26ai%3DC4R0cFvqTaoOnCOmBt7UPwZiLwAmltoSEe8z8yrWgE8CNtwEQASD--bOfAWDJhoCA6KSMGMgBCagDAcgDAqoE-AFP0BL2egYhsI7UG5R1_JUURNSl_Aji3c2L0Li1OvOsKw9DjeX_DXYhzAj-jUQpAKNsroPCga6WKvUP_2IV5o7xr9y6yr_piT9m6fOmVy7KjcufXGBY9mmww1BaJtL3EsnPYaDtWZz_0nboGbQAqelvUITHLg59vn7hPEqVQPVJTPXkd2-jWqNKZ_0qnBtKHSMcfEDH20Wk-WKZY5oKOB-9b3-KBbKxL2a5fvgL2LvQ5fSij4xLO36VJWOimlElVXyxZ5wa4vEjtyV4xGUia3_8tlUYytyg9Jr4cBYKA5dT7vhQBFMEm_Kde6925rS3X9RYpqs72fyTpYAG39v5ko6a_sPIAaAGIagHk9ixAqgHlNixAqgHldixAqgHpr4bqAeW2BuoB6qbsQKoB_-esQKoB9-fsQKoB_7osQKoB62-sQKoB7_TsQLYBwDSCDAIgGEQATIIioKAgICAgAg6D4BAgMCAgICAqIACqIOQEEi9_cE6WKTKkJaHyJYDYAD6CwIIAYAMAaoNAlVT6g0TCMiOkZaHyJYDFenArQAdQcwCmIgOCdAVAYAXAbIXBBgMUAE%26num%3D1%26sig%3DAOD64_1EmjjJgnc8TJFNdMikwCGmtngoEg%26client%3Dca-pub-6144089600654980%26adurl%3D
+                            - img "Sleep Apnea is Linked to This Household Item (Stop Using It)" [ref=f82e8]
+                            - heading "Sleep Apnea is Linked to This Household Item (Stop Using It)" [level=3] [ref=f82e9]
+                            - generic [ref=f82e10]: derila-ergo-official.com
+                  - article [ref=f31e480]:
+                    - link "Contact Tool in Ansys" [ref=f31e483] [cursor=pointer]:
+                      - /url: https://www.mechead.com/contact-tool-in-ansys/
+                    - generic [ref=f31e486]:
+                      - heading [level=3] [ref=f31e487]:
+                        - link "Contact Tool in Ansys" [ref=f31e488] [cursor=pointer]:
+                          - /url: https://www.mechead.com/contact-tool-in-ansys/
+                      - list [ref=f31e489]:
+                        - listitem [ref=f31e490]:  19th October 2023
+                  - article [ref=f31e492]:
+                    - link "Why Apple Decided to Use Titanium in iPhone 15?" [ref=f31e495] [cursor=pointer]:
+                      - /url: https://www.mechead.com/why-apple-decided-to-use-titanium-in-iphone-15/
+                    - generic [ref=f31e498]:
+                      - heading [level=3] [ref=f31e499]:
+                        - link "Why Apple Decided to Use Titanium in iPhone 15?" [ref=f31e500] [cursor=pointer]:
+                          - /url: https://www.mechead.com/why-apple-decided-to-use-titanium-in-iphone-15/
+                      - list [ref=f31e501]:
+                        - listitem [ref=f31e502]:  13th September 2023
+              - generic [ref=f31e504]:
+                - generic [ref=f31e505]: 
+                - paragraph [ref=f31e506]: Subscribe for our daily news
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic [ref=f31e507]:
+                        - generic [ref=f31e508]: Your e-mail
+                        - textbox "Your e-mail" [ref=f31e509]
+                      - button "Sign Up" [ref=f31e511] [cursor=pointer]
+              - insertion [ref=f31e513]:
+                - iframe [ref=f31e515]:
+                  - iframe [ref=f81e1]:
+                    - generic [ref=f83e3]:
+                      - link [ref=f83e4] [cursor=pointer]:
+                        - /url: //www.admaster.cc/privacy
+                      - link "Sleep Apnea is Linked to This Household Item (Stop Using It) Sleep Apnea is Linked to This Household Item (Stop Using It) derila-ergo-official.com" [ref=f83e7] [cursor=pointer]:
+                        - /url: https://tracenep.admaster.cc/ju/ic?tn=2ce2e6e33746b4224011d22068a89c02&trackingid=7c77d01813e8ddb0bbc0c90209410ba0&acid=34267&data=kQw1OUijG_PR7GgZLhqCN0Lxoadt_L5GG4aO4satpBMv1Lq-KVrmNRPi8yuTfokar-KNyJOpH-dsCfEVV_vgKnJEXim72VGPbsrzt2bdtt7Zs2TyTLals8tgmCNhV7t2SsLeJy4WtV2dDfZtDJzh3vhT31iHEvkD219OQkDUqZcQGMU73Q3RnR8MgRodJdkjz6Z04cztKz-uu_YhDEz8OYhO7fo_EC7W4QtLxmpa7bsxyKTPiD5l-ctIQs8Amh2AWREkuuzx9icjrXR9F27caQuNzxCZ-VL9TGIZSjP-Zsb5knSGZN_oSg3iU8jcmVhh-Rd6fNCH1BDtu__G3Fpppp9DRTYZCTwwEnC2Hq--gvr5oYKhUJH7XDtFIvd_suUgTmvQhtOhGVUra1Y0oCmVgjsrbg3883QX7jUg3AdbezH1UO2DabjEwTVdgFQhX2UB9PNiAGo6eRcy_zdpvUiaW6NFxksNehRJ7q6eIJs14QS0ayQRJlR54iZLwOHujFIW_NjbV6PpCOHdDWiCqRcqpBBDt3GPyOvsAgEheEWJlaL6G_RWw_7fIicj3PwATO2kxK0mkEbqnXwLM7iyLhidGlDFC92mtJJtdw7b-k7oFOpud_KT2fC7mppBGvkeqxJ3zppjITr5dHirZ8NtW1wH71GGJQstNQMj-KbgzpbgCfrofdcTsu4L8L9zI_pcd2rBkNevesE72cpZFLYlYPuFODjNgbBPHu9Vwcyjzo1UzquwgW-HWdFGocG_hnL74RJUbb4hOLQeajFGnXX6cbrc_tKHV_scSy0f4aw-Xk-bIxvSLoatJAYuTQwbXFvWGJz3ejuvfrPGxCWGZtQZEuMIwoR23KLsQ-MZzLu_EZ8IEG_oJVfggNm7s_-IQwLaXpCrRqWlsfhxIv_eTqz-m41_B2M3uEfeySZd7nfzXP0yYWr9s4RVjQwdc4UBCKVpgucOXcnDkC7meaGjOYJ6efodT_eHBZc6Ryv6TFoOW4jBZsOuwLXU1VLK632nsjDUMDnCXfH09yIrO-l8SvnD_YifNjRwTIPCm2vVvur_QGywCdiA73grUAFIgvNVse8JycFnE4u_ThU96oxayruroL8aIeKEDzjgbQ0efteZzDiEoMy5qSXdw1Ys07uM_DJyRI6ltk6-t0vTAT4J_XfZelokep4wCZxUndpkmngYGotsdHYQbV1_cQLcTYZnd4yeZylTf_RXYmWMX2rmkvLHVJwYp9EvNQP8v6C-JNVQyy_I61xEySVUFMauXtqSw7uuJJmEXTtAFdbwt2cBx6HZJzrFe-vVHg2-u9F0QcMMUpDhoZgoNDqT8mo0NWDXVvKbTC_29pnMxCGicpnaHHbbzKR953Pw_LTazqpbvrIHqSdqt7H17DulbmE0SBfoVwGs5lx1ANRN89vfb4dhYhuo0SUMHC3rvZbhcb446RtaHs5D_ithu1TLu3q8AygrcHLxargHAe2ICFvXf40W4w-krMWlAWgqUp9ocH23iZMIatbKrWrgPMKIdNwzQUt5jD7yCvnpfpYRSLNj44JtiMmtTFtWzKEAX6ZqFrfeTBqbkRtcEvO296I0J7nOK9XBr99PNqzawuQDeS22IHl2hcIhtT85Ft9bCNSNHMRX0rbGJ_wuaBaGejcQc36FmeiRMqhN47Ems9514sNj7Iu1AAj9hlV5PQTmA1Dn5jFiMJ6SLoa11qjJSqbtuDlwmX0ljfLJ_5Z6uLp47kyFU7H7kqgyYtlS4_e5pCkmnN4DvBvE7JC0BUmRQlgyhs8whMmDWSsk0sYEV4rIsXwWcwwpC39jygC-0mMltKccXHuIGJZPPoQqAfJF65X6BC9Jpy2YrhqX0Zl0ES7NvnPe86bDEUs9zl8DJGcQITL9N4oEP_lqA2Fu6FfThTti8V4p6PF0IgRXdkTJx6X5Ixbf8dVTC_oakQSRFHQ2nKcpAsjq7XJ2W32g8OUZQbckXvOCaDvaL9uNhdENVwDzPkTVScwBqJHhU-EqRT87SJ_1XMHTx4zQxLEC6D7jWYcSnoucqclQCLmF0htFALONgXGJGdUDlQgMckcSLHU-MJpYaPQ6YopnPnY3YZS5s-Eg9M2gSF3gWzenHWBq&ap=0.026315&tid=72&gprice=LaDZaHN-EmPLtDKUt951DaEUPHhcBZNn6k2mVtXs89k&campaignid=5370297&c_sync=1&google_click_url=https://adclick.g.doubleclick.net/aclk%3Fsa%3DL%26ai%3DCuYWIFvqTav3dCLi9uvQPp_z1sQ2ltoSEe8z8yrWgE8CNtwEQASD--bOfAWDJhoCA6KSMGMgBCagDAcgDAqoE-AFP0FGGKfoU1SqsRMhrlcfDuguDMp1or_bhqq06_2cCDOIMW3l9vNEK3dDNe0NHLgQwgaPmxsJHOG-qQBXy5_SZXQK1BYg46OCEPXa1RMJXpwQAu7xLU5vjy8DzWZbkqdJ2X7itm_t5djre3ruOqswhHzng5oUt7CIsm_XStxYKuFqTOfVj0uOlZ_CJBiqNaPXXudAyG8tllxOOvolNhV08lskrXyP4xcZgVMNz2rwNnHuFymcFHpKum0LNCGgjR6ZbeXlJzz960MImJeGtMPp99HQC5FcOwEHOy24afmUKAJ6NV9isDTSraXc9YRLoQsFosMMgQsI9rIAG39v5ko6a_sPIAaAGIagHk9ixAqgHlNixAqgHldixAqgHpr4bqAeW2BuoB6qbsQKoB_-esQKoB9-fsQKoB_7osQKoB62-sQKoB7_TsQLYBwDSCDAIgGEQATIIioKAgICAgAg6D4BAgMCAgICAqIACqIOQEEi9_cE6WIP1kJaHyJYDYAD6CwIIAYAMAaoNAlVT6g0TCIDFkZaHyJYDFbiejggdJ3491ogOCdAVAYAXAbIXBBgMUAE%26num%3D1%26sig%3DAOD64_1NQLolPhS68RmEnylhSmL02aWvfQ%26client%3Dca-pub-6144089600654980%26adurl%3D
+                        - img "Sleep Apnea is Linked to This Household Item (Stop Using It)" [ref=f83e8]
+                        - heading "Sleep Apnea is Linked to This Household Item (Stop Using It)" [level=3] [ref=f83e9]
+                        - generic [ref=f83e10]: derila-ergo-official.com
+    - insertion [ref=f31e517]
+    - contentinfo [ref=f31e519]:
+      - generic [ref=f31e522]:
+        - generic [ref=f31e524]:
+          - heading "Recent Posts" [level=4] [ref=f31e526]
+          - generic [ref=f31e529]:
+            - article [ref=f31e531]:
+              - text: 
+              - heading [level=3] [ref=f31e533]:
+                - 'link "Ansys Contact Behaviours: Formulations" [ref=f31e534] [cursor=pointer]':
+                  - /url: https://www.mechead.com/ansys-contact-behaviours-formulations/
+            - article [ref=f31e536]:
+              - text: 
+              - heading [level=3] [ref=f31e538]:
+                - link "What is Fracture Mechanics?" [ref=f31e539] [cursor=pointer]:
+                  - /url: https://www.mechead.com/what-is-fracture-mechanics/
+            - article [ref=f31e541]:
+              - text: 
+              - heading [level=3] [ref=f31e543]:
+                - link "Latex or Word?" [ref=f31e544] [cursor=pointer]:
+                  - /url: https://www.mechead.com/latex-or-word/
+            - article [ref=f31e546]:
+              - text: 
+              - heading [level=3] [ref=f31e548]:
+                - link "Advanced Contacts in Ansys Workbench-1" [ref=f31e549] [cursor=pointer]:
+                  - /url: https://www.mechead.com/advanced-contacts-in-ansys-workbench-1/
+        - generic [ref=f31e551]:
+          - heading [level=4] [ref=f31e553]:
+            - link "Twitter" [ref=f31e554] [cursor=pointer]:
+              - /url: https://twitter.com/mecheadcom
+          - list [ref=f31e556]:
+            - listitem [ref=f31e557]:
+              - generic [ref=f31e558]:
+                - text:  Open University opportunity from MIT!
+                - link "#openuniversity" [ref=f31e559] [cursor=pointer]:
+                  - /url: http://twitter.com/#search?q=openuniversity
+                - link "#free" [ref=f31e560] [cursor=pointer]:
+                  - /url: http://twitter.com/#search?q=free
+                - link "#online" [ref=f31e561] [cursor=pointer]:
+                  - /url: http://twitter.com/#search?q=online
+                - link "#lecture" [ref=f31e562] [cursor=pointer]:
+                  - /url: http://twitter.com/#search?q=lecture
+                - link "#MIT" [ref=f31e563] [cursor=pointer]:
+                  - /url: http://twitter.com/#search?q=MIT
+                - link "https://t.co/K005J9rjGV" [ref=f31e564] [cursor=pointer]:
+                  - /url: https://t.co/K005J9rjGV
+              - link "2021/11/19" [ref=f31e565] [cursor=pointer]:
+                - /url: http://twitter.com/#!/mecheadcom/status/1461602484653379584
+            - listitem [ref=f31e566]:
+              - generic [ref=f31e567]:
+                - text:  Online Ansys Courses For Free! A variety of modules from CFD to Solid mechanics.
+                - link "#innovation" [ref=f31e568] [cursor=pointer]:
+                  - /url: http://twitter.com/#search?q=innovation
+                - link "#training" [ref=f31e569] [cursor=pointer]:
+                  - /url: http://twitter.com/#search?q=training
+                - link "#ansys" [ref=f31e570] [cursor=pointer]:
+                  - /url: http://twitter.com/#search?q=ansys
+                - link "https://t.co/XIQg5aXTDq" [ref=f31e571] [cursor=pointer]:
+                  - /url: https://t.co/XIQg5aXTDq
+              - link "2021/07/21" [ref=f31e572] [cursor=pointer]:
+                - /url: http://twitter.com/#!/mecheadcom/status/1417728678096670721
+          - link "Follow us on Twitter" [ref=f31e573] [cursor=pointer]:
+            - /url: https://twitter.com/mecheadcom
+        - generic [ref=f31e575]:
+          - heading "Categories" [level=4] [ref=f31e577]
+          - list [ref=f31e578]:
+            - listitem [ref=f31e579]:
+              - link "Videos 0" [ref=f31e580] [cursor=pointer]:
+                - /url: https://www.mechead.com/category/videos/
+                - text: Videos
+                - generic [ref=f31e581]: "0"
+            - listitem [ref=f31e582]:
+              - link "Uncategorised 0" [ref=f31e583] [cursor=pointer]:
+                - /url: https://www.mechead.com/category/uncategorised/
+                - text: Uncategorised
+                - generic [ref=f31e584]: "0"
+            - listitem [ref=f31e585]:
+              - link "Innovation 32" [ref=f31e586] [cursor=pointer]:
+                - /url: https://www.mechead.com/category/innovation/
+                - text: Innovation
+                - generic [ref=f31e587]: "32"
+            - listitem [ref=f31e588]:
+              - link "From Editors 14" [ref=f31e589] [cursor=pointer]:
+                - /url: https://www.mechead.com/category/from-our-editors/
+                - text: From Editors
+                - generic [ref=f31e590]: "14"
+            - listitem [ref=f31e591]:
+              - link "Engineering 31" [ref=f31e592] [cursor=pointer]:
+                - /url: https://www.mechead.com/category/engineering/
+                - text: Engineering
+                - generic [ref=f31e593]: "31"
+            - listitem [ref=f31e594]:
+              - link "Design 10" [ref=f31e595] [cursor=pointer]:
+                - /url: https://www.mechead.com/category/design/
+                - text: Design
+                - generic [ref=f31e596]: "10"
+            - listitem [ref=f31e597]:
+              - link "Analysis 32" [ref=f31e598] [cursor=pointer]:
+                - /url: https://www.mechead.com/category/analysis/
+                - text: Analysis
+                - generic [ref=f31e599]: "32"
+      - generic [ref=f31e602]:
+        - generic [ref=f31e603]:
+          - generic:
+            - list [ref=f31e604]:
+              - listitem [ref=f31e605]:
+                - link "Contact" [ref=f31e606] [cursor=pointer]:
+                  - /url: https://www.mechead.com/contact/
+              - listitem [ref=f31e607]:
+                - link "Privacy Policy" [ref=f31e608] [cursor=pointer]:
+                  - /url: https://www.mechead.com/privacy-policy/
+            - list [ref=f31e609]:
+              - listitem [ref=f31e610]:
+                - link "Email" [ref=f31e611] [cursor=pointer]:
+                  - /url: mailto:info@mechead.com
+                  - generic [ref=f31e612]: 
+              - listitem [ref=f31e613]:
+                - link "Facebook" [ref=f31e614] [cursor=pointer]:
+                  - /url: https://www.facebook.com/mecheadcom
+                  - generic [ref=f31e615]: 
+              - listitem [ref=f31e616]:
+                - link "Twitter" [ref=f31e617] [cursor=pointer]:
+                  - /url: http://twitter.com/mecheadcom
+                  - generic [ref=f31e618]: 
+              - listitem [ref=f31e619]:
+                - link "YouTube" [ref=f31e620] [cursor=pointer]:
+                  - /url: https://www.youtube.com/channel/UC3EBC1ow16oLNXZ8Rzw3ctw
+                  - generic [ref=f31e621]: 
+              - listitem [ref=f31e622]:
+                - link "LinkedIn" [ref=f31e623] [cursor=pointer]:
+                  - /url: https://www.linkedin.com/company/27157537
+                  - generic [ref=f31e624]: 
+              - listitem [ref=f31e625]:
+                - link "Instagram" [ref=f31e626] [cursor=pointer]:
+                  - /url: http://instagram.com/mecheadcom
+                  - generic [ref=f31e627]: 
+              - listitem [ref=f31e628]:
+                - link "RSS" [ref=f31e629] [cursor=pointer]:
+                  - /url: https://www.mechead.com/feed/
+                  - generic [ref=f31e630]: 
+        - link [ref=f31e632] [cursor=pointer]:
+          - /url: https://www.mechead.com/
+          - img "Mechead.com" [ref=f31e633]
+        - generic [ref=f31e634]: Copyright @ 2023 | mechead.com All rights reserved.
+  - link "Go to top" [ref=f31e637] [cursor=pointer]:
+    - /url: "#top"
+    - generic [ref=f31e638]: 
+  - complementary [ref=f31e639]:
+    - generic [ref=f31e641] [cursor=pointer]
+    - generic [ref=f31e643]:
+      - list [ref=f31e645]:
+        - listitem [ref=f31e646]:
+          - link "HOMEPAGE" [ref=f31e647] [cursor=pointer]:
+            - /url: https://www.mechead.com/
+        - listitem [ref=f31e648]:
+          - link "INNOVATION" [ref=f31e649] [cursor=pointer]:
+            - /url: https://www.mechead.com/category/innovation/
+        - listitem [ref=f31e650]:
+          - link "ENGINEERING" [ref=f31e651] [cursor=pointer]:
+            - /url: https://www.mechead.com/category/engineering/
+        - listitem [ref=f31e652]:
+          - link "ANALYSIS" [ref=f31e653] [cursor=pointer]:
+            - /url: https://www.mechead.com/category/analysis/
+        - listitem [ref=f31e654]:
+          - link "DESIGN" [ref=f31e655] [cursor=pointer]:
+            - /url: https://www.mechead.com/category/design/
+        - listitem [ref=f31e656]:
+          - link "FROM EDITORS" [ref=f31e657] [cursor=pointer]:
+            - /url: https://www.mechead.com/category/from-our-editors/
+        - listitem [ref=f31e658]:
+          - link "DISCUSSIONSNEW" [ref=f31e659] [cursor=pointer]:
+            - /url: https://www.mechead.com/discussions/
+      - list [ref=f31e661]:
+        - listitem [ref=f31e662]:
+          - link "Email" [ref=f31e663] [cursor=pointer]:
+            - /url: mailto:info@mechead.com
+            - generic [ref=f31e664]: 
+        - listitem [ref=f31e665]:
+          - link "Facebook" [ref=f31e666] [cursor=pointer]:
+            - /url: https://www.facebook.com/mecheadcom
+            - generic [ref=f31e667]: 
+        - listitem [ref=f31e668]:
+          - link "Twitter" [ref=f31e669] [cursor=pointer]:
+            - /url: http://twitter.com/mecheadcom
+            - generic [ref=f31e670]: 
+        - listitem [ref=f31e671]:
+          - link "YouTube" [ref=f31e672] [cursor=pointer]:
+            - /url: https://www.youtube.com/channel/UC3EBC1ow16oLNXZ8Rzw3ctw
+            - generic [ref=f31e673]: 
+        - listitem [ref=f31e674]:
+          - link "LinkedIn" [ref=f31e675] [cursor=pointer]:
+            - /url: https://www.linkedin.com/company/27157537
+            - generic [ref=f31e676]: 
+        - listitem [ref=f31e677]:
+          - link "Instagram" [ref=f31e678] [cursor=pointer]:
+            - /url: http://instagram.com/mecheadcom
+            - generic [ref=f31e679]: 
+        - listitem [ref=f31e680]:
+          - link "RSS" [ref=f31e681] [cursor=pointer]:
+            - /url: https://www.mechead.com/feed/
+            - generic [ref=f31e682]: 
+  - iframe [ref=f31e685]:
+    - generic [ref=f97e6]:
+      - text: protected by
+      - strong [ref=f97e7]: reCAPTCHA

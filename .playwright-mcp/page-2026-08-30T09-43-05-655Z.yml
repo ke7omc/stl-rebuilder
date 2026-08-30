@@ -1,0 +1,582 @@
+- generic [ref=f136e2]:
+  - banner [ref=f136e3]:
+    - heading "PyPI Stats" [level=1] [ref=f136e4]
+    - paragraph [ref=f136e5]:
+      - link "Search" [ref=f136e6] [cursor=pointer]:
+        - /url: /
+      - link "All packages" [ref=f136e7] [cursor=pointer]:
+        - /url: /packages/__all__
+      - link "Top packages" [ref=f136e8] [cursor=pointer]:
+        - /url: /top
+      - link "Track packages" [ref=f136e9] [cursor=pointer]:
+        - /url: /user
+  - generic [ref=f136e10]:
+    - heading "vtk" [level=1] [ref=f136e11]
+    - separator [ref=f136e12]
+    - paragraph [ref=f136e13]:
+      - link "PyPI page" [ref=f136e14] [cursor=pointer]:
+        - /url: https://pypi.org/project/vtk/
+      - link "Home page" [ref=f136e15] [cursor=pointer]:
+        - /url: https://vtk.org
+      - text: "Author: VTK developers License: BSD Summary: VTK is an open-source toolkit for 3D computer graphics, image processing, and visualization Latest version: 9.7.0 Required dependencies:"
+      - link "matplotlib" [ref=f136e16] [cursor=pointer]:
+        - /url: /packages/matplotlib
+      - text: "Optional dependencies:"
+      - link "numpy" [ref=f136e17] [cursor=pointer]:
+        - /url: /packages/numpy
+      - text: "|"
+      - link "wslink" [ref=f136e18] [cursor=pointer]:
+        - /url: /packages/wslink
+      - text: "Downloads last day: 55,563 Downloads last week: 692,113 Downloads last month: 3,625,682"
+    - generic [ref=f136e21]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: "0"
+              - generic: 50,000
+              - generic: 100,000
+              - generic: 150,000
+              - generic: 200,000
+              - generic: 250,000
+              - generic: 300,000
+      - img:
+        - generic:
+          - generic [ref=f136e38]:
+            - generic [ref=f136e39]:
+              - generic [ref=f136e40]: With_Mirrors
+              - generic [ref=f136e45] [cursor=pointer]
+            - generic [ref=f136e46]:
+              - generic [ref=f136e47]: Without_Mirrors
+              - generic [ref=f136e52] [cursor=pointer]
+          - generic [ref=f136e53] [cursor=pointer]:
+            - generic [ref=f136e54]: 30d
+            - generic [ref=f136e57]: 60d
+            - generic [ref=f136e60]: 90d
+            - generic [ref=f136e63]: 120d
+            - generic [ref=f136e66]: all
+          - generic: Daily Download Quantity of vtk package - Overall
+          - generic: Date
+          - generic: Downloads
+      - generic [ref=f136e69]:
+        - generic [ref=f136e70]:
+          - generic [ref=f136e71] [cursor=pointer]
+          - generic [ref=f136e74] [cursor=pointer]
+        - generic [ref=f136e77]:
+          - generic [ref=f136e78] [cursor=pointer]
+          - generic [ref=f136e81] [cursor=pointer]
+    - generic [ref=f136e86]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: "0"
+              - generic: 50,000
+              - generic: 100,000
+              - generic: 150,000
+              - generic: 200,000
+              - generic: 250,000
+              - generic: 300,000
+      - img:
+        - generic:
+          - generic [ref=f136e103]:
+            - generic [ref=f136e104]:
+              - generic [ref=f136e105]: "2"
+              - generic [ref=f136e110] [cursor=pointer]
+            - generic [ref=f136e111]:
+              - generic [ref=f136e112]: "3"
+              - generic [ref=f136e117] [cursor=pointer]
+            - generic [ref=f136e118]:
+              - generic [ref=f136e119]: "Null"
+              - generic [ref=f136e124] [cursor=pointer]
+          - generic [ref=f136e125] [cursor=pointer]:
+            - generic [ref=f136e126]: 30d
+            - generic [ref=f136e129]: 60d
+            - generic [ref=f136e132]: 90d
+            - generic [ref=f136e135]: 120d
+            - generic [ref=f136e138]: all
+          - generic: Daily Download Quantity of vtk package - Python Major
+          - generic: Date
+          - generic: Downloads
+      - generic [ref=f136e141]:
+        - generic [ref=f136e142]:
+          - generic [ref=f136e143] [cursor=pointer]
+          - generic [ref=f136e146] [cursor=pointer]
+        - generic [ref=f136e149]:
+          - generic [ref=f136e150] [cursor=pointer]
+          - generic [ref=f136e153] [cursor=pointer]
+    - generic [ref=f136e158]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: 0%
+              - generic: 20%
+              - generic: 40%
+              - generic: 60%
+              - generic: 80%
+              - generic: 100%
+      - img:
+        - generic:
+          - generic [ref=f136e175]:
+            - generic [ref=f136e176]:
+              - generic [ref=f136e177]: "2"
+              - generic [ref=f136e182] [cursor=pointer]
+            - generic [ref=f136e183]:
+              - generic [ref=f136e184]: "3"
+              - generic [ref=f136e189] [cursor=pointer]
+            - generic [ref=f136e190]:
+              - generic [ref=f136e191]: "Null"
+              - generic [ref=f136e196] [cursor=pointer]
+          - generic [ref=f136e197] [cursor=pointer]:
+            - generic [ref=f136e198]: 30d
+            - generic [ref=f136e201]: 60d
+            - generic [ref=f136e204]: 90d
+            - generic [ref=f136e207]: 120d
+            - generic [ref=f136e210]: all
+          - generic: Daily Download Proportions of vtk package - Python Major
+          - generic: Date
+          - generic: Download Proportion
+      - generic [ref=f136e213]:
+        - generic [ref=f136e214]:
+          - generic [ref=f136e215] [cursor=pointer]
+          - generic [ref=f136e218] [cursor=pointer]
+        - generic [ref=f136e221]:
+          - generic [ref=f136e222] [cursor=pointer]
+          - generic [ref=f136e225] [cursor=pointer]
+    - generic [ref=f136e230]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: "0"
+              - generic: 50,000
+              - generic: 100,000
+              - generic: 150,000
+              - generic: 200,000
+              - generic: 250,000
+              - generic: 300,000
+      - img:
+        - generic:
+          - generic [ref=f136e247]:
+            - generic [ref=f136e248]:
+              - generic [ref=f136e249]: "2.7"
+              - generic [ref=f136e254] [cursor=pointer]
+            - generic [ref=f136e255]:
+              - generic [ref=f136e256]: "3.10"
+              - generic [ref=f136e261] [cursor=pointer]
+            - generic [ref=f136e262]:
+              - generic [ref=f136e263]: "3.11"
+              - generic [ref=f136e268] [cursor=pointer]
+            - generic [ref=f136e269]:
+              - generic [ref=f136e270]: "3.12"
+              - generic [ref=f136e275] [cursor=pointer]
+            - generic [ref=f136e276]:
+              - generic [ref=f136e277]: "3.13"
+              - generic [ref=f136e282] [cursor=pointer]
+            - generic [ref=f136e283]:
+              - generic [ref=f136e284]: "3.14"
+              - generic [ref=f136e289] [cursor=pointer]
+            - generic [ref=f136e290]:
+              - generic [ref=f136e291]: "3.15"
+              - generic [ref=f136e296] [cursor=pointer]
+            - generic [ref=f136e297]:
+              - generic [ref=f136e298]: "3.4"
+              - generic [ref=f136e303] [cursor=pointer]
+            - generic [ref=f136e304]:
+              - generic [ref=f136e305]: "3.5"
+              - generic [ref=f136e310] [cursor=pointer]
+            - generic [ref=f136e311]:
+              - generic [ref=f136e312]: "3.6"
+              - generic [ref=f136e317] [cursor=pointer]
+            - generic [ref=f136e318]:
+              - generic [ref=f136e319]: "3.7"
+              - generic [ref=f136e324] [cursor=pointer]
+            - generic [ref=f136e325]:
+              - generic [ref=f136e326]: "3.8"
+              - generic [ref=f136e331] [cursor=pointer]
+            - generic [ref=f136e332]:
+              - generic [ref=f136e333]: "3.9"
+              - generic [ref=f136e338] [cursor=pointer]
+            - generic [ref=f136e339]:
+              - generic [ref=f136e340]: "Null"
+              - generic [ref=f136e345] [cursor=pointer]
+          - generic [ref=f136e347] [cursor=pointer]:
+            - generic [ref=f136e348]: 30d
+            - generic [ref=f136e351]: 60d
+            - generic [ref=f136e354]: 90d
+            - generic [ref=f136e357]: 120d
+            - generic [ref=f136e360]: all
+          - generic: Daily Download Quantity of vtk package - Python Minor
+          - generic: Date
+          - generic: Downloads
+      - generic [ref=f136e363]:
+        - generic [ref=f136e364]:
+          - generic [ref=f136e365] [cursor=pointer]
+          - generic [ref=f136e368] [cursor=pointer]
+        - generic [ref=f136e371]:
+          - generic [ref=f136e372] [cursor=pointer]
+          - generic [ref=f136e375] [cursor=pointer]
+    - generic [ref=f136e380]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: 0%
+              - generic: 20%
+              - generic: 40%
+              - generic: 60%
+              - generic: 80%
+              - generic: 100%
+      - img:
+        - generic:
+          - generic [ref=f136e397]:
+            - generic [ref=f136e398]:
+              - generic [ref=f136e399]: "2.7"
+              - generic [ref=f136e404] [cursor=pointer]
+            - generic [ref=f136e405]:
+              - generic [ref=f136e406]: "3.10"
+              - generic [ref=f136e411] [cursor=pointer]
+            - generic [ref=f136e412]:
+              - generic [ref=f136e413]: "3.11"
+              - generic [ref=f136e418] [cursor=pointer]
+            - generic [ref=f136e419]:
+              - generic [ref=f136e420]: "3.12"
+              - generic [ref=f136e425] [cursor=pointer]
+            - generic [ref=f136e426]:
+              - generic [ref=f136e427]: "3.13"
+              - generic [ref=f136e432] [cursor=pointer]
+            - generic [ref=f136e433]:
+              - generic [ref=f136e434]: "3.14"
+              - generic [ref=f136e439] [cursor=pointer]
+            - generic [ref=f136e440]:
+              - generic [ref=f136e441]: "3.15"
+              - generic [ref=f136e446] [cursor=pointer]
+            - generic [ref=f136e447]:
+              - generic [ref=f136e448]: "3.4"
+              - generic [ref=f136e453] [cursor=pointer]
+            - generic [ref=f136e454]:
+              - generic [ref=f136e455]: "3.5"
+              - generic [ref=f136e460] [cursor=pointer]
+            - generic [ref=f136e461]:
+              - generic [ref=f136e462]: "3.6"
+              - generic [ref=f136e467] [cursor=pointer]
+            - generic [ref=f136e468]:
+              - generic [ref=f136e469]: "3.7"
+              - generic [ref=f136e474] [cursor=pointer]
+            - generic [ref=f136e475]:
+              - generic [ref=f136e476]: "3.8"
+              - generic [ref=f136e481] [cursor=pointer]
+            - generic [ref=f136e482]:
+              - generic [ref=f136e483]: "3.9"
+              - generic [ref=f136e488] [cursor=pointer]
+            - generic [ref=f136e489]:
+              - generic [ref=f136e490]: "Null"
+              - generic [ref=f136e495] [cursor=pointer]
+          - generic [ref=f136e497] [cursor=pointer]:
+            - generic [ref=f136e498]: 30d
+            - generic [ref=f136e501]: 60d
+            - generic [ref=f136e504]: 90d
+            - generic [ref=f136e507]: 120d
+            - generic [ref=f136e510]: all
+          - generic: Daily Download Proportions of vtk package - Python Minor
+          - generic: Date
+          - generic: Download Proportion
+      - generic [ref=f136e513]:
+        - generic [ref=f136e514]:
+          - generic [ref=f136e515] [cursor=pointer]
+          - generic [ref=f136e518] [cursor=pointer]
+        - generic [ref=f136e521]:
+          - generic [ref=f136e522] [cursor=pointer]
+          - generic [ref=f136e525] [cursor=pointer]
+    - generic [ref=f136e530]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: "0"
+              - generic: 50,000
+              - generic: 100,000
+              - generic: 150,000
+              - generic: 200,000
+              - generic: 250,000
+              - generic: 300,000
+      - img:
+        - generic:
+          - generic [ref=f136e547]:
+            - generic [ref=f136e548]:
+              - generic [ref=f136e549]: Darwin
+              - generic [ref=f136e554] [cursor=pointer]
+            - generic [ref=f136e555]:
+              - generic [ref=f136e556]: Linux
+              - generic [ref=f136e561] [cursor=pointer]
+            - generic [ref=f136e562]:
+              - generic [ref=f136e563]: Windows
+              - generic [ref=f136e568] [cursor=pointer]
+            - generic [ref=f136e569]:
+              - generic [ref=f136e570]: "Null"
+              - generic [ref=f136e575] [cursor=pointer]
+            - generic [ref=f136e576]:
+              - generic [ref=f136e577]: Other
+              - generic [ref=f136e582] [cursor=pointer]
+          - generic [ref=f136e583] [cursor=pointer]:
+            - generic [ref=f136e584]: 30d
+            - generic [ref=f136e587]: 60d
+            - generic [ref=f136e590]: 90d
+            - generic [ref=f136e593]: 120d
+            - generic [ref=f136e596]: all
+          - generic: Daily Download Quantity of vtk package - System
+          - generic: Date
+          - generic: Downloads
+      - generic [ref=f136e599]:
+        - generic [ref=f136e600]:
+          - generic [ref=f136e601] [cursor=pointer]
+          - generic [ref=f136e604] [cursor=pointer]
+        - generic [ref=f136e607]:
+          - generic [ref=f136e608] [cursor=pointer]
+          - generic [ref=f136e611] [cursor=pointer]
+    - generic [ref=f136e616]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: 0%
+              - generic: 20%
+              - generic: 40%
+              - generic: 60%
+              - generic: 80%
+              - generic: 100%
+      - img:
+        - generic:
+          - generic [ref=f136e633]:
+            - generic [ref=f136e634]:
+              - generic [ref=f136e635]: Darwin
+              - generic [ref=f136e640] [cursor=pointer]
+            - generic [ref=f136e641]:
+              - generic [ref=f136e642]: Linux
+              - generic [ref=f136e647] [cursor=pointer]
+            - generic [ref=f136e648]:
+              - generic [ref=f136e649]: Windows
+              - generic [ref=f136e654] [cursor=pointer]
+            - generic [ref=f136e655]:
+              - generic [ref=f136e656]: "Null"
+              - generic [ref=f136e661] [cursor=pointer]
+            - generic [ref=f136e662]:
+              - generic [ref=f136e663]: Other
+              - generic [ref=f136e668] [cursor=pointer]
+          - generic [ref=f136e669] [cursor=pointer]:
+            - generic [ref=f136e670]: 30d
+            - generic [ref=f136e673]: 60d
+            - generic [ref=f136e676]: 90d
+            - generic [ref=f136e679]: 120d
+            - generic [ref=f136e682]: all
+          - generic: Daily Download Proportions of vtk package - System
+          - generic: Date
+          - generic: Download Proportion
+      - generic [ref=f136e685]:
+        - generic [ref=f136e686]:
+          - generic [ref=f136e687] [cursor=pointer]
+          - generic [ref=f136e690] [cursor=pointer]
+        - generic [ref=f136e693]:
+          - generic [ref=f136e694] [cursor=pointer]
+          - generic [ref=f136e697] [cursor=pointer]
+  - contentinfo [ref=f136e700]:
+    - paragraph [ref=f136e701]:
+      - link "API" [ref=f136e702] [cursor=pointer]:
+        - /url: /api/
+      - link "About" [ref=f136e703] [cursor=pointer]:
+        - /url: /about
+      - link "FAQs" [ref=f136e704] [cursor=pointer]:
+        - /url: /faqs
+      - text: Hosted by
+      - link "The PSF" [ref=f136e705] [cursor=pointer]:
+        - /url: https://python.org/psf/

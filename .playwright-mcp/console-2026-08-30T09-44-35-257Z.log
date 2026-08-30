@@ -1,0 +1,7 @@
+[     539ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://developer.synopsys.com/_fs-ch-1T1wmsGaOgGaSxcX/assets/script.js:0
+[     539ms] [ERROR] Refused to execute script from 'https://developer.synopsys.com/_fs-ch-1T1wmsGaOgGaSxcX/assets/script.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled. @ https://developer.synopsys.com/docs/discovery-style-guide-2026-r1/colors.md:0
+[     652ms] [LOG] developer.synopsys.com @ :22
+[     653ms] [LOG] GatesLoaded @ :8
+[     653ms] [WARNING] 🚀 container.buildInfo.environment is deprecated.Please use `container.environment.stage` instead @ https://assets.adobedtm.com/79b3942b8dfa/604ce2434de1/launch-2396cdda8e60.min.js:22
+[     706ms] [LOG] identity set: 85898523962449730912741008896525435582 @ :4
+[     789ms] [LOG] Ansys ECID85898523962449730912741008896525435582 @ :1

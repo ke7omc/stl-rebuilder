@@ -16,8 +16,10 @@ Then:
   APIs before writing kernel or trimesh code — they contain verified signatures and traps.
 - Verify locally with the same command the driver uses:
   `.venv/bin/python harness/score.py --milestone <current> --out out/score.local.json`
-  (at M0, run `.venv/bin/python harness/selftest.py` instead). Read the JSON. If your change
-  made things worse, revert it and record that in PROGRESS.md instead of leaving it in.
+  (at M0, run `.venv/bin/python harness/selftest.py` instead — `--milestone Mk` narrows it
+  while iterating; only a full run is evidence). Read the JSON. If your change made things
+  worse, revert it and record that in PROGRESS.md instead of leaving it in. A milestone pass
+  only counts if every lower milestone still passes — the driver re-scores them all.
 - Append a log block to `PROGRESS.md` (format in MISSION.md §8) and refresh `## Current state`
   and `## Do not retry`.
 - Commit: `git add -A && git commit -m "<milestone>: <what changed>"`. Do not push.

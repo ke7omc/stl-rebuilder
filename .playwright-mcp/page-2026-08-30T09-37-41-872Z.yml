@@ -1,0 +1,357 @@
+- generic [active] [ref=f7e1]:
+  - banner [ref=f7e2]:
+    - generic [ref=f7e3]:
+      - link [ref=f7e5] [cursor=pointer]:
+        - /url: /Account/Secured
+      - generic [ref=f7e32]:
+        - list [ref=f7e33]:
+          - listitem [ref=f7e34]:
+            - link "Home" [ref=f7e35] [cursor=pointer]:
+              - /url: /Account/Secured
+          - listitem [ref=f7e36]:
+            - link "API Docs" [ref=f7e37] [cursor=pointer]:
+              - /url: https://developer.ansys.com/docs
+          - listitem [ref=f7e38]:
+            - link "Help Videos" [ref=f7e39] [cursor=pointer]:
+              - /url: https://www.youtube.com/channel/UCdymxOTZSP8RzRgFT8kpYpA
+          - listitem [ref=f7e40]:
+            - link "Customer Portal" [ref=f7e41] [cursor=pointer]:
+              - /url: http://support.ansys.com
+          - listitem [ref=f7e42]:
+            - link "Ansys.com" [ref=f7e43] [cursor=pointer]:
+              - /url: http://ansys.com/
+        - list "Sign in with customer credentials for additional content, tutorials, downloads, and more." [ref=f7e44]:
+          - listitem [ref=f7e45]:
+            - generic [ref=f7e46] [cursor=pointer]: Customer Sign In
+  - iframe [ref=f7e49]: An iframe capable browser is required to view this web site.:
+    - generic [ref=f8e1]:
+      - generic [ref=f8e2]:
+        - generic [ref=f8e3]:
+          - list [ref=f8e5]:
+            - listitem [ref=f8e6]:
+              - img "icon" [ref=f8e7] [cursor=pointer]
+            - listitem [ref=f8e8]:
+              - generic [ref=f8e9] [cursor=pointer]: Meshing 2026 R1
+              - text: "|"
+            - listitem [ref=f8e10]:
+              - link "Meshing User's Guide" [ref=f8e11] [cursor=pointer]:
+                - /url: msh_book_wb.html
+              - text: "|"
+            - listitem
+            - listitem [ref=f8e12]:
+              - link "PDF" [ref=f8e13] [cursor=pointer]:
+                - /url: ../../../../corp/v261/en/pdf/ANSYS_Meshing_Users_Guide.pdf
+          - list [ref=f8e16]:
+            - listitem [ref=f8e17]:
+              - list [ref=f8e19]:
+                - listitem [ref=f8e20]:
+                  - generic [ref=f8e23]:
+                    - textbox "search Meshing User's Guide" [ref=f8e24]
+                    - generic [ref=f8e25] [cursor=pointer]
+                - listitem [ref=f8e27]:
+                  - button "search" [ref=f8e29] [cursor=pointer]
+            - listitem [ref=f8e30]:
+              - link [ref=f8e31] [cursor=pointer]:
+                - /url: msh_max_corner_angle.html
+                - img "back" [ref=f8e32]
+            - listitem [ref=f8e33]:
+              - link [ref=f8e34] [cursor=pointer]:
+                - /url: msh_orthogonal_quality.html
+                - img "forward" [ref=f8e35]
+        - article [ref=f8e36]:
+          - generic [ref=f8e37]:
+            - generic [ref=f8e41]:
+              - generic [ref=f8e42]:
+                - link "Contents" [ref=f8e45] [cursor=pointer]:
+                  - /url: msh_book_wb.html
+                - generic [ref=f8e46]:
+                  - img "close" [ref=f8e47] [cursor=pointer]
+                  - img "expand" [ref=f8e48] [cursor=pointer]
+              - generic [ref=f8e50]:
+                - generic [ref=f8e51]: expand/collapse all
+                - generic [ref=f8e52]:
+                  - term [ref=f8e53] [cursor=pointer]:
+                    - link "Capabilities in Ansys Workbench" [ref=f8e55]:
+                      - /url: msh_capabilities.html
+                  - term [ref=f8e56] [cursor=pointer]:
+                    - link "Usage in Workbench" [ref=f8e58]:
+                      - /url: msh_application.html
+                  - term [ref=f8e59] [cursor=pointer]:
+                    - link "Mesh Controls Overview" [ref=f8e61]:
+                      - /url: ds_Meshing_Overview.html
+                  - term [ref=f8e62] [cursor=pointer]:
+                    - link "Global Mesh Controls" [ref=f8e64]:
+                      - /url: ds_Global_Mesh_Controls.html
+                  - definition [ref=f8e65]:
+                    - generic [ref=f8e66]:
+                      - term [ref=f8e67] [cursor=pointer]:
+                        - link "Display Group" [ref=f8e69]:
+                          - /url: msh_display_group.html
+                      - term [ref=f8e70] [cursor=pointer]:
+                        - link "Defaults Group" [ref=f8e72]:
+                          - /url: msh_def_grp.html
+                      - term [ref=f8e73] [cursor=pointer]:
+                        - link "Sizing Group" [ref=f8e75]:
+                          - /url: ds_Sizing_Group.html
+                      - term [ref=f8e76] [cursor=pointer]:
+                        - link "Quality Group" [ref=f8e78]:
+                          - /url: msh_Quality_Group.html
+                      - definition [ref=f8e79]:
+                        - generic [ref=f8e80]:
+                          - term [ref=f8e81]:
+                            - link "The Mesh Quality Workflow" [ref=f8e83] [cursor=pointer]:
+                              - /url: msh_quality_workflow.html
+                          - term [ref=f8e84]:
+                            - link "Check Mesh Quality" [ref=f8e86] [cursor=pointer]:
+                              - /url: msh_check_mesh_quality.html
+                          - term [ref=f8e87]:
+                            - link "Error and Warning Limits" [ref=f8e89] [cursor=pointer]:
+                              - /url: ds_Shape_Checking.html
+                          - term [ref=f8e90]:
+                            - link "Target Element Quality" [ref=f8e92] [cursor=pointer]:
+                              - /url: wb_msh_d5l_jw5_jw.html
+                          - term [ref=f8e93]:
+                            - link "Target Skewness" [ref=f8e95] [cursor=pointer]:
+                              - /url: wb_msh_def_target_skew.html
+                          - term [ref=f8e96]:
+                            - link "Target Jacobian Ratio (Corner Nodes)" [ref=f8e98] [cursor=pointer]:
+                              - /url: msh_target_jacob.html
+                          - term [ref=f8e99]:
+                            - link "Target Characteristic Length (LS-DYNA)" [ref=f8e101] [cursor=pointer]:
+                              - /url: msh_target_char_lenlsdyna.html
+                          - term [ref=f8e102]:
+                            - link "Target Aspect Ratio (Height)" [ref=f8e104] [cursor=pointer]:
+                              - /url: msh_target_arexplicit.html
+                          - term [ref=f8e105]:
+                            - link "Smoothing" [ref=f8e107] [cursor=pointer]:
+                              - /url: msh_Smoothing.html
+                          - term [ref=f8e108]:
+                            - link "Mesh Optimization" [ref=f8e110] [cursor=pointer]:
+                              - /url: msh_optimization.html
+                          - term [ref=f8e111] [cursor=pointer]:
+                            - link "Mesh Metric" [ref=f8e113]:
+                              - /url: msh_metrics.html
+                          - definition [ref=f8e114]:
+                            - generic [ref=f8e115]:
+                              - term [ref=f8e116]:
+                                - link "Element Quality" [ref=f8e118] [cursor=pointer]:
+                                  - /url: msh_Element_Quality_Metric.html
+                              - term [ref=f8e119]:
+                                - link "Aspect Ratio Calculation for Triangles" [ref=f8e121] [cursor=pointer]:
+                                  - /url: msh_aspect_triangle.html
+                              - term [ref=f8e122]:
+                                - link "Aspect Ratio Calculation for Quadrilaterals" [ref=f8e124] [cursor=pointer]:
+                                  - /url: msh_aspect_quad.html
+                              - term [ref=f8e125]:
+                                - link "Aspect Ratio Calculation for Tetrahedrons" [ref=f8e127] [cursor=pointer]:
+                                  - /url: msh_aspect_tetra.html
+                              - term [ref=f8e128]:
+                                - link "Jacobian Ratio" [ref=f8e130] [cursor=pointer]:
+                                  - /url: msh_jacobian_ratio.html
+                              - term [ref=f8e131]:
+                                - link "Warping Factor" [ref=f8e133] [cursor=pointer]:
+                                  - /url: msh_warping.html
+                              - term [ref=f8e134]:
+                                - link "Parallel Deviation" [ref=f8e136] [cursor=pointer]:
+                                  - /url: msh_parallel_dev.html
+                              - term [ref=f8e137]:
+                                - link "Maximum Corner Angle" [ref=f8e139] [cursor=pointer]:
+                                  - /url: msh_max_corner_angle.html
+                              - term [ref=f8e140]:
+                                - link "Skewness" [ref=f8e142] [cursor=pointer]:
+                                  - /url: msh_skewness.html
+                              - term [ref=f8e143]:
+                                - link "Orthogonal Quality" [ref=f8e145] [cursor=pointer]:
+                                  - /url: msh_orthogonal_quality.html
+                              - term [ref=f8e146]:
+                                - link "Characteristic Length (Autodyn)" [ref=f8e148] [cursor=pointer]:
+                                  - /url: msh_char_length.html
+                              - term [ref=f8e149]:
+                                - link "Minimum Tri Angle" [ref=f8e151] [cursor=pointer]:
+                                  - /url: msh_min_tri_angle.html
+                              - term [ref=f8e152]:
+                                - link "Maximum Tri Angle" [ref=f8e154] [cursor=pointer]:
+                                  - /url: msh_max_tri_angle.html
+                              - term [ref=f8e155]:
+                                - link "Minimum Quad Angle" [ref=f8e157] [cursor=pointer]:
+                                  - /url: msh_min_quad_angle.html
+                              - term [ref=f8e158]:
+                                - link "Maximum Quad Angle" [ref=f8e160] [cursor=pointer]:
+                                  - /url: msh_max_quad_angle.html
+                              - term [ref=f8e161]:
+                                - link "Warping Angle" [ref=f8e163] [cursor=pointer]:
+                                  - /url: msh_warping_angle.html
+                              - term [ref=f8e164]:
+                                - link "Tet Collapse" [ref=f8e166] [cursor=pointer]:
+                                  - /url: msh_tet_collapse.html
+                              - term [ref=f8e167]:
+                                - link "Aspect Ratio (Height)" [ref=f8e169] [cursor=pointer]:
+                                  - /url: msh_explicit_aspect_ratio.html
+                              - term [ref=f8e170]:
+                                - link "Minimum Element Edge Length" [ref=f8e172] [cursor=pointer]:
+                                  - /url: msh_min_elemt_edge_len.html
+                              - term [ref=f8e173]:
+                                - link "Maximum Element Edge Length" [ref=f8e175] [cursor=pointer]:
+                                  - /url: msh_max_elemt_edge_len.html
+                              - term [ref=f8e176]:
+                                - link "Characteristic Length (LS-DYNA)" [ref=f8e178] [cursor=pointer]:
+                                  - /url: msh_char_lenlsdyna.html
+                      - term [ref=f8e179] [cursor=pointer]:
+                        - link "Inflation Group" [ref=f8e181]:
+                          - /url: ds_Inflation_Group.html
+                      - term [ref=f8e182] [cursor=pointer]:
+                        - link "Advanced Group" [ref=f8e184]:
+                          - /url: ds_Advanced_Meshing.html
+                      - term [ref=f8e185] [cursor=pointer]:
+                        - link "Automatic Methods" [ref=f8e187]:
+                          - /url: ds_Automatic_Methods.html
+                      - term [ref=f8e188] [cursor=pointer]:
+                        - link "Statistics Group" [ref=f8e190]:
+                          - /url: ds_Statistics_Group.html
+                      - term [ref=f8e191]:
+                        - link "Model Assembly Group" [ref=f8e193] [cursor=pointer]:
+                          - /url: ds_Model_Assembly_Group.html
+                  - term [ref=f8e194] [cursor=pointer]:
+                    - link "Local Mesh Controls" [ref=f8e196]:
+                      - /url: ds_MeshCtrl_Tools.html
+                  - term [ref=f8e197] [cursor=pointer]:
+                    - link "Options" [ref=f8e199]:
+                      - /url: msh_options.html
+                  - term [ref=f8e200] [cursor=pointer]:
+                    - link "Specialized Meshing" [ref=f8e202]:
+                      - /url: msh_specialized.html
+                  - term [ref=f8e203] [cursor=pointer]:
+                    - link "Mesh Control Interaction Tables" [ref=f8e205]:
+                      - /url: msh_priority_mesh.html
+                  - term [ref=f8e206] [cursor=pointer]:
+                    - link "Miscellaneous Tools" [ref=f8e208]:
+                      - /url: ds_MeshOthr_Tools.html
+                  - term [ref=f8e209] [cursor=pointer]:
+                    - link "Ease of Use Features" [ref=f8e211]:
+                      - /url: ds_meshing_ease_of_use.html
+                  - term [ref=f8e212] [cursor=pointer]:
+                    - link "Virtual Topology" [ref=f8e214]:
+                      - /url: msh_virtual_topology.html
+                  - term [ref=f8e215]:
+                    - link "Troubleshooting" [ref=f8e217] [cursor=pointer]:
+                      - /url: msh_troubleshoot.html
+                  - term [ref=f8e218] [cursor=pointer]:
+                    - link "Mesh Workflows" [ref=f8e220]:
+                      - /url: msh_wrkflow.html
+                  - term [ref=f8e221]:
+                    - link "Index" [ref=f8e223] [cursor=pointer]:
+                      - /url: ix01.html
+            - generic [ref=f8e224]:
+              - navigation [ref=f8e225]:
+                - navigation [ref=f8e227]:
+                  - link "Global Mesh Controls" [ref=f8e229] [cursor=pointer]:
+                    - /url: ds_Global_Mesh_Controls.html
+                  - text: "|"
+                  - link "Quality Group" [ref=f8e231] [cursor=pointer]:
+                    - /url: msh_Quality_Group.html
+                  - text: "|"
+                  - link "Mesh Metric" [ref=f8e233] [cursor=pointer]:
+                    - /url: msh_metrics.html
+                  - text: "|"
+                - generic [ref=f8e234]: PRINT PAGE
+              - generic "Skewness" [ref=f8e237]:
+                - heading "Skewness" [level=4] [ref=f8e242]
+                - paragraph [ref=f8e243]:
+                  - strong [ref=f8e245]: Skewness
+                  - text: measures how different a mesh cell or face is from its perfect shape, like an equilateral triangle or square.
+                  - strong [ref=f8e247]: Skewness
+                  - text: "is one of the primary quality measures for a mesh. For Ideal and Skewed Triangles, refer the following figure:"
+                - generic [ref=f8e248]:
+                  - paragraph [ref=f8e249]: "Figure 51: Ideal and Skewed Triangles and Quadrilaterals"
+                  - img "Ideal and Skewed Triangles and Quadrilaterals" [ref=f8e252]
+                - paragraph [ref=f8e253]: The following table lists the range of skewness values and its corresponding cell quality.
+                - table [ref=f8e255]:
+                  - rowgroup [ref=f8e259]:
+                    - row [ref=f8e260]:
+                      - columnheader "Value of Skewness" [ref=f8e261]
+                      - columnheader "Cell Quality" [ref=f8e262]
+                  - rowgroup [ref=f8e263]:
+                    - row [ref=f8e264]:
+                      - cell "1" [ref=f8e265]
+                      - cell "degenerate" [ref=f8e266]
+                    - row [ref=f8e267]:
+                      - cell "0.9 — <1" [ref=f8e268]
+                      - cell "bad (sliver)" [ref=f8e269]
+                    - row [ref=f8e270]:
+                      - cell "0.75 — 0.9" [ref=f8e271]
+                      - cell "poor" [ref=f8e272]
+                    - row [ref=f8e273]:
+                      - cell "0.5 — 0.75" [ref=f8e274]
+                      - cell "fair" [ref=f8e275]
+                    - row [ref=f8e276]:
+                      - cell "0.25 — 0.5" [ref=f8e277]
+                      - cell "good" [ref=f8e278]
+                    - row [ref=f8e279]:
+                      - cell ">0 — 0.25" [ref=f8e280]
+                      - cell "excellent" [ref=f8e281]
+                    - row [ref=f8e282]:
+                      - cell "0" [ref=f8e283]
+                      - cell "equilateral" [ref=f8e284]
+                - paragraph [ref=f8e285]: According to the definition of skewness, a value of 0 indicates an equilateral cell (best) and a value of 1 indicates a completely degenerate cell (worst). Degenerate cells (slivers) are characterized by nodes that are nearly coplanar (colinear in 2D).
+                - paragraph [ref=f8e286]: Highly skewed faces and cells are unacceptable because the equations being solved with the assumption that the cells are relatively equilateral or equiangular.
+                - paragraph [ref=f8e287]: "Two methods for measuring skewness are:"
+                - list [ref=f8e289]:
+                  - listitem [ref=f8e290]:
+                    - paragraph [ref=f8e291]: Based on the equilateral volume (applies only to triangles and tetrahedra).
+                  - listitem [ref=f8e292]:
+                    - paragraph [ref=f8e293]: Based on the deviation from a normalized equilateral angle. This method applies to all cell and face shapes, including pyramids and prisms.
+                - paragraph
+                - heading "Equilateral-Volume-Based Skewness" [level=5] [ref=f8e294]
+                - paragraph [ref=f8e295]: In the equilateral volume deviation method, skewness is defined as
+                - paragraph [ref=f8e299]: where, the optimal cell size is the size of an equilateral cell with the same circumradius.
+                - paragraph [ref=f8e300]: Quality meshes have a skewness value of approximately 0.1 for 2D and 0.4 for 3D. The table above provides a general guide to the relationship between cell skewness and quality.
+                - paragraph [ref=f8e301]: In 2D, all cells should be good or better. The presence of cells that are fair or worse indicates poor boundary node placement. You should try to improve your boundary mesh as much as possible, because the quality of the overall mesh can be no better than that of the boundary mesh.
+                - paragraph [ref=f8e302]: In 3D, most cells should be good or better, but a small percentage generally in the fair range and there are usually even a few poor cells.
+                - generic "Note" [ref=f8e303]:
+                  - separator
+                  - paragraph [ref=f8e304]:
+                    - generic [ref=f8e305]: "Note:"
+                    - text: The Equilateral-Volume-Based Skewness quality metric applies to any mesh element that includes a triangular face. For triangular and tetrahedral elements, all faces of which are strictly triangular, the Equilateral-Volume-Based Skewness metric applies directly. For wedge or pyramidal elements, which include combinations of triangular and quadrilateral faces, the Meshing application computes both Equilateral-Volume-Based Skewness metrics (for the triangular faces)
+                    - emphasis [ref=f8e307]: and
+                    - text: Normalized Equiangular Skewness metrics (for the quadrilateral faces and 3-D element, itself) and reports the maximum computed metric as the element skewness. As a result, Equilateral-Volume-Based Skewness metrics reported for meshes that contain wedge and/or pyramidal elements may include skewness values attributable to Normalized Equiangular Skewness computations.
+                  - separator
+                - heading "Normalized Equiangular Skewness" [level=5] [ref=f8e308]
+                - paragraph [ref=f8e309]: In the normalized angle deviation method, skewness is defined (in general) as
+                - paragraph [ref=f8e313]: where
+                - blockquote [ref=f8e315]:
+                  - paragraph [ref=f8e316]:
+                    - text: θ
+                    - subscript [ref=f8e317]: max
+                    - text: = largest angle in the face or cell
+                  - paragraph [ref=f8e318]:
+                    - text: θ
+                    - subscript [ref=f8e319]: min
+                    - text: = smallest angle in the face or cell
+                  - paragraph [ref=f8e320]:
+                    - text: θ
+                    - subscript [ref=f8e321]: e
+                    - text: = angle for an equiangular face/cell (60 for a triangle, 90 for a square)
+                - paragraph [ref=f8e322]: For a pyramid, the cell skewness will be the maximum skewness computed for any face. An ideal pyramid (skewness = 0) is one in which the 4 triangular faces are equilateral (and equiangular) and the quadrilateral base face is a square. The guidelines in the table above apply to the normalized equiangular skewness as well.
+              - navigation [ref=f8e323]:
+                - link "« Maximum Corner Angle" [ref=f8e325] [cursor=pointer]:
+                  - /url: msh_max_corner_angle.html
+                - link "Orthogonal Quality »" [ref=f8e327] [cursor=pointer]:
+                  - /url: msh_orthogonal_quality.html
+              - paragraph [ref=f8e329]:
+                - generic [ref=f8e330]: Release 2026 R1 - © ANSYS, Inc. All rights reserved.
+      - contentinfo
+  - contentinfo [ref=f7e50]:
+    - list [ref=f7e51]:
+      - listitem [ref=f7e52]: 2026 - ANSYS, Inc. All rights reserved.
+      - listitem [ref=f7e53]:
+        - link "Terms and Conditions" [ref=f7e54] [cursor=pointer]:
+          - /url: http://www.ansys.com/Footer/Terms-and-Conditions
+      - listitem [ref=f7e55]:
+        - link "Legal Notices" [ref=f7e56] [cursor=pointer]:
+          - /url: http://www.ansys.com/legal/legal-notices
+      - listitem [ref=f7e57]:
+        - link "Privacy Policy" [ref=f7e58] [cursor=pointer]:
+          - /url: http://www.ansys.com/legal/privacy-notice
+      - listitem [ref=f7e59]:
+        - link "Send Feedback" [ref=f7e60] [cursor=pointer]:
+          - /url: mailto:docfeedback@ansys.com?Subject=doc%20feedback

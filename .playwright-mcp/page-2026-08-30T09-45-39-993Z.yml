@@ -1,0 +1,242 @@
+- generic [active] [ref=f148e1]:
+  - generic [ref=f148e2]:
+    - generic [ref=f148e3]:
+      - list [ref=f148e5]:
+        - listitem [ref=f148e6]:
+          - img "icon" [ref=f148e7] [cursor=pointer]
+        - listitem [ref=f148e8]:
+          - link "DesignSpark Mechanical Documentation" [ref=f148e9] [cursor=pointer]:
+            - /url: ../../../index.html
+        - listitem
+      - list [ref=f148e12]:
+        - listitem
+        - listitem [ref=f148e13]:
+          - link [ref=f148e14] [cursor=pointer]:
+            - /url: ../../../Discovery/user_manual/options/r_customizing_file_options-stl.html
+            - img "back" [ref=f148e15]
+        - listitem [ref=f148e16]:
+          - link [ref=f148e17] [cursor=pointer]:
+            - /url: ../../../Discovery/user_manual/support_file_options.html
+            - img "forward" [ref=f148e18]
+    - article [ref=f148e19]:
+      - generic [ref=f148e20]:
+        - generic [ref=f148e24]:
+          - generic [ref=f148e25]:
+            - link "Contents" [ref=f148e28] [cursor=pointer]:
+              - /url: ../../../index.html
+            - generic [ref=f148e29]:
+              - img "close" [ref=f148e30] [cursor=pointer]
+              - img "expand" [ref=f148e31] [cursor=pointer]
+          - generic [ref=f148e34]:
+            - generic [ref=f148e35]:
+              - generic [ref=f148e36] [cursor=pointer]: Expand
+              - text: /
+              - generic [ref=f148e37] [cursor=pointer]: Collapse
+            - list [ref=f148e38]:
+              - listitem [ref=f148e39]:
+                - link "Copyright and Trademark Information" [ref=f148e41] [cursor=pointer]:
+                  - /url: ../../../shared/c_legal_frontmatter.html
+              - listitem [ref=f148e42]:
+                - link "File Operations" [ref=f148e44] [cursor=pointer]:
+                  - /url: ../../../Discovery/user_manual/File_Operations_intro.html
+              - listitem [ref=f148e45]:
+                - link "Introduction" [ref=f148e47] [cursor=pointer]:
+                  - /url: ../../../Discovery/user_manual/introduction.html
+              - listitem [ref=f148e48]:
+                - link "Selecting" [ref=f148e50] [cursor=pointer]:
+                  - /url: ../../../Discovery/user_manual/selecting.html
+              - listitem [ref=f148e51]:
+                - link "Designing" [ref=f148e53] [cursor=pointer]:
+                  - /url: ../../../Discovery/user_manual/designing_overview.html
+              - listitem [ref=f148e54]:
+                - link "Changing the Display" [ref=f148e56] [cursor=pointer]:
+                  - /url: ../../../Discovery/user_manual/customizing_the_workspace_overview.html
+              - listitem [ref=f148e57]:
+                - link "Detailing" [ref=f148e59] [cursor=pointer]:
+                  - /url: ../../../Discovery/user_manual/detailing_overview.html
+              - listitem [ref=f148e60]:
+                - link "Measuring and Analyzing" [ref=f148e62] [cursor=pointer]:
+                  - /url: ../../../Discovery/user_manual/measuring_and_analyzing_overview.html
+              - listitem [ref=f148e63]:
+                - link "Customizing DesignSpark Mechanical" [ref=f148e65] [cursor=pointer]:
+                  - /url: ../../../Discovery/user_manual/customizing_overview.html
+                - list [ref=f148e66]:
+                  - listitem [ref=f148e67]:
+                    - link "Option Types" [ref=f148e69] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/options/r_customizing_option_types.html
+                  - listitem [ref=f148e70]:
+                    - link "Popular Options" [ref=f148e72] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/popular_options.html
+                  - listitem [ref=f148e73]:
+                    - link "General Detailing Options" [ref=f148e75] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/detailing_options2.html
+                  - listitem [ref=f148e76]:
+                    - link "Drawing Sheet Size and Format Options" [ref=f148e78] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/detailing_sizeandformat2.html
+                  - listitem [ref=f148e79]:
+                    - link "Modular Grid Options" [ref=f148e81] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/modulargridoptions2.html
+                  - listitem [ref=f148e82]:
+                    - link "Limits and Fits Options" [ref=f148e84] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/limitsandfitsoptions.html
+                  - listitem [ref=f148e85]:
+                    - link "Appearance Options" [ref=f148e87] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/color_options.html
+                  - listitem [ref=f148e88]:
+                    - link "Selection Options" [ref=f148e90] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/selection_options.html
+                  - listitem [ref=f148e91]:
+                    - link "Snap Options" [ref=f148e93] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/snap_options.html
+                  - listitem [ref=f148e94]:
+                    - link "Units Options" [ref=f148e96] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/units_options.html
+                  - listitem [ref=f148e97]:
+                    - link "Navigation Options" [ref=f148e99] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/navigation_options.html
+                  - listitem [ref=f148e100]:
+                    - link "Advanced Options" [ref=f148e102] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/advanced_options.html
+                  - listitem [ref=f148e103]:
+                    - link "File Import and Export Options" [ref=f148e105] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/file_import_and_export_options.html
+                    - list [ref=f148e106]:
+                      - listitem [ref=f148e107]:
+                        - link "General File Options" [ref=f148e109] [cursor=pointer]:
+                          - /url: ../../../Discovery/user_manual/options/r_customizing_files_general.html
+                      - listitem [ref=f148e110]:
+                        - link "AMF Options" [ref=f148e112] [cursor=pointer]:
+                          - /url: ../../../Discovery/user_manual/options/r_customizing_file_options-amf.html
+                      - listitem [ref=f148e113]:
+                        - link "AutoCAD File Options" [ref=f148e115] [cursor=pointer]:
+                          - /url: ../../../Discovery/user_manual/options/r_customizing_file_options-autocad.html
+                      - listitem [ref=f148e116]:
+                        - link "IGES File Options" [ref=f148e118] [cursor=pointer]:
+                          - /url: ../../../Discovery/user_manual/options/r_customizing_file_options-iges.html
+                      - listitem [ref=f148e119]:
+                        - link "OBJ File Otions" [ref=f148e121] [cursor=pointer]:
+                          - /url: ../../../Discovery/user_manual/options/r_customizing_file_options-obj.html
+                      - listitem [ref=f148e122]:
+                        - link "SketchUp Options" [ref=f148e124] [cursor=pointer]:
+                          - /url: ../../../Discovery/user_manual/options/r_customizing_file_options-sketchup.html
+                      - listitem [ref=f148e125]:
+                        - link "STEP File Options" [ref=f148e127] [cursor=pointer]:
+                          - /url: ../../../Discovery/user_manual/options/r_customizing_file_options-step.html
+                      - listitem [ref=f148e128]:
+                        - link "STL File Options" [ref=f148e130] [cursor=pointer]:
+                          - /url: ../../../Discovery/user_manual/options/r_customizing_file_options-stl.html
+                      - listitem [ref=f148e131]:
+                        - link "STL Resolution Options" [ref=f148e133] [cursor=pointer]:
+                          - /url: ../../../Discovery/user_manual/options/r_customizing_file_options_stlresolution.html
+                  - listitem [ref=f148e134]:
+                    - link "Support File Options" [ref=f148e136] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/support_file_options.html
+                  - listitem [ref=f148e137]:
+                    - link "Quick Access Toolbar Options" [ref=f148e139] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/quick_access_toolbar_options.html
+                  - listitem [ref=f148e140]:
+                    - link "Multitouch Options" [ref=f148e142] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/options_multitouch.html
+                  - listitem [ref=f148e143]:
+                    - link "Displaying Workspace Tools" [ref=f148e145] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/windows_displaying_workspace_tools2.html
+                  - listitem [ref=f148e146]:
+                    - link "Configuring Windows" [ref=f148e148] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/configuring_the_docking_panels.html
+                  - listitem [ref=f148e149]:
+                    - link "Customizing a View" [ref=f148e151] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/orienting_customizing_views4.html
+                  - listitem [ref=f148e152]:
+                    - link "Creating Custom Shortcuts" [ref=f148e154] [cursor=pointer]:
+                      - /url: ../../../Discovery/user_manual/customshortcuts.html
+              - listitem [ref=f148e155]:
+                - link "Getting Help" [ref=f148e157] [cursor=pointer]:
+                  - /url: ../../../https://www.rs-online.com/designspark/login?return_to=/designspark/support-centre
+              - listitem [ref=f148e158]:
+                - link "Glossary" [ref=f148e160] [cursor=pointer]:
+                  - /url: ../../../Discovery/glossary/sc_glossary.html
+        - generic [ref=f148e161]:
+          - navigation [ref=f148e162]:
+            - generic [ref=f148e163]:
+              - link "Customizing DesignSpark Mechanical" [ref=f148e164] [cursor=pointer]:
+                - /url: ../../../Discovery/user_manual/customizing_overview.html
+              - text: »
+              - link "File Import and Export Options" [ref=f148e165] [cursor=pointer]:
+                - /url: ../../../Discovery/user_manual/file_import_and_export_options.html
+            - generic [ref=f148e166]: Print page
+          - generic [ref=f148e168]:
+            - heading "STL Resolution Options" [level=1] [ref=f148e169]
+            - generic [ref=f148e171]:
+              - paragraph [ref=f148e172]:
+                - generic [ref=f148e173]: Deviation
+                - text: controls how far facet edges are away from model edges. The images below show the effect of Max distance on the mesh of a cylinder. These examples keep the Aspect ratio fixed at 3 and the
+                - generic [ref=f148e174]: Facet maximum edge length
+                - text: set to 4mm.
+              - table [ref=f148e175]:
+                - caption [ref=f148e176]
+                - rowgroup [ref=f148e180]:
+                  - row [ref=f148e181]:
+                    - cell [ref=f148e182]:
+                      - figure [ref=f148e183]
+                    - cell [ref=f148e185]:
+                      - figure [ref=f148e186]
+                  - row [ref=f148e188]:
+                    - cell [ref=f148e189]:
+                      - paragraph [ref=f148e190]: Max Distance = 0.75mm
+                      - paragraph [ref=f148e191]: Max angle = 20-degrees
+                    - cell [ref=f148e192]:
+                      - paragraph [ref=f148e193]: Max Distance = 0.01mm
+                      - paragraph [ref=f148e194]: Max angle = 20-degrees
+              - paragraph [ref=f148e195]: Notice how the settings change the facets along the edge of the circle. The interior is a flat plane, so 45-degree triangles are the most efficient facets.
+              - paragraph [ref=f148e196]: The example on the left shows the default Max distance of 0.75mm. This refers to the gap seen in the zoomed-in (top) image. Decreasing the Max distance to 0.01mm results in more facets along the edge, which brings the facet edges closer to the cylinder edge, as seen in the example on the right.
+              - paragraph [ref=f148e197]: Similarly, decreasing the Max angle will result in more facets along curved edges. This example shows the result of decreasing the Max angle from 20 degrees to 1 degree.
+              - table [ref=f148e198]:
+                - caption [ref=f148e199]
+                - rowgroup [ref=f148e202]:
+                  - row [ref=f148e203]:
+                    - cell [ref=f148e204]:
+                      - figure [ref=f148e205]
+                  - row [ref=f148e207]:
+                    - cell [ref=f148e208]:
+                      - paragraph [ref=f148e209]: Max Distance = 0.75mm
+                      - paragraph [ref=f148e210]: Max angle = 1-degree
+              - paragraph [ref=f148e211]: Without a fixed Aspect ratio and without a Max edge length, you can get more distorted triangles as shown in the following images.
+              - table [ref=f148e212]:
+                - caption [ref=f148e213]
+                - rowgroup [ref=f148e218]:
+                  - row [ref=f148e219]:
+                    - cell [ref=f148e220]:
+                      - figure [ref=f148e221]
+                    - cell [ref=f148e223]:
+                      - figure [ref=f148e224]
+                    - cell [ref=f148e226]:
+                      - figure [ref=f148e227]
+                  - row [ref=f148e229]:
+                    - cell [ref=f148e230]:
+                      - paragraph [ref=f148e231]: No set Aspect Ratio or Maximum Edge Length
+                      - paragraph [ref=f148e232]: Max Distance = 0.75mm
+                      - paragraph [ref=f148e233]: Max angle = 20-degrees
+                    - cell [ref=f148e234]:
+                      - paragraph [ref=f148e235]: No set Aspect Ratio or Maximum Edge Length
+                      - paragraph [ref=f148e236]: Max Distance = 0.75mm
+                      - paragraph [ref=f148e237]: Max angle = 1-degree
+                    - cell [ref=f148e238]:
+                      - paragraph [ref=f148e239]: No set Aspect Ratio or Maximum Edge Length
+                      - paragraph [ref=f148e240]: Max Distance = 0.01mm
+                      - paragraph [ref=f148e241]: Max angle = 20-degrees
+            - navigation
+          - generic [ref=f148e242]:
+            - navigation [ref=f148e243]:
+              - generic [ref=f148e244]:
+                - generic [ref=f148e245]:
+                  - text: «
+                  - link "STL File Options" [ref=f148e246] [cursor=pointer]:
+                    - /url: ../../../Discovery/user_manual/options/r_customizing_file_options-stl.html
+                - generic [ref=f148e247]:
+                  - link "Support File Options" [ref=f148e248] [cursor=pointer]:
+                    - /url: ../../../Discovery/user_manual/support_file_options.html
+                  - text: »
+            - paragraph [ref=f148e250]:
+              - generic [ref=f148e251]: © Copyright 2023 Allied Electronics, Inc. All rights reserved.
+  - contentinfo:
+    - contentinfo

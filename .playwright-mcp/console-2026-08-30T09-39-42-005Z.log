@@ -1,0 +1,11 @@
+[    1562ms] [WARNING] Failed to execute 'write' on 'Document': It isn't possible to write into a document from an asynchronously-loaded external script unless it is explicitly opened. @ https://securepubads.g.doubleclick.net/tag/js/gpt.js:10
+[    1599ms] [LOG] auto activation @ https://static.iopscience.com/4.37.0/js/article.scripts.min.js:34
+[    1671ms] [WARNING] [GPT] PubAdsService.enableSingleRequest is deprecated, use googletag.setConfig({singleRequest: ...}) instead.
+https://goo.gle/gpt-message#170 @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202608250101/pubads_impl.js:18
+[    2163ms] [LOG] (1788082784167) {avdkc1jn}: boomerang: [debug] Generated PageID: avdkc1jn @ https://hit.uptrendsdata.com/rum.min.js:11
+[    2163ms] [LOG] (1788082784167) {avdkc1jn}: boomerang.rt: [debug] init RT @ https://hit.uptrendsdata.com/rum.min.js:11
+[    2164ms] [LOG] (1788082784168) {avdkc1jn}: boomerang.et: [info] This user agent supports EventTiming @ https://hit.uptrendsdata.com/rum.min.js:11
+[    2419ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    2423ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    2425ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    2427ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0

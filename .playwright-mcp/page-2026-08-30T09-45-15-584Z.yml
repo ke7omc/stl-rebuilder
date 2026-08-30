@@ -1,0 +1,193 @@
+- generic [ref=f147e2]:
+  - generic [ref=f147e3]:
+    - link "DuckDuckGo" [ref=f147e4] [cursor=pointer]:
+      - /url: /html/
+    - generic [ref=f147e5]:
+      - generic [ref=f147e6]:
+        - textbox [ref=f147e7]: x
+        - button "Submit" [ref=f147e8] [cursor=pointer]
+      - combobox [ref=f147e10] [cursor=pointer]:
+        - option "All Regions" [selected]
+        - option "Argentina"
+        - option "Australia"
+        - option "Austria"
+        - option "Belgium (fr)"
+        - option "Belgium (nl)"
+        - option "Brazil"
+        - option "Bulgaria"
+        - option "Canada (en)"
+        - option "Canada (fr)"
+        - option "Catalonia"
+        - option "Chile"
+        - option "China"
+        - option "Colombia"
+        - option "Croatia"
+        - option "Czech Republic"
+        - option "Denmark"
+        - option "Estonia"
+        - option "Finland"
+        - option "France"
+        - option "Germany"
+        - option "Greece"
+        - option "Hong Kong"
+        - option "Hungary"
+        - option "Iceland"
+        - option "India (en)"
+        - option "Indonesia (en)"
+        - option "Ireland"
+        - option "Israel (en)"
+        - option "Italy"
+        - option "Japan"
+        - option "Korea"
+        - option "Latvia"
+        - option "Lithuania"
+        - option "Malaysia (en)"
+        - option "Mexico"
+        - option "Netherlands"
+        - option "New Zealand"
+        - option "Norway"
+        - option "Pakistan (en)"
+        - option "Peru"
+        - option "Philippines (en)"
+        - option "Poland"
+        - option "Portugal"
+        - option "Romania"
+        - option "Russia"
+        - option "Saudi Arabia"
+        - option "Singapore"
+        - option "Slovakia"
+        - option "Slovenia"
+        - option "South Africa"
+        - option "Spain (ca)"
+        - option "Spain (es)"
+        - option "Sweden"
+        - option "Switzerland (de)"
+        - option "Switzerland (fr)"
+        - option "Taiwan"
+        - option "Thailand (en)"
+        - option "Turkey"
+        - option "US (English)"
+        - option "US (Spanish)"
+        - option "Ukraine"
+        - option "United Kingdom"
+        - option "Vietnam (en)"
+      - combobox [ref=f147e12] [cursor=pointer]:
+        - option "Any Time" [selected]
+        - option "Past Day"
+        - option "Past Week"
+        - option "Past Month"
+        - option "Past Year"
+  - generic [ref=f147e15]:
+    - generic [ref=f147e17]:
+      - heading [level=2] [ref=f147e18]:
+        - link "X - Official Site" [ref=f147e19] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fx.com%2F&rut=7754acd10ec24a3f073ac80481eb70ee6b9378318817ad4ca352099727df31b5
+      - generic [ref=f147e21]:
+        - link [ref=f147e23] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fx.com%2F&rut=7754acd10ec24a3f073ac80481eb70ee6b9378318817ad4ca352099727df31b5
+        - link "x.com" [ref=f147e24] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fx.com%2F&rut=7754acd10ec24a3f073ac80481eb70ee6b9378318817ad4ca352099727df31b5
+      - link "From breaking news and entertainment to sports and politics, get the full story with all the live commentary." [ref=f147e25] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fx.com%2F&rut=7754acd10ec24a3f073ac80481eb70ee6b9378318817ad4ca352099727df31b5
+    - generic [ref=f147e27]:
+      - heading [level=2] [ref=f147e28]:
+        - link "X (@X) / X" [ref=f147e29] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fx.com%2FX&rut=6ae7d02d040c768f18ea32ab18ccf03429dd3598c4191a4560d9d0a9718696fc
+      - generic [ref=f147e31]:
+        - link [ref=f147e33] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fx.com%2FX&rut=6ae7d02d040c768f18ea32ab18ccf03429dd3598c4191a4560d9d0a9718696fc
+        - link "x.com/X" [ref=f147e34] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fx.com%2FX&rut=6ae7d02d040c768f18ea32ab18ccf03429dd3598c4191a4560d9d0a9718696fc
+      - link "X @X Aug 27 just landed, just for you 🚀 access NFL Gametime on X by going to Home, add the NFL Timeline then open the NFL Gametime Hub for live scores, play-by-play and the game feed 00:00 256 203" [ref=f147e35] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fx.com%2FX&rut=6ae7d02d040c768f18ea32ab18ccf03429dd3598c4191a4560d9d0a9718696fc
+    - generic [ref=f147e37]:
+      - heading [level=2] [ref=f147e38]:
+        - link "Download the X app" [ref=f147e39] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fhelp.x.com%2Fen%2Fusing%2Dx%2Fdownload%2Dthe%2Dx%2Dapp&rut=dac770d8b29059d9b3566f717c5569055435049de34c0ad940a717c27195a61f
+      - generic [ref=f147e41]:
+        - link [ref=f147e43] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fhelp.x.com%2Fen%2Fusing%2Dx%2Fdownload%2Dthe%2Dx%2Dapp&rut=dac770d8b29059d9b3566f717c5569055435049de34c0ad940a717c27195a61f
+        - link "help.x.com/en/using-x/download-the-x-app" [ref=f147e44] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fhelp.x.com%2Fen%2Fusing%2Dx%2Fdownload%2Dthe%2Dx%2Dapp&rut=dac770d8b29059d9b3566f717c5569055435049de34c0ad940a717c27195a61f
+      - 'link "The X app is the trusted global digital town square for everyone. With X, you can: Post content for the world to see and join public conversations Stay up to date on breaking news and follow your interests Stay better informed with extra context from Community Notes Go live with Spaces for audio Stream live videos including sports anad watch game streamers Communicate privately with Direct ..." [ref=f147e45] [cursor=pointer]':
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fhelp.x.com%2Fen%2Fusing%2Dx%2Fdownload%2Dthe%2Dx%2Dapp&rut=dac770d8b29059d9b3566f717c5569055435049de34c0ad940a717c27195a61f
+    - generic [ref=f147e47]:
+      - heading [level=2] [ref=f147e48]:
+        - link "X - Apps on Google Play" [ref=f147e49] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.twitter.android%26hl%3Den&rut=f3e8ed301236682bc1f939c42c15dc171478d23ac5fe5fc98a24e7e2639eaf5b
+      - generic [ref=f147e51]:
+        - link [ref=f147e53] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.twitter.android%26hl%3Den&rut=f3e8ed301236682bc1f939c42c15dc171478d23ac5fe5fc98a24e7e2639eaf5b
+        - link "play.google.com/store/apps/details?id=com.twitter.android&hl=en" [ref=f147e54] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.twitter.android%26hl%3Den&rut=f3e8ed301236682bc1f939c42c15dc171478d23ac5fe5fc98a24e7e2639eaf5b
+      - link "X isn't just another social media app, it's the ultimate destination for staying well informed, sharing ideas, and building communities. With X, you're always in the loop with relevant trending topics and breaking news, delivered instantly to your screen, raw and unfiltered." [ref=f147e55] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.twitter.android%26hl%3Den&rut=f3e8ed301236682bc1f939c42c15dc171478d23ac5fe5fc98a24e7e2639eaf5b
+    - generic [ref=f147e57]:
+      - heading [level=2] [ref=f147e58]:
+        - link "Home - Google X" [ref=f147e59] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fx.company%2F&rut=4418045726f8e6fe0e0175a81411877a108da5b6f04ca985ecf86f9d8d6cc6bb
+      - generic [ref=f147e61]:
+        - link [ref=f147e63] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fx.company%2F&rut=4418045726f8e6fe0e0175a81411877a108da5b6f04ca985ecf86f9d8d6cc6bb
+        - link "x.company" [ref=f147e64] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fx.company%2F&rut=4418045726f8e6fe0e0175a81411877a108da5b6f04ca985ecf86f9d8d6cc6bb
+      - link "Welcome to X, Alphabet's Moonshot Factory. We create radical technologies to help solve some of the world's hardest problems." [ref=f147e65] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fx.company%2F&rut=4418045726f8e6fe0e0175a81411877a108da5b6f04ca985ecf86f9d8d6cc6bb
+    - generic [ref=f147e67]:
+      - heading [level=2] [ref=f147e68]:
+        - link "X (social network) - Wikipedia" [ref=f147e69] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FX_(social_network)&rut=23bf2890a89cf69ff6241b8adf5f16a4c588b53e39f86f543026d53739a8ddb0
+      - generic [ref=f147e71]:
+        - link [ref=f147e73] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FX_(social_network)&rut=23bf2890a89cf69ff6241b8adf5f16a4c588b53e39f86f543026d53739a8ddb0
+        - link "en.wikipedia.org/wiki/X_(social_network)" [ref=f147e74] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FX_(social_network)&rut=23bf2890a89cf69ff6241b8adf5f16a4c588b53e39f86f543026d53739a8ddb0
+      - link "X, formerly known as Twitter, [c] is an American microblogging and social networking service owned by SpaceX 's artificial intelligence subsidiary SpaceXAI. It is one of the world's largest social media platforms and one of the most-visited websites. [2][3] Users can share short text messages, images, and videos in short posts (commonly and unofficially known as \"tweets\", in reference to the ..." [ref=f147e75] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FX_(social_network)&rut=23bf2890a89cf69ff6241b8adf5f16a4c588b53e39f86f543026d53739a8ddb0
+    - generic [ref=f147e77]:
+      - heading [level=2] [ref=f147e78]:
+        - link "‎X App - App Store" [ref=f147e79] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fapps.apple.com%2Fus%2Fapp%2Fx%2Fid333903271&rut=8fd21fac96b0dadf0426864e544f825af89e0be3e446da910beea4c5e0d76c43
+      - generic [ref=f147e81]:
+        - link [ref=f147e83] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fapps.apple.com%2Fus%2Fapp%2Fx%2Fid333903271&rut=8fd21fac96b0dadf0426864e544f825af89e0be3e446da910beea4c5e0d76c43
+        - link "apps.apple.com/us/app/x/id333903271" [ref=f147e84] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fapps.apple.com%2Fus%2Fapp%2Fx%2Fid333903271&rut=8fd21fac96b0dadf0426864e544f825af89e0be3e446da910beea4c5e0d76c43
+      - 'link "X (formerly Twitter) is a social media app where you can follow breaking news, live events, and trending topics as they happen. Sports, tech, music, politics: whatever you''re into, the conversation starts here, raw and unfiltered." [ref=f147e85] [cursor=pointer]':
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fapps.apple.com%2Fus%2Fapp%2Fx%2Fid333903271&rut=8fd21fac96b0dadf0426864e544f825af89e0be3e446da910beea4c5e0d76c43
+    - generic [ref=f147e87]:
+      - heading [level=2] [ref=f147e88]:
+        - link "About X | Our company and priorities" [ref=f147e89] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fabout.x.com%2Fen&rut=fbcac8d0cc7d4262a40d7952c42f9b531f2d45f2b3396555ce7c64997786622b
+      - generic [ref=f147e91]:
+        - link [ref=f147e93] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fabout.x.com%2Fen&rut=fbcac8d0cc7d4262a40d7952c42f9b531f2d45f2b3396555ce7c64997786622b
+        - link "about.x.com/en" [ref=f147e94] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fabout.x.com%2Fen&rut=fbcac8d0cc7d4262a40d7952c42f9b531f2d45f2b3396555ce7c64997786622b
+      - link "We serve the public conversation. Learn more about X the company, and how we ensure people have a free and safe place to talk." [ref=f147e95] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fabout.x.com%2Fen&rut=fbcac8d0cc7d4262a40d7952c42f9b531f2d45f2b3396555ce7c64997786622b
+    - generic [ref=f147e97]:
+      - heading [level=2] [ref=f147e98]:
+        - link "How to sign up for X and create a new X account" [ref=f147e99] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fhelp.x.com%2Fen%2Fusing%2Dx%2Fcreate%2Dx%2Daccount&rut=ca98704e94b748a7c917e7bf8e267fa79427052e52b762c091cdbc58d3690b6b
+      - generic [ref=f147e101]:
+        - link [ref=f147e103] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fhelp.x.com%2Fen%2Fusing%2Dx%2Fcreate%2Dx%2Daccount&rut=ca98704e94b748a7c917e7bf8e267fa79427052e52b762c091cdbc58d3690b6b
+        - link "help.x.com/en/using-x/create-x-account" [ref=f147e104] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fhelp.x.com%2Fen%2Fusing%2Dx%2Fcreate%2Dx%2Daccount&rut=ca98704e94b748a7c917e7bf8e267fa79427052e52b762c091cdbc58d3690b6b
+      - link "A X account is your passport to what's happening in the world and what people are talking about right now. By signing up for an account, you're among the first to know about breaking news and what's popular--from the funny to the uplifting to the surprising." [ref=f147e105] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fhelp.x.com%2Fen%2Fusing%2Dx%2Fcreate%2Dx%2Daccount&rut=ca98704e94b748a7c917e7bf8e267fa79427052e52b762c091cdbc58d3690b6b
+    - generic [ref=f147e107]:
+      - heading [level=2] [ref=f147e108]:
+        - link "Download X (Twitter) (free) for Android, APK, iOS and Web App | Gizmodo" [ref=f147e109] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgizmodo.com%2Fdownload%2Fx%2Dtwitter&rut=24383400d7c890e150377101a2162b7ff507dd6ee98d8d901d387f9d76187db2
+      - generic [ref=f147e111]:
+        - link [ref=f147e113] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgizmodo.com%2Fdownload%2Fx%2Dtwitter&rut=24383400d7c890e150377101a2162b7ff507dd6ee98d8d901d387f9d76187db2
+        - link "gizmodo.com/download/x-twitter" [ref=f147e114] [cursor=pointer]:
+          - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgizmodo.com%2Fdownload%2Fx%2Dtwitter&rut=24383400d7c890e150377101a2162b7ff507dd6ee98d8d901d387f9d76187db2
+      - link "X is accessible through the web and as a mobile app on both Android and iOS. The platform is free to use, with a premium subscription available for users who want extra features." [ref=f147e115] [cursor=pointer]:
+        - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgizmodo.com%2Fdownload%2Fx%2Dtwitter&rut=24383400d7c890e150377101a2162b7ff507dd6ee98d8d901d387f9d76187db2
+    - button "Next" [ref=f147e118] [cursor=pointer]
+    - link "Feedback" [ref=f147e120] [cursor=pointer]:
+      - /url: //duckduckgo.com/feedback.html

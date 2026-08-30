@@ -1,0 +1,2 @@
+[     697ms] [LOG] JQMIGRATE: Migrate is installed, version 3.4.1 @ https://featips.com/wp-includes/js/jquery/jquery-migrate.min.js?ver=3.4.1:1
+[    3515ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0

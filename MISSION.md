@@ -12,9 +12,19 @@ solids, so an STL is useless until it is rebuilt as a true solid. Previous attem
 STL and loft the sections failed: section polylines were hundreds of tiny segments, high-level
 CAD lofts twisted or refused, and lofting two *surfaces* gave a lofted *surface*, not a solid.
 
-**Deliverable:** a Python tool `rebuild.py` that converts an STL of a grain into a valid,
-watertight, single-body BRep solid exported as STEP (mm, AP214) that a CAD/CFD tool can import
-directly as a solid — proven against synthetic ground truth by a quantitative scorer.
+**Deliverable:** a Python tool `rebuild.py` that converts an STL of a grain into valid,
+watertight BRep solids — one per propellant body (usually one; several for segmented or
+near-burnout grains) — exported as STEP (mm, AP214) that a CAD/CFD tool can import directly as
+solids — proven against synthetic ground truth by a quantitative scorer.
+
+**Round 1 (M0–M5, done 2026-08-29)** proved initial-burn grains on a z-axis motor centred on
+the origin. **Round 2 (M6–M12, this round)** makes it survive what real burnback files look
+like: the x axis (Fluent's axisymmetric solver requires it), an axis that does not pass through
+the origin, inches, mid-burn bores whose cross-section changes along the axis (loft), end-of-burn
+topology (blind and stepped bores, fins burned out, thin webs), several disconnected propellant
+bodies, feature-aware station placement, and marching-cubes meshes full of skewed, unwelded
+triangles. Round 3 will wrap the engine in a desktop GUI; keep the engine importable (no logic
+that only lives in the CLI).
 
 ## 2. Non-negotiable rules of engagement
 
@@ -34,8 +44,12 @@ directly as a solid — proven against synthetic ground truth by a quantitative 
    nobody repeats them.
 6. **Stay inside this repo and its venv.** Use `.venv/bin/python`. No network, no system
    installs, no other directories, no `git push`.
-7. **Units are millimetres end-to-end.** A single global `chord_tol` (mm) derives every other
-   tolerance as a documented multiple. Never introduce an independent magic tolerance.
+7. **Units are millimetres end-to-end.** Input units are declared (`--units mm|in|m`, default
+   mm) and converted to mm immediately after loading; the STEP header always says mm. A single
+   global `chord_tol` (mm) derives every other tolerance as a documented multiple of
+   `chord_tol`, the axial length `L`, or a local radius — **never an absolute millimetre
+   constant** (Round 1 left `50.0` mm, `200·chord_tol`, `80·seam_eps` in `cli.py`; they broke
+   on any other motor size and must live in `tol.py` as scale-relative values).
 8. **Prefer deterministic code over cleverness.** Fixed RNG seeds, no time-dependent behavior,
    log every stage decision so a failure is diagnosable from the log alone.
 
@@ -59,7 +73,9 @@ out/  logs/  state/                                      (gitignored runtime art
 ## 4. Environment
 
 `.venv` (Python 3.14, macOS arm64) is pre-installed with: `numpy scipy shapely networkx rtree
-trimesh build123d gmsh pytest`. `build123d` brings `cadquery-ocp-novtk` (OCCT 7.9.3); low-level
+trimesh build123d gmsh pytest scikit-image` (+ `scikit-fmm` if its wheel installed — otherwise
+use `scipy.ndimage.distance_transform_edt` for signed distances; both are harness-only,
+GPL-free). `build123d` brings `cadquery-ocp-novtk` (OCCT 7.9.3); low-level
 OCCT is importable as `from OCP.<Module> import <Class>`. `gmsh` is the pip wheel with its own
 bundled OCCT. If an import fails, fix the venv with `.venv/bin/pip install <pkg>` and record the
 exact package/version in PROGRESS.md. Do not install anything outside the venv.
@@ -142,12 +158,66 @@ birth/death events localized by bisection — not zoned lofts of the entire sect
 
 ### 5.3 CLI contract (the scorer calls this — keep it stable)
 ```
-.venv/bin/python rebuild.py <input.stl> --axis z --sections 40 \
-    [--refine-bands "0:0.15:3x,0.85:1.0:3x"] [--adaptive] [--chord-tol 0.5] \
-    -o out/<name>.step [--report out/<name>.report.json] [--stl out/<name>.result.stl]
+.venv/bin/python rebuild.py <input.stl> --axis z|x|y|auto|"vx,vy,vz" [--origin auto|"x,y,z"] \
+    --units mm|in|m --sections 40 [--refine-bands "0:0.15:3x,0.85:1.0:3x"] [--adaptive] \
+    [--chord-tol 0.5] -o out/<name>.step [--report out/<name>.report.json] \
+    [--stl out/<name>.result.stl] [--progress-json]
 ```
-Exit 0 on success, non-zero with a one-line reason on stderr on failure. `--refine-bands` is
-`start:end:factor` in normalized axial fraction; overlapping bands take the finest spacing.
+Exit 0 on success, non-zero with a one-line reason on stderr on failure — **and the report JSON
+is written on every exit path** (§7.2). `--refine-bands` is `start:end:factor` in normalized
+axial fraction; overlapping bands take the finest spacing. `--units` is explicit (never guessed:
+a 10 in motor and a 10 m motor have identical numbers); the tool prints a plausibility warning
+when the converted extent is < 20 mm or > 1e5 mm. `--progress-json` emits one JSON line per
+stage/station on stdout (the GUI's progress channel). `-o` holds one STEP with N solids when the
+input has N propellant bodies.
+
+### 5.5 Round 2 requirements (what M6–M13 force you to build; hints, not code)
+1. **Frame stage** (`pipeline/frame.py`): auto axis = principal direction of the surface-area-
+   weighted covariance of the mesh, choosing the *distinct* eigenvalue (not the smallest — short
+   fat grains flip); origin = centroid of outer-loop circle fits at ~5 coarse stations (a fin-
+   biased mesh centroid is wrong). Rigid transform to +Z through the origin, undone before
+   export; STEP always mm. Report `frame`.
+2. **Axial-end detection** (`pipeline/ends.py`): coarse sweep (~200 sections); extent = first and
+   last plane whose section area > `A_min`; classify each end flat / dome / pinch from dA/dz; the
+   first fitted station is where the outer circle-fit residual settles under `circle_max_resid`,
+   capped at 0.02·L — this replaces the hard-coded `200·chord_tol` inset. Never place a station
+   outside the material. Report `axial_extent_mm`, `end_kinds`.
+3. **Cavity decomposition** (`pipeline/loops.py`): per station, envelope = axisymmetric fit of the
+   max-radius profile; cavity polygons = envelope disc − section (shapely). Holes, slots, and
+   slots that have burned through to the outside are all cavity polygons, so a station with
+   several outer polygons needs no special case. Classify, orient CCW, match adjacent stations
+   with `linear_sum_assignment` (centroid, log-area, wrap-aware angle — research 04 §2); unmatched
+   ⇒ birth/death ⇒ bisection (reuse the pattern of `_bisect_topology_event`); output chains. The
+   outer chain goes through the same solids ladder as the cutters.
+4. **Solids ladder per chain**: revolve (circles on axis) > prism (loops identical within 1·ct
+   after seam alignment) > **per-window loft** — windows split at shape-class boundaries; inside
+   a window resample loops to a common M from an FFT-anchored seam, one periodic single-edge wire
+   per station, `ThruSections(isSolid=True)`, `CheckCompatibility(False)`, `SetParType
+   (ChordLength)`, `SetContinuity(C2)`, `SetMaxDegree(8)`; **slice-back check** at 3 interior z's;
+   on failure ruled per-pair + `UnifySameDomain`, then custom skin (§5.2 step 6). Never one global
+   spline across a pinch and a cylinder (recorded negative result in `pipeline/solids.py`). Seam
+   overlaps between windows follow the Round 1 discipline but live in `tol.py`.
+5. **Multi-body**: `mesh.split()`; drop bodies with volume < 1e-6·V_max as noise islands (log
+   them); run the stage pipeline per body; export one compound of N solids; `bodies[]` in report.
+6. **Healing / minimum feature size**: tolerant `merge_vertices`, `fix_normals`, sliver-loop
+   filter (`tol.a_min`, thickness < 3·ct — dead code in Round 1, make it live), ring-point dedupe
+   at 0.1·ct; after build `ShapeFix_Shape(precision=ct)` → `ShapeFix_Wireframe.FixSmallEdges` →
+   `UnifySameDomain`; enforce shortest edge ≥ max(0.1 mm, 2·ct); report `min_edge_mm`,
+   `min_face_area_mm2` (Parasolid wants non-coincident vertices > 100× its 1e-8 m precision).
+7. **Feature-aware stations** (`pipeline/stations.py`): `--sections` is a *budget*; coarse pass
+   N0 = 32, then bisection where loop count/nesting changes, |ΔA|/A > 1 %, centroid shift >
+   0.02·√(A/π), matched-loop Hausdorff > 2·ct, or predicted-midpoint error > 2·ct (research 04
+   §1); cosine clustering only inside detected dome/pinch windows; extra density around events
+   (±3·topo_tol) and fillet bands (dA/dz sign change); honour `--refine-bands`; dedupe at dz_min/2.
+   The Round 1 doubly-composed cosine warp with `--adaptive` ignored cannot pass M8's gates.
+8. **Report on every exit** (`pipeline/report.py`, written in a `finally`): §7.2 keys. Also the
+   engine must be importable (`pipeline.engine.rebuild(opts, on_progress, cancel)`) — the CLI is
+   a thin wrapper; Round 3's GUI calls the function, never the shell.
+9. **Scale-relative constants** (all in `tol.py`, inputs ct, L, R_o): pinch snap → max(5·ct,
+   0.02·R_o); inset → residual-driven (item 2); `min_dz = 5·ct`; seam overlaps named
+   `tol.seam_overlap_circ/other`; quadratic-fit window caps in stations, not points.
+10. **Performance**: pre-bin faces by z (interval tree) or `trimesh.intersections.mesh_multiplane`
+    so a 4e6-face mesh slices in ~10 ms per station, not ~1 s.
 
 ### 5.4 Tolerance table (`pipeline/tol.py`, all derived from `chord_tol`)
 | name | value | used for |
@@ -183,6 +253,35 @@ no NaN/inf in any metric.
 
 Default `chord_tol` for the truth tessellation is 0.5 mm; the scorer passes the same value to
 `rebuild.py --chord-tol`. Gates are evaluated at that tolerance.
+
+### 6.2 Round 2 ladder (M6–M13, MR) — one new capability per rung, each a strict superset
+
+Shared family L=10000, R_o=1000 unless stated; "ct" is the spec's `chord_tol`; `topo_tol =
+max(4·ct, L/5000)`. Universal gates as above, except **"exactly 1 solid" becomes "exactly N
+solids" (N from the spec)**. Truth SOLIDS are always analytic (booleans of primitives, ruled
+lofts, `BRepFilletAPI_MakeFillet`); level-set / marching cubes is used **only to synthesise the
+input mesh**, with gates scaled to the voxel size h (an exact-SDF marching-cubes surface deviates
+≈ h²κ/8 on smooth faces but up to ≈ h/2 at sharp edges).
+
+| M | Capability forced | Truth (analytic) and input pathology | Milestone gates (beyond universal) | `rebuild.py` args |
+|---|---|---|---|---|
+| **M6** | per-window **loft** | Cylinder minus a *ruled* loft between the M3 star (R_v 250 / R_t 450, fillets 30/40) at z=−10 and the same star scaled ×1.5 (375/675, fillets 45/60) at z=L+10 — scale linear in z; exact cones/planes; closed-form frustum volume L/3·(A0+√(A0A1)+A1). Clean tessellation. | volume < 0.2 %; dev max < 2·ct, p99 < 0.8·ct; face_count ≤ 200 (forces UnifySameDomain or a smooth loft); runtime < 300 s | `--axis z --sections 60 --chord-tol 0.5` |
+| **M7** | loop classification + **cross-station matching**, N cutters, generalised topology events | Cylinder, flat ends; central bore R=300 through; 6 satellite perforations R=100 at r=600 every 60°, from z=0 to z=7000 with a flat end wall (6 chain deaths at 7000). Closed form V = π(1000²−300²)L − 6π·100²·7000. | volume < 0.1 %; dev max < 1.2·ct, p99 < 0.8·ct; `topo_events_z_mm = [7000]` within topo_tol with `topo_events_max = 2`; face_count ≤ 60 | `--axis z --sections 60 --chord-tol 0.5` |
+| **M8** | **feature-aware adaptive stations** on a mid-burn grain | M5 capsule (2:1 domes) minus the M5 cavity *dilated* by web w=150: bore R=450 through; 8 obround slots half-width 190, outer radius 850, z∈[5850, 9650], end-edge loops filleted r=150. Selftest checks the offset property (samples on the M8 cavity are 150±1e-3 from M5's). | volume < 0.2 %; dev max < 2·ct, p99 < 0.8·ct; dome_stations_min 8; `station_bands` {fore_wall ≥ 10, aft_wall ≥ 10}; `n_stations_max` 80; `topo_events_z_mm` [5850, 9650], max 3; face_count ≤ 300 | `--axis z --sections 80 --adaptive --chord-tol 0.5` |
+| **M9** | **noisy, skewed marching-cubes input** (scale-relative constants) | M8 truth reused. Input: exact narrow-band SDF on an anisotropic grid (10, 10, 40) mm → `skimage.measure.marching_cubes` ≈ 5.5e5 triangles, aspect ≈ 4 (equiangle skew > 0.9), Gaussian normal noise σ=0.5 mm (seed 7); `watertight_expected = True`. | as M8 but volume < 0.5 %; dev max < 0.75·h_z = 30 mm, p99 < 0.5·h_xy = 5 mm; topo tol = h_z; runtime < 600 s | `--axis z --sections 80 --adaptive --chord-tol 5` |
+| **M10** | **frame normalisation**: `--axis auto`, off-origin, inches, small scale | M8 truth scaled ×1/40 (L=250, R_o=25, ct=0.0125), rotated so the motor axis is +x, translated (254, −76.2, 101.6) mm; truth STEP in that frame (mm); STL written in **inches**. | as M8 scaled; `frame_axis_err_deg` ≤ 0.1; `axial_extent_err_mm` ≤ 4·ct; bbox_err_pct 0.1 catches wrong units / undo-transform; runtime < 300 s | `--axis auto --units in --sections 80 --adaptive --chord-tol 0.0125` |
+| **M11** | **multi-solid output** | Segmented BATES, 3 annular segments with flat ends: A z∈[0,3000] R_i 300; B z∈[3500,6500] R_i 450 (dual-grain); C z∈[7000,10000] R_i 300; one STL, 3 shells. Closed form. | `n_solids = 3`; `per_solid_volume_err_pct` < 0.05 (centroid-matched); volume < 0.05 %; dev max < 1.2·ct, p99 < 0.8·ct; face_count ≤ 24 | `--axis z --sections 40 --chord-tol 0.5` |
+| **M12** | near-end-of-burn **cavity decomposition**: slots open to the dome, thin webs, multi-outer-loop stations | M5 capsule minus the cavity dilated by w=250: bore 550; obround slots half-width 290, outer r 950 (50 mm web), z∈[5750, 9750], end fillets r=250; aft slots break through the dome for z > 9656 (stations there have 8 disjoint outer polygons); bore exits the dome near z≈83 / 9917. | volume < 0.3 %; dev max < 2·ct, p99 < 0.8·ct; dome_stations_min 8; `station_bands` {fore_wall ≥ 10, breakthrough [9600, 9800] ≥ 10}; `n_stations_max` 120; `topo_events_z_mm` [5750, 9656, 9750] (max 5); `min_edge_mm` ≥ 0.1; face_count ≤ 400; runtime < 600 s | `--axis z --sections 120 --adaptive --chord-tol 0.5` |
+| **M13** | **capstone: a real-STL-shaped input** | M12 truth rotated to +x, translated (2500, −700, 1300) mm, STL in inches. Input: isotropic h=8 mm exact-SDF marching cubes ≈ 3.9e6 triangles; normal noise σ=0.8 mm; **unwelded** (per-facet vertices ± 1e-5 in jitter); 2 % flipped facets; 3 noise islands (5 mm tetrahedra inside the bore); `watertight_expected = False`. | `n_solids = 1` (islands dropped); volume < 0.5 %; dev max < 1.5·h = 12 mm, p99 < 0.5·h = 4 mm; frame_axis_err_deg 0.1; axial_extent_err_mm 8; station_bands as M12; n_stations_max 120; topo events [5750, 9750] tol 8, max 5; min_edge_mm 0.1; face_count ≤ 400; runtime < 900 s, mesh_timeout 600 | `--axis auto --units in --sections 120 --adaptive --chord-tol 8` |
+| **MR** | **real-STL slot** (`optional = True`) | No truth. The first `real_inputs/*.stl` (gitignored) + optional `real_inputs/<name>.json` {units, axis, known_volume_mm3}. When absent the scorer emits `pass: true, skipped: "no real input"` and selftest prints `[SKIP]`. | self-referential: pipeline_exit; n_solids ≥ 1; brep_valid; volume vs the repaired input mesh (or `known_volume_mm3`) < 0.5 %; deviation vs the input mesh p99 < 1.0·ct_est, max < 4·ct_est (ct_est = median edge length); step_roundtrip; gmsh; min_edge_mm 0.1; runtime < 1800 s | `--axis auto --units <json or mm> --adaptive --sections 120 --chord-tol <ct_est>` |
+| **HANDOFF** | — | `HANDOFF.md` v2 (§9) covering every M above (MR may be "skipped") | — |
+
+Why the ladder holds: M6 adds loft; M7 adds chains and N cutters (its loops are circles, so no
+new loft stress); M8 adds station steering on an analytic mesh; M9 changes only the input; M10
+only the frame; M11 only the body count; M12 only the cavity-decomposition topology; M13
+integrates everything. Why cosine end-clustering cannot pass M8: at n=80 the Round 1 warp spaces
+mid-barrel stations ≈ 310 mm apart, so a 300 mm feature band gets 0–1 stations, and reaching ≥ 10
+with uniform spacing needs n ≈ 500 ≫ `n_stations_max`.
 
 ## 7. Harness contract (M0 builds this; it is then frozen)
 
@@ -244,6 +343,68 @@ gate); score a deliberately perturbed copy (scaled by 1.01, and a version with t
 and assert it fails on the expected check (`volume_err_pct`) with a sensible hint; run gmsh on
 the truth STEP. Exit 0 only if all of that holds.
 
+### 7.2 Round 2 harness extension (built under M0 again, then re-frozen after the review pass)
+
+The Round 1 harness (M1–M5) is frozen at `harness-frozen` and **its truths, gates and numbers
+must not change** — after every harness edit, `score.py --milestone M1..M5` on the current
+pipeline must still report `pass: true`. Extend it as follows.
+
+- **`MilestoneSpec` gains** `chord_tol` (default `CHORD_TOL`), `frame` (`axis` unit vector in
+  input coordinates, `origin_mm`, `units ∈ {mm, in, m}`), `input` (`kind ∈ {analytic, voxel}`,
+  `spacing_mm`, `noise_sigma_mm`, `unweld_jitter`, `flip_frac`, `islands`,
+  `watertight_expected`), `station_bands: {label: min_count}`, `n_stations_max`,
+  `topo_events_z_mm: list`, `topo_events_max`, `n_solids`, `optional`, `input_glob`. Every spec
+  keeps `params["R_o"]` (gmsh `hmax = R_o/10`).
+- **Truth cache**: `make(Mk)` writes/reads `harness/truth/Mk.json` (param hash, V, A, bbox, axial
+  extent, frame, per-solid volumes and centroids) and reuses `Mk.step`/`Mk.stl`/`Mk.input.stl`
+  when the hash matches — voxel inputs take minutes and must be generated once.
+  `python -m harness.generators --warm` pre-generates everything. `Truth` gains
+  `input_stl_path` (what the pipeline gets), `truth_mesh_path` (clean tessellation at ct/2,
+  harness-only), `axial_lo/axial_hi`, `frame`, `n_solids`, `solid_volumes`, `solid_centroids`.
+- **`harness/voxelize.py`** (harness-only; `scikit-image`, optionally `scikit-fmm`, else
+  `scipy.ndimage.distance_transform_edt`): tessellate the truth at ct/2 → occupancy per z-plane
+  via `mesh.section` + `shapely.contains_xy` on the xy grid → narrow-band (|d| ≤ 2h) exact
+  distance with `metrics.point_mesh_distance`, sign from occupancy, far field ±2h →
+  `marching_cubes(phi, 0, spacing)` → pathologies in a fixed order with a seeded RNG (normal
+  noise, flips, islands, unweld + jitter, unit scale) → binary STL. Budget: M13 ≈ 1250×250×250
+  float32, 3–8 min once; never run inside the scorer's timed section.
+- **Scorer**: per-spec `chord_tol` (`DEVIATION_DEFLECTION = ct/2`); `_run_pipeline` copies
+  `truth.input_stl_path`; `input_watertight` fails only when `watertight_expected`; before
+  binning/deviation, transform truth and result meshes by `inverse(frame)` so `pts[:, 2]` is the
+  canonical axial coordinate and regions/`dome_stations_min` use `axial_lo/axial_hi`; the
+  report's `stations_z_mm` are axial mm from the input's fore end along `report.frame.axis`
+  (flip if `dot(report.frame.axis, truth.frame.axis) < 0`). **New checks** (cheap→expensive,
+  key-gated so M1–M5 plans are unchanged): `per_solid_volume_err_pct` (Hungarian match on
+  centroids), `frame_axis_err_deg`, `axial_extent_err_mm`, `station_bands` (every band ≥ min;
+  `len(stations_z_mm) == n_stations`; every station inside the extent), `n_stations_max`,
+  `topo_events` (every expected z matched within tol **and** reported count ≤ max; keep
+  `topo_event_z` for M4/M5), `min_edge_mm` (shortest edge over `TopExp` edges). `MR` skips with
+  `pass: true` when no input exists. `progress` stays deterministic and monotone.
+- **Report contract v2** (required keys; the Round 1 four stay): `status`, `exit_code`, `error`
+  (null on success), `stage_reached`, `frame` {axis, origin_mm, units, scale_to_mm},
+  `axial_extent_mm`, `end_kinds`, `bodies[]`, `stations[]` (z, n_outer, n_cavity, class, fit
+  residuals, area, chain ids), `chains`, `topology_events_z_mm`, `paths_used`, `timings`,
+  `warnings`, `min_edge_mm`. Written on **every** exit path.
+- **Selftest additions**: `_BORE_FILLERS` for M6–M13 (M6/M7 solid cylinder; M8/M9/M10 capsule ∪
+  bore, transformed for M10; M11 three solid cylinders; M12/M13 capsule ∪ bore); `_ideal_report`
+  covers bands, events list, frame, extent; a "2b" mutation proving **each new gate bites**
+  (60 uniform stations → `station_bands` fails; `n_stations` 10 000 → `n_stations_max`; 40
+  events → `topo_events`; axis rotated 5° → `frame_axis_err_deg`; extent short by 50 mm →
+  `axial_extent_err_mm`; one M11 solid scaled 1.01 → `per_solid_volume_err_pct`; a 0.01 mm sliver
+  edge → `min_edge_mm`); truth-correctness checks (M6 frustum volume, M7/M11 closed forms,
+  M8/M12 offset property, M9/M13 input triangle count and skew statistics, M10 bbox = scaled
+  rotated M8); a **report-on-failure** check (run `rebuild.py` on a deliberately non-watertight
+  copy; `report.json` must exist with `status`, `error`, partial `stations`); scaled and
+  bore-filled copies still fail on `volume_err_pct` for every milestone; determinism unchanged.
+  Keep the full selftest under 8 minutes with warm caches.
+- **Tests**: `tests/test_score.py` (M1 plan by name) stays valid; add `tests/test_score_round2.py`
+  (plan by name for M8, M11, M13) and `tests/test_voxelize.py` (a sphere's MC surface within
+  0.1·h of R).
+- Anti-gaming properties kept: `_truth_hidden` still hides `harness/truth/`; `not_truth_copy`
+  unchanged; report-derived gates are cross-checked against the STEP; station and event counts
+  are capped; MR cannot be made absent by the pipeline (the scorer looks in `real_inputs/`, never
+  in the temp cwd).
+
 ## 8. PROGRESS.md format (append one block per iteration, newest at the top under `## Log`)
 
 ```
@@ -264,6 +425,13 @@ A human will read this and open the files in SpaceClaim. Include: a per-mileston
 runtime); paths to each milestone's output STEP and truth STEP; the exact `rebuild.py`
 command per milestone; a SpaceClaim checklist (import STEP → exactly one solid body → bore /
 star / fins present → mesh); known limitations; and what to try first on a real burnback STL.
+
+**HANDOFF v2 (Round 2)**: the table covers M1–M13 and MR (mark MR "skipped" if no real input was
+present); add a SpaceClaim checklist entry per body count (M11 = three solids) and for the
+inch/x-axis cases (M10, M13: confirm the STEP is in mm and oriented as the input); a real-STL
+runbook v2 (`--units`, `--axis auto`, how to read `frame`/`axial_extent_mm`/`bodies` in the
+report, what a `status: failed` report tells you); and a section "what Round 3 (GUI) needs from
+the engine" listing the `pipeline.engine` API and `--progress-json`.
 
 ## 10. Known failure modes → mitigations (read before debugging)
 
@@ -294,6 +462,24 @@ star / fins present → mesh); known limitations; and what to try first on a rea
     `SetMaxDegree(8)`.
 13. trimesh `section()` positional-argument order changed → always call with keywords.
 14. `Path3D.to_planar` was removed in trimesh 5 → use `to_2D`.
+15. Marching-cubes staircase / sliver triangles (Round 2 inputs) → fit tolerances relative to the
+    voxel size (`chord_tol` = h), ring-point dedupe, sliver-loop filter; never trust a single
+    section's noise — fit across stations.
+16. Unwelded facets, flipped facets, noise islands → tolerant `merge_vertices`, `fix_normals`,
+    `mesh.split()` + volume-fraction island drop; report what was dropped.
+17. Wrong units or an axis away from the origin → explicit `--units`, `--axis auto`, origin from
+    circle-fit centres; the scorer's bbox check catches a wrong undo-transform instantly.
+18. Blind bores / stepped bores / slots breaking through a dome → cavity decomposition (§5.5 3):
+    zero-hole and multi-outer-polygon stations are ordinary cases, not errors.
+
+## 12. Round 3 (GUI) — what the engine must already provide
+
+Round 3 wraps the engine in a PySide6 desktop app (built-in 3D viewport, macOS + Windows,
+PyInstaller `--onedir`). It is specified when Round 2's HANDOFF is done, but the engine must be
+ready for it now: `pipeline.engine.analyze(opts)` (frame, units plausibility, extent, median edge
+length, body count — without building anything) and `pipeline.engine.rebuild(opts,
+on_progress, cancel)` returning the report dict; no logic that lives only in the CLI; no `gmsh`
+or GPL imports inside `pipeline/`; LGPL/BSD/MIT dependencies only in the shipped package.
 
 ## 11. Loop modes you may be run in (the driver tells you in the prompt header)
 
@@ -301,8 +487,9 @@ star / fins present → mesh); known limitations; and what to try first on a rea
 - **escalated** — same, but you are the stronger model because the previous iterations stalled;
   start by re-reading `## Do not retry` and the last 5 log blocks, then form a *different*
   hypothesis before touching code.
-- **review-harness** (once, before the M0 freeze) — audit `harness/` for correctness and for
-  ways a pipeline could pass without being right (gaming); fix what you find; run selftest.
+- **review-harness** (before each harness freeze — once in Round 1, again after the Round 2
+  extension) — audit `harness/` for correctness and for ways a pipeline could pass without
+  being right (gaming); fix what you find; run selftest.
 - **tournament** — the milestone has stalled hard. Spawn 2–3 subagents in isolated git
   worktrees, each with a *named, different* strategy for the failing stage; each runs the scorer
   in its worktree; merge only the best-scoring branch into main; record why the others lost.

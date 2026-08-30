@@ -5,8 +5,9 @@ results in SpaceClaim/Fluent. No code changes in this iteration.
 
 Include, in this order:
 1. **Summary** — three sentences: what the tool does, what was proven, what is not yet proven.
-2. **Results table** — one row per milestone M1–M5: volume error %, deviation max / p99 / rms
-   (mm), gmsh min SICN, stations used, path fired per chain (revolve / prism / loft / custom),
+2. **Results table** — one row per milestone (M1–M5 in Round 1; M1–M13 and MR in Round 2, MR
+   marked "skipped" if no real input was present): volume error %, deviation max / p99 (mm),
+   gmsh min SICN, stations used, bodies, path fired per chain (revolve / prism / loft / custom),
    runtime (s). Pull the numbers from `logs/` and `out/` — do not estimate them.
 3. **Artifacts** — for each milestone: path to the output STEP, the truth STEP, the truth STL
    input, the pipeline report JSON, and the exact `rebuild.py` command that produced it.
@@ -17,5 +18,7 @@ Include, in this order:
    the report JSON, and the three most likely failure modes with the CLI knob that addresses
    each.
 6. **Known limitations** and **what to try next** (from PROGRESS.md `## Current state`).
+7. *(Round 2)* The extra items in MISSION §9 "HANDOFF v2": per-body and inch/x-axis checklist
+   entries, the real-STL runbook v2, and "what Round 3 (GUI) needs from the engine".
 
 Commit `HANDOFF.md`. Print its path as your final line.

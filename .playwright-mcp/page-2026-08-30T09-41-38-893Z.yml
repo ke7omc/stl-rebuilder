@@ -1,0 +1,379 @@
+- generic [active] [ref=f132e1]:
+  - generic [ref=f132e2]:
+    - paragraph
+    - table [ref=f132e3]:
+      - rowgroup [ref=f132e4]:
+        - row [ref=f132e5]:
+          - cell [ref=f132e6]:
+            - link [ref=f132e7] [cursor=pointer]:
+              - /url: http://www.parasolid.com/
+          - cell "Session and Local Precision" [ref=f132e9]
+          - cell [ref=f132e11]
+    - paragraph
+    - paragraph
+    - table [ref=f132e12]:
+      - rowgroup [ref=f132e13]:
+        - row [ref=f132e14]:
+          - cell [ref=f132e15]:
+            - text: <<<
+            - link "Model Structure" [ref=f132e16] [cursor=pointer]:
+              - /url: fd_chap.04.html
+          - cell [ref=f132e17]:
+            - link "Chapters" [ref=f132e18] [cursor=pointer]:
+              - /url: ../fd_index.html
+          - cell [ref=f132e19]:
+            - link "Nominal Geometry" [ref=f132e20] [cursor=pointer]:
+              - /url: fd_chap.06.html
+            - text: ">>>"
+    - paragraph
+    - heading "Contents" [level=1] [ref=f132e21]
+  - list [ref=f132e22]:
+    - listitem [ref=f132e23]:
+      - link "4.1 Introduction" [ref=f132e24] [cursor=pointer]:
+        - /url: fd_chap.05.html#pgfId-273788
+    - listitem [ref=f132e25]:
+      - link "4.2 Session precision" [ref=f132e26] [cursor=pointer]:
+        - /url: fd_chap.05.html#pgfId-273792
+      - list [ref=f132e27]:
+        - listitem [ref=f132e28]:
+          - link "4.2.1 Coincident points" [ref=f132e29] [cursor=pointer]:
+            - /url: fd_chap.05.html#pgfId-273859
+        - listitem [ref=f132e30]:
+          - link "4.2.2 Tangent intersections" [ref=f132e31] [cursor=pointer]:
+            - /url: fd_chap.05.html#pgfId-273909
+        - listitem [ref=f132e32]:
+          - link "4.2.3 Sharp cones" [ref=f132e33] [cursor=pointer]:
+            - /url: fd_chap.05.html#pgfId-273964
+        - listitem [ref=f132e34]:
+          - link "4.2.4 Scaling" [ref=f132e35] [cursor=pointer]:
+            - /url: fd_chap.05.html#pgfId-273992
+    - listitem [ref=f132e36]:
+      - link "4.3 Tolerant Modeling and local precision" [ref=f132e37] [cursor=pointer]:
+        - /url: fd_chap.05.html#pgfId-273998
+      - list [ref=f132e38]:
+        - listitem [ref=f132e39]:
+          - link "4.3.1 Setting precision on an edge" [ref=f132e40] [cursor=pointer]:
+            - /url: fd_chap.05.html#pgfId-274006
+        - listitem [ref=f132e41]:
+          - link "4.3.2 Setting precision on a vertex" [ref=f132e42] [cursor=pointer]:
+            - /url: fd_chap.05.html#pgfId-274210
+  - paragraph [ref=f132e43]:
+    - link "[back to top]" [ref=f132e44] [cursor=pointer]:
+      - /url: "#topofdoc"
+  - separator [ref=f132e45]
+  - heading "4.1 Introduction" [level=1] [ref=f132e46]
+  - paragraph [ref=f132e47]: "This chapter tells you about the accuracy to which Parasolid models. In particular, it describes:"
+  - list [ref=f132e48]:
+    - listitem [ref=f132e49]: The default session precision used by Parasolid, and associated restrictions
+    - listitem [ref=f132e50]: How to use Tolerant Modeling by setting local precision on edges and vertices in parts created by importing models from non-Parasolid powered applications.
+  - paragraph [ref=f132e51]:
+    - link "[back to top]" [ref=f132e52] [cursor=pointer]:
+      - /url: "#topofdoc"
+  - separator [ref=f132e53]
+  - heading "4.2 Session precision" [level=1] [ref=f132e54]
+  - paragraph [ref=f132e55]:
+    - text: Parasolid performs all calculations to fixed accuracies called the
+    - strong [ref=f132e56]: session precision
+    - text: and
+    - strong [ref=f132e57]: session angle precision
+    - text: .
+  - heading [level=4] [ref=f132e58]:
+    - strong [ref=f132e59]: Session precision
+    - text: ":"
+  - list [ref=f132e60]:
+    - paragraph [ref=f132e61]:
+      - text: The linear precision of the modeler. Distances less than this value are treated as zero and distances that differ by no more than this value are treated as equal. The session precision is returned by
+      - link "PK_SESSION_ask_precision" [ref=f132e62] [cursor=pointer]:
+        - /url: ../headers/pk_session_ask_precision.html
+      - text: .
+  - heading "Session angle precision:" [level=4] [ref=f132e63]
+  - list [ref=f132e64]:
+    - paragraph [ref=f132e65]:
+      - text: The smallest angle (in radians) that is treated as different from zero. Angles less than this value are treated as zero and angles that differ by no more than this value are treated as equal. The session angle precision is returned by
+      - link "PK_SESSION_ask_angle_precision" [ref=f132e66] [cursor=pointer]:
+        - /url: ../headers/pk_session_ask_angle_precision.html
+      - text: .
+  - paragraph [ref=f132e67]: A Parasolid model is very precise; typically points are not considered coincident unless they are less than 1.0e-8 units apart (linear precision). Also, directions are considered to be parallel if they differ by less than 1.0e-11 units. It is important that data passed to Parasolid is at least this accurate.
+  - paragraph [ref=f132e68]:
+    - text: To allow precision to be handled correctly, all parts of a body must be within a box (called the
+    - strong [ref=f132e69]: size box
+    - text: ) whose size is 1000 by 1000 by 1000, and is centered at the origin, as shown in
+    - link "Figure 4-1" [ref=f132e70] [cursor=pointer]:
+      - /url: fd_chap.05.html#29201
+    - text: . You are highly recommended to set the default unit in your application code to one meter, giving 1 kilometer as the maximum distance, in any one direction, that can be modeled.
+  - paragraph [ref=f132e71]: To handle the precision of arcs correctly, the radius used when creating an arc must be less than a factor of 10 times the dimension of the size box.
+  - paragraph [ref=f132e72]
+  - paragraph [ref=f132e74]: Figure 4-1 Linear and angular precision
+  - paragraph [ref=f132e75]: "If possible, we recommend that you do not use models with geometry dimensions at or near to the linear and angular precisions, in order to enhance the reliability of your models. You should try to make sure that:"
+  - list [ref=f132e76]:
+    - listitem [ref=f132e77]: Vertices that are not intended to be coincident are separated by more than 100 times linear precision (10-6 for session precision)
+    - listitem [ref=f132e78]: Edges that are not intended to be parallel are separated by more than 100 times angular precision (10-9 for session angle precision)
+  - paragraph [ref=f132e79]:
+    - text: Sections
+    - link "4.2.1" [ref=f132e80] [cursor=pointer]:
+      - /url: fd_chap.05.html#16680
+    - text: to
+    - link "4.2.4" [ref=f132e81] [cursor=pointer]:
+      - /url: fd_chap.05.html#26070
+    - text: discuss some difficult precision issues.
+  - paragraph [ref=f132e82]:
+    - link "[back to top]" [ref=f132e83] [cursor=pointer]:
+      - /url: "#topofdoc"
+  - heading "4.2.1 Coincident points" [level=2] [ref=f132e84]
+  - paragraph [ref=f132e85]:
+    - text: For a body to be valid, linear precision must be transitive.
+    - link "Figure 4-2" [ref=f132e86] [cursor=pointer]:
+      - /url: fd_chap.05.html#23313
+    - text: ", for example, shows three points for which this is not the case. The distance between points 1 and 2 and points 1 and 3 is such that Parasolid would consider them coincident. However, the distance between points 2 and 3 infers that they are not. Such a body would be declared invalid."
+  - paragraph [ref=f132e87]
+  - paragraph [ref=f132e89]: Figure 4-2 Coincident points
+  - paragraph [ref=f132e90]:
+    - link "[back to top]" [ref=f132e91] [cursor=pointer]:
+      - /url: "#topofdoc"
+  - heading "4.2.2 Tangent intersections" [level=2] [ref=f132e92]
+  - paragraph [ref=f132e93]:
+    - text: In
+    - link "Figure 4-3" [ref=f132e94] [cursor=pointer]:
+      - /url: fd_chap.05.html#17103
+    - text: ", points 'b1' and 'b2' lie on both curves, but if distance 'a' is not greater than Parasolid's linear precision, Parasolid returns the intersection at 'x'."
+  - paragraph [ref=f132e95]
+  - paragraph [ref=f132e97]: Figure 4-3 Tangent intersection of two curves
+  - paragraph [ref=f132e98]:
+    - link "[back to top]" [ref=f132e99] [cursor=pointer]:
+      - /url: "#topofdoc"
+  - heading "4.2.3 Sharp cones" [level=2] [ref=f132e100]
+  - paragraph [ref=f132e101]: If angle 'a' is less than the angular precision of Parasolid, line 'b1' and the axis are returned as parallel. Subsequently spinning the line from 'x' to 'y' about the axis (the shaded area) creates a cylindrical surface, not a conical surface.
+  - paragraph [ref=f132e102]
+  - paragraph [ref=f132e104]: Figure 4-4 A cone that is too 'sharp' to be defined in Parasolid
+  - paragraph [ref=f132e105]:
+    - link "[back to top]" [ref=f132e106] [cursor=pointer]:
+      - /url: "#topofdoc"
+  - heading "4.2.4 Scaling" [level=2] [ref=f132e107]
+  - paragraph [ref=f132e108]: "You may sometimes want to scale parts that have been imported from other modelers, usually as a modeling operation. This may be necessary in order to ensure that the imported parts conform to Parasolid's requirements for precision. However, scaling needs to be performed carefully, for the following reasons:"
+  - list [ref=f132e109]:
+    - listitem [ref=f132e110]: Scaling up a part may make it invalid because, for example, points may no longer lie on the curves.
+    - listitem [ref=f132e111]: Scaling down a part may make it invalid because distinct points may become coincident after scaling.
+  - paragraph [ref=f132e112]: Modest scaling, up to a factor of 2, is unlikely to cause any problems.
+  - paragraph [ref=f132e113]:
+    - link "[back to top]" [ref=f132e114] [cursor=pointer]:
+      - /url: "#topofdoc"
+  - separator [ref=f132e115]
+  - heading "4.3 Tolerant Modeling and local precision" [level=1] [ref=f132e116]
+  - paragraph [ref=f132e117]:
+    - text: Parts created by other modelers can be imported into Parasolid (as described in
+    - link "Chapter 44, \"Data Import\"" [ref=f132e118] [cursor=pointer]:
+      - /url: fd_chap.45.html#38621
+    - text: ") and used in modeling operations. However, such parts were probably created in a modeler that uses a lower precision. Once imported, they may contain inconsistencies between their topological and geometric data: edges which, topologically, should meet at a common point have attached geometric data that does not intersect."
+  - paragraph [ref=f132e119]:
+    - text: To enable Parasolid to model successfully with imported parts, you can set a local precision on the edges and vertices of any externally created part that contains such inconsistencies. Setting local precision in this way is known as
+    - strong [ref=f132e120]: Tolerant Modeling
+    - text: .
+  - paragraph [ref=f132e121]:
+    - text: When setting local precision, think of edges as tubes, and vertices as spheres. The lower the precision, the thicker the tube or the larger the diameter of the sphere. To use Tolerant Modeling effectively, you need to examine the topology for each part, and, where there is inconsistency in the data, increase the local precision (make the tubes fatter and the spheres bigger) until the geometric data intersects. This can be done with a function such as
+    - link "PK_EDGE_repair" [ref=f132e122] [cursor=pointer]:
+      - /url: ../headers/pk_edge_repair.html
+    - text: ", or any of the checking functionality described in"
+    - link "Chapter 8, \"Checking\"" [ref=f132e123] [cursor=pointer]:
+      - /url: fd_chap.09.html#12509
+    - text: .
+  - paragraph [ref=f132e124]: The precision value is stored as a parameter associated with an edge or vertex. It represents the minimum distance (in 3-space) that a point and an entity must be apart in order to be distinct.
+  - paragraph [ref=f132e125]
+  - table [ref=f132e126]:
+    - rowgroup [ref=f132e127]:
+      - row [ref=f132e128]:
+        - 'cell "Note: Your application should consider the use of local precisions a modeling operation, since it can affect both the topology and the geometry of a model." [ref=f132e129]'
+  - paragraph [ref=f132e131]:
+    - text: Edges and vertices which don't have a local precision set are considered
+    - strong [ref=f132e132]: exact
+    - text: by Parasolid, and have a precision of one half of the session precision.
+  - paragraph [ref=f132e133]: "The following subsections describe:"
+  - list [ref=f132e134]:
+    - listitem [ref=f132e135]:
+      - text: How to set local precision on edges (
+      - link "Section 4.3.1" [ref=f132e136] [cursor=pointer]:
+        - /url: fd_chap.05.html#42393
+      - text: )
+    - listitem [ref=f132e137]:
+      - text: How to set local precision on vertices (
+      - link "Section 4.3.2" [ref=f132e138] [cursor=pointer]:
+        - /url: fd_chap.05.html#34387
+      - text: )
+  - paragraph [ref=f132e139]
+  - table [ref=f132e140]:
+    - rowgroup [ref=f132e141]:
+      - row [ref=f132e142]:
+        - 'cell "Note: Tolerant Modeling is not just useful when importing data: it is also used by Parasolid for certain modeling operations. Although the vast majority of calculations are performed to very precise fixed accuracies, so as to maintain session precision and consistency between topological and geometric data, some calculations (for instance, many involving B-surfaces) use a local precision." [ref=f132e143]'
+  - paragraph [ref=f132e145]:
+    - link "[back to top]" [ref=f132e146] [cursor=pointer]:
+      - /url: "#topofdoc"
+  - heading "4.3.1 Setting precision on an edge" [level=2] [ref=f132e147]
+  - paragraph [ref=f132e148]: "The result of setting precision on an edge depends on whether the edge has already had its precision changed. There are four possible scenarios:"
+  - list [ref=f132e149]:
+    - listitem [ref=f132e150]:
+      - link "Setting local precision on an edge with no previous local precision" [ref=f132e151] [cursor=pointer]:
+        - /url: fd_chap.05.html#21718
+    - listitem [ref=f132e152]:
+      - link "Replacing a curve with multiple SP-curves" [ref=f132e153] [cursor=pointer]:
+        - /url: fd_chap.05.html#14074
+    - listitem [ref=f132e154]:
+      - link "Setting a new precision on an edge that already has local precision" [ref=f132e155] [cursor=pointer]:
+        - /url: fd_chap.05.html#26110
+    - listitem [ref=f132e156]:
+      - link "Removing local precision from an edge" [ref=f132e157] [cursor=pointer]:
+        - /url: fd_chap.05.html#10402
+  - paragraph [ref=f132e158]:
+    - text: You usually set local precision using
+    - link "PK_EDGE_repair" [ref=f132e159] [cursor=pointer]:
+      - /url: ../headers/pk_edge_repair.html
+    - text: ", which can set an appropriate precision for you automatically. Alternatively, you can use"
+    - link "PK_EDGE_set_precision" [ref=f132e160] [cursor=pointer]:
+      - /url: ../headers/pk_edge_set_precision.html
+    - text: to set local precision on an edge.
+    - link "PK_EDGE_ask_precision" [ref=f132e161] [cursor=pointer]:
+      - /url: ../headers/pk_edge_ask_precision.html
+    - text: returns the current precision for an edge.
+  - heading "Setting local precision on an edge with no previous local precision" [level=4] [ref=f132e162]
+  - paragraph [ref=f132e163]:
+    - text: In
+    - link "Figure 4-5" [ref=f132e164] [cursor=pointer]:
+      - /url: fd_chap.05.html#41574
+    - text: ", edge E1 (which has Parasolid session precision) is attached to a number of other edges at vertices V1 and V2."
+  - paragraph [ref=f132e165]
+  - paragraph [ref=f132e167]: Figure 4-5 Initial configuration - all edges and vertices are exact
+  - paragraph [ref=f132e168]:
+    - text: Suppose that local precision is applied to E1 using
+    - link "PK_EDGE_set_precision" [ref=f132e169] [cursor=pointer]:
+      - /url: ../headers/pk_edge_set_precision.html
+    - text: ". Once local precision is set, the following apply (see Figure 4-6 below):"
+  - list [ref=f132e170]:
+    - listitem [ref=f132e171]: E1 has the new precision, and is represented geometrically by two SP-curves attached to its fins.
+    - listitem [ref=f132e172]: The 3-space curve attached to edge E1 is deleted (unless nominal geometry is enabled for the body).
+  - paragraph [ref=f132e173]
+  - table [ref=f132e174]:
+    - rowgroup [ref=f132e175]:
+      - row [ref=f132e176]:
+        - 'cell "Note: It is important to note this difference of geometric representation between edges with and without local precision set." [ref=f132e177]'
+  - list [ref=f132e179]:
+    - listitem [ref=f132e180]: The vertices V1 and V2 automatically have their local precision set to the same as that of edge E1. Their geometric points are unchanged. The precision of a vertex must always be at least as large as the largest precision of any edge ending at that vertex.
+    - listitem [ref=f132e181]: The edges and vertices affected are bulletined as changed.
+    - listitem [ref=f132e182]: All other geometry and topology in the part is unchanged.
+  - paragraph [ref=f132e183]
+  - paragraph [ref=f132e185]: Figure 4-6 Final configuration after precision has been set
+  - paragraph [ref=f132e186]:
+    - text: For more information about nominal geometry, see
+    - link "Chapter 5, \"Nominal Geometry\"" [ref=f132e187] [cursor=pointer]:
+      - /url: fd_chap.06.html#36760
+    - text: .
+  - heading "Replacing a curve with multiple SP-curves" [level=4] [ref=f132e188]
+  - paragraph [ref=f132e189]: Sometimes, it is not possible to compute a single SP-curve from the original curve and the relevant face surface. This is usually due to G1 discontinuities in the surface parameter space, where it is necessary to split the curve and introduce extra vertices on the edge. In such cases, the edge is split a number of times, once for every surface singularity or discontinuity on the original curve. SP-curves are then computed for every relevant fin on the new edges.
+  - paragraph [ref=f132e190]:
+    - link "Figure 4-7" [ref=f132e191] [cursor=pointer]:
+      - /url: fd_chap.05.html#17289
+    - text: shows a simple ring edge passing through the poles of a sphere. There are two curves, split at the parameter singularities, which both have local precision set.
+  - paragraph [ref=f132e192]
+  - table [ref=f132e193]:
+    - rowgroup [ref=f132e194]:
+      - row [ref=f132e195]:
+        - cell [ref=f132e196]:
+          - generic [ref=f132e197]:
+            - text: "Note: If you use a function such as"
+            - link "PK_EDGE_repair" [ref=f132e198] [cursor=pointer]:
+              - /url: ../headers/pk_edge_repair.html
+            - text: to set local precision, then edges are split for you automatically.
+  - paragraph [ref=f132e199]
+  - paragraph [ref=f132e201]: Figure 4-7 Involving edge splitting
+  - paragraph [ref=f132e202]: To set local precision correctly, the edge is split into two and SP-curves attached to the relevant fins. Any edges created by this means are returned in a list.
+  - paragraph [ref=f132e203]: The fins of edge E1 have coincident and reversed SP-curves attached (single segment linear SP-curves in this example, though more generally they would be quadratic B-splines).
+  - paragraph [ref=f132e204]
+  - table [ref=f132e205]:
+    - rowgroup [ref=f132e206]:
+      - row [ref=f132e207]:
+        - cell [ref=f132e208]:
+          - list [ref=f132e209]:
+            - generic [ref=f132e210]: "Performance issue: You should not set precision too tight, as this incurs performance penalties. Precision in the range 1.0e-6 to 1.0e-8 modeler units is likely to result in the generation of SP-curves with large numbers of segments, these result in a corresponding drop in performance."
+  - heading "Setting a new precision on an edge that already has local precision" [level=4] [ref=f132e211]
+  - paragraph [ref=f132e212]:
+    - text: If you want to set the local precision of an edge to a different value, the precision of the edge is simply set to the supplied value, and the existing SP-curves
+    - emphasis [ref=f132e213]: are not
+    - text: replaced, even if the precision value supplied is numerically smaller. The precision of any vertices of the edge is set to the supplied value if this is greater than the value already stored there, otherwise, they are left alone.
+    - link "Figure 4-8" [ref=f132e214] [cursor=pointer]:
+      - /url: fd_chap.05.html#19361
+    - text: shows the effect of resetting edge precision for the edge shown in
+    - link "Figure 4-6" [ref=f132e215] [cursor=pointer]:
+      - /url: fd_chap.05.html#33011
+    - text: .
+  - paragraph [ref=f132e216]
+  - paragraph [ref=f132e218]:
+    - text: Figure 4-8 Resetting edge precision to
+    - strong [ref=f132e219]: (a)
+    - text: a smaller value
+    - strong [ref=f132e220]: (b)
+    - text: a larger value
+  - paragraph [ref=f132e221]
+  - table [ref=f132e222]:
+    - rowgroup [ref=f132e223]:
+      - row [ref=f132e224]:
+        - 'cell "Note: It is possible to cause the model to fail checking by setting an edge precision to a numerically smaller value, because the existing SP-curves attached to the fins may well not lie within the new precision of each other. To rectify, the SP-curves must be replaced. We recommend that applications do not decrease precision in this manner." [ref=f132e225]'
+  - heading "Removing local precision from an edge" [level=4] [ref=f132e227]
+  - paragraph [ref=f132e228]:
+    - text: You can use
+    - link "PK_EDGE_reset_precision" [ref=f132e229] [cursor=pointer]:
+      - /url: ../headers/pk_edge_reset_precision.html
+    - text: to remove local precision from an edge, so that it is once more represented geometrically by an unbounded 3-space curve. In order to recreate this curve, Parasolid removes the SP-curves attached to the underlying edge, and computes the position of the new curve by finding the intersection of the underlying faces for each surface. This is illustrated in
+    - link "Figure 4-9" [ref=f132e230] [cursor=pointer]:
+      - /url: fd_chap.05.html#14726
+    - text: .
+  - paragraph [ref=f132e231]
+  - paragraph [ref=f132e233]: Figure 4-9 Removing local precision from an edge
+  - paragraph [ref=f132e234]: This operation may not always be successful if the adjacent surfaces are tangent or nearly tangent.
+  - paragraph [ref=f132e235]
+  - table [ref=f132e236]:
+    - rowgroup [ref=f132e237]:
+      - row [ref=f132e238]:
+        - cell [ref=f132e239]:
+          - list [ref=f132e240]:
+            - generic [ref=f132e241]:
+              - text: "Performance issue: Using"
+              - link "PK_EDGE_reset_precision" [ref=f132e242] [cursor=pointer]:
+                - /url: ../headers/pk_edge_reset_precision.html
+              - text: on simple surface geometry often improves performance, because enquiries on exact geometry are usually faster than enquiries on approximate SP-curves.
+  - paragraph [ref=f132e243]:
+    - link "[back to top]" [ref=f132e244] [cursor=pointer]:
+      - /url: "#topofdoc"
+  - heading "4.3.2 Setting precision on a vertex" [level=2] [ref=f132e245]
+  - paragraph [ref=f132e246]: When local precision is applied to a vertex, the precision value represents the radius of a sphere of uncertainty around the point of the vertex. The lower the precision, the larger the precision value, and the larger the sphere of uncertainty.
+  - paragraph [ref=f132e247]:
+    - text: Vertex precision is usually set as a by-product of setting edge precision, either by calling
+    - link "PK_EDGE_set_precision" [ref=f132e248] [cursor=pointer]:
+      - /url: ../headers/pk_edge_set_precision.html
+    - text: or by other modeling operations. Your application should not normally need to set an individual precision for a vertex. However, if necessary, you can use
+    - link "PK_VERTEX_set_precision" [ref=f132e249] [cursor=pointer]:
+      - /url: ../headers/pk_vertex_set_precision.html
+    - text: "to set a vertex precision, provided that it is not:"
+  - list [ref=f132e250]:
+    - listitem [ref=f132e251]: smaller than the existing precision
+    - listitem [ref=f132e252]: less than the maximum of the precision of the edges meeting there
+  - paragraph [ref=f132e253]:
+    - link "PK_VERTEX_ask_precision" [ref=f132e254] [cursor=pointer]:
+      - /url: ../headers/pk_vertex_ask_precision.html
+    - text: returns the current precision of any vertex.
+  - paragraph [ref=f132e255]
+  - paragraph [ref=f132e256]:
+    - link "[back to top]" [ref=f132e257] [cursor=pointer]:
+      - /url: "#topofdoc"
+  - paragraph
+  - table [ref=f132e258]:
+    - rowgroup [ref=f132e259]:
+      - row [ref=f132e260]:
+        - cell [ref=f132e261]:
+          - text: <<<
+          - link "Model Structure" [ref=f132e262] [cursor=pointer]:
+            - /url: fd_chap.04.html
+        - cell [ref=f132e263]:
+          - link "Chapters" [ref=f132e264] [cursor=pointer]:
+            - /url: ../fd_index.html
+        - cell [ref=f132e265]:
+          - link "Nominal Geometry" [ref=f132e266] [cursor=pointer]:
+            - /url: fd_chap.06.html
+          - text: ">>>"
+  - paragraph

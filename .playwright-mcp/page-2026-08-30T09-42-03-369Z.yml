@@ -1,0 +1,348 @@
+- generic [active] [ref=f133e1]:
+  - banner [ref=f133e2]:
+    - generic [ref=f133e3]:
+      - link "Skip to main content" [ref=f133e4] [cursor=pointer]:
+        - /url: "#main"
+      - generic [ref=f133e5]:
+        - text: Ｏ Ｐ 
+        - generic [ref=f133e6]:
+          - link "Microsoft" [ref=f133e7] [cursor=pointer]:
+            - /url: https://www.microsoft.com
+          - link "Learn" [ref=f133e14] [cursor=pointer]:
+            - /url: /en-us/
+          - generic [ref=f133e16]:
+            - navigation "Global" [ref=f133e18]:
+              - text: Ｒ
+              - list [ref=f133e19]:
+                - listitem [ref=f133e20]:
+                  - button "Documentation" [ref=f133e22] [cursor=pointer]:
+                    - generic [ref=f133e24]: Ｓ
+                - listitem [ref=f133e26]:
+                  - button "Training & Labs" [ref=f133e28] [cursor=pointer]:
+                    - generic [ref=f133e30]: Ｓ
+                - listitem [ref=f133e32]:
+                  - button "Q&A" [ref=f133e34] [cursor=pointer]:
+                    - generic [ref=f133e36]: Ｓ
+                - listitem [ref=f133e38]:
+                  - button "Topics" [ref=f133e40] [cursor=pointer]:
+                    - generic [ref=f133e42]: Ｓ
+              - text: Ｔ
+            - generic [ref=f133e44]:
+              - text: Ｐ
+              - button "Open search" [ref=f133e45] [cursor=pointer]:
+                - generic [ref=f133e46]: 
+          - link "Sign in" [ref=f133e48] [cursor=pointer]:
+            - /url: "#"
+        - generic [ref=f133e50]:
+          - link "Windows App Development" [ref=f133e51] [cursor=pointer]:
+            - /url: /en-us/windows/apps
+          - navigation "Site" [ref=f133e53]:
+            - list [ref=f133e54]:
+              - listitem [ref=f133e55]:
+                - button "Essentials" [ref=f133e56] [cursor=pointer]:
+                  - generic [ref=f133e58]: Ｓ
+              - listitem [ref=f133e60]:
+                - button "Design" [ref=f133e61] [cursor=pointer]:
+                  - generic [ref=f133e63]: Ｓ
+              - listitem [ref=f133e65]:
+                - button "Develop" [ref=f133e66] [cursor=pointer]:
+                  - generic [ref=f133e68]: Ｓ
+              - listitem [ref=f133e70]:
+                - button "Package and deploy" [ref=f133e71] [cursor=pointer]:
+                  - generic [ref=f133e73]: Ｓ
+              - listitem [ref=f133e75]:
+                - button "Publish" [ref=f133e76] [cursor=pointer]:
+                  - generic [ref=f133e78]: Ｓ
+              - text: Ｓ Ｔ Ｔ Ｔ Ｔ Ｔ
+          - generic [ref=f133e80]:
+            - link "What's new" [ref=f133e81] [cursor=pointer]:
+              - /url: /windows/apps/whats-new/whats-new-for-developers
+            - link "Dashboard" [ref=f133e82] [cursor=pointer]:
+              - /url: https://partner.microsoft.com/dashboard
+  - navigation "Primary" [ref=f133e86]:
+    - button "Collapse" [expanded] [ref=f133e88] [cursor=pointer]:
+      - generic [ref=f133e89]:
+        - generic [ref=f133e90]: ﾝ
+        - text: ﾜ
+  - main [ref=f133e91]:
+    - generic: Ｏ ，
+    - generic [ref=f133e92]:
+      - generic [ref=f133e93]:
+        - generic [ref=f133e95]:
+          - text: 
+          - group "Breadcrumbs"
+          - generic [ref=f133e96]:
+            - text: 󿄐 󿄐 󿄐
+            - group [ref=f133e97]:
+              - generic "More actions" [ref=f133e98] [cursor=pointer]: 
+        - text: ﾁ
+        - heading "SmartScreen reputation for Windows app developers" [level=1] [ref=f133e102]
+        - generic: 
+        - generic [ref=f133e104]:
+          - generic [ref=f133e105]: ﾃ
+          - button "Summarize this article for me" [ref=f133e107] [cursor=pointer]
+        - generic [ref=f133e109]:
+          - paragraph [ref=f133e110]: Microsoft Defender SmartScreen checks the reputation of downloaded files before allowing them to run. Understanding how reputation works can help avoid warnings when users download or run your files.
+          - generic [ref=f133e111]:
+            - paragraph [ref=f133e112]:
+              - generic [ref=f133e113]: 
+              - text: Tip
+            - paragraph [ref=f133e115]:
+              - strong [ref=f133e116]: The simplest way to avoid SmartScreen warnings is to publish through the Microsoft Store.
+              - text: Store-distributed apps are signed by a Microsoft certificate and are never subject to SmartScreen download warnings. The remainder of this article applies to apps distributed outside the Store.
+          - generic [ref=f133e117]:
+            - 'link "Section titled: How SmartScreen reputation works" [ref=f133e118] [cursor=pointer]':
+              - /url: "#how-smartscreen-reputation-works"
+              - text: 
+            - heading "How SmartScreen reputation works" [level=2] [ref=f133e119]
+          - paragraph [ref=f133e120]: "SmartScreen evaluates two signals when a user downloads and runs a file:"
+          - list [ref=f133e121]:
+            - listitem [ref=f133e122]:
+              - strong [ref=f133e123]: Publisher reputation
+              - text: — Is the file signed? Is the signing certificate from a known, trusted publisher?
+            - listitem [ref=f133e124]:
+              - strong [ref=f133e125]: File hash reputation
+              - text: — Has this specific file been downloaded by users without indications of malicious behavior?
+          - paragraph [ref=f133e126]: A negative or unknown reputation for a file's hash or its publisher's certificate can cause warnings to show. Even when signed, a newly created binary could still show a SmartScreen warning until its hash or publisher certificate accumulates sufficient evidence of positive reputation.
+          - paragraph [ref=f133e127]: When a file is not signed, SmartScreen reputation must build for each new version of your files, starting with zero reputation. Reputation cannot transfer from previous versions unless both were signed using the same publisher identity.
+          - generic [ref=f133e128]:
+            - 'link "Section titled: Certificate options and their SmartScreen implications" [ref=f133e129] [cursor=pointer]':
+              - /url: "#certificate-options-and-their-smartscreen-implications"
+              - text: 
+            - heading "Certificate options and their SmartScreen implications" [level=2] [ref=f133e130]
+          - paragraph [ref=f133e131]: To reduce the likelihood of interruption, you should sign all of your files with a valid certificate.
+          - button "Expand table" [ref=f133e133] [cursor=pointer]:
+            - generic [ref=f133e134]: ﾉ
+          - table "Certificate options and their SmartScreen implications" [ref=f133e138]:
+            - rowgroup [ref=f133e139]:
+              - row [ref=f133e140]:
+                - columnheader "Certificate type" [ref=f133e141]
+                - columnheader "First-download SmartScreen behavior" [ref=f133e142]
+            - rowgroup [ref=f133e143]:
+              - row [ref=f133e144]:
+                - cell "Microsoft Store" [ref=f133e145]
+                - cell "✅ No warning — covered by Microsoft's certificate" [ref=f133e146]
+              - row [ref=f133e147]:
+                - cell "Valid Certificate (OV/EV)" [ref=f133e148]
+                - cell "⚠️ Warning — app flagged as unrecognized until reputation accumulates; verified publisher name is displayed" [ref=f133e149]
+              - row [ref=f133e150]:
+                - cell "No signature" [ref=f133e151]
+                - cell "⚠️ Warning — \"Windows protected your PC\"; User must choose \"Run anyway\" before the app can run. Enterprise policy can prevent continuation entirely." [ref=f133e152]
+              - row [ref=f133e153]:
+                - cell "Self-signed Certificate" [ref=f133e154]
+                - cell "⚠️ Warning — Same behavior as no signature" [ref=f133e155]
+          - generic [ref=f133e156]:
+            - paragraph [ref=f133e157]:
+              - generic [ref=f133e158]: ７
+              - text: Note
+            - paragraph [ref=f133e160]: EV certificates no longer bypass SmartScreen. Years ago, signing files with an Extended Validation (EV) code signing certificate would result in positive SmartScreen reputation by default, but this behavior no longer exists. EV certificates may matter for enterprise procurement, but they no longer impact SmartScreen behavior. Paying a premium for EV solely to avoid SmartScreen warnings is no longer justified.
+          - generic [ref=f133e161]:
+            - 'link "Section titled: Microsoft Store (recommended)" [ref=f133e162] [cursor=pointer]':
+              - /url: "#microsoft-store-recommended"
+              - text: 
+            - heading "Microsoft Store (recommended)" [level=3] [ref=f133e163]
+          - paragraph [ref=f133e164]: Apps published through the Microsoft Store are re-signed by Microsoft and carry full reputation. Users will never see a SmartScreen warning for a Store-installed app.
+          - generic [ref=f133e165]:
+            - 'link "Section titled: Artifact Signing (formerly Trusted Signing)" [ref=f133e166] [cursor=pointer]':
+              - /url: "#artifact-signing-formerly-trusted-signing"
+              - text: 
+            - heading "Artifact Signing (formerly Trusted Signing)" [level=3] [ref=f133e167]
+          - paragraph [ref=f133e168]:
+            - link "Artifact Signing" [ref=f133e169] [cursor=pointer]:
+              - /url: /en-us/azure/trusted-signing/
+            - text: "(formerly Trusted Signing) is Microsoft's recommended code signing service for non-Store distribution:"
+          - list [ref=f133e170]:
+            - listitem [ref=f133e171]:
+              - strong [ref=f133e172]: Cost
+              - text: — Starts at $9.99/month. See
+              - link "Artifact Signing pricing" [ref=f133e173] [cursor=pointer]:
+                - /url: https://azure.microsoft.com/pricing/details/artifact-signing/
+              - text: .
+            - listitem [ref=f133e174]:
+              - strong [ref=f133e175]: No hardware token required
+              - text: — integrates directly with CI/CD pipelines (GitHub Actions, Azure DevOps)
+            - listitem [ref=f133e176]:
+              - strong [ref=f133e177]: Identity validation required
+              - text: — Microsoft validates your identity before issuing certificates
+            - listitem [ref=f133e178]:
+              - strong [ref=f133e179]: SmartScreen behavior
+              - text: — reputation accumulates over time based on download volume and behavior
+          - generic [ref=f133e180]:
+            - 'link "Section titled: What to expect when you publish a new app" [ref=f133e181] [cursor=pointer]':
+              - /url: "#what-to-expect-when-you-publish-a-new-app"
+              - text: 
+            - heading "What to expect when you publish a new app" [level=2] [ref=f133e182]
+          - list [ref=f133e183]:
+            - listitem [ref=f133e184]:
+              - strong [ref=f133e185]: "First downloads:"
+              - text: Users may see a SmartScreen prompt indicating the app is unrecognized. For signed apps, the publisher name is displayed. Users should proceed only after verifying the source.
+            - listitem [ref=f133e186]:
+              - strong [ref=f133e187]: "As downloads accumulate:"
+              - text: SmartScreen reputation builds up automatically. The prompt will stop appearing once the file hash has sufficient download history. There is no exact threshold, but it can take several weeks and hundreds of clean installs from a wide audience.
+            - listitem [ref=f133e188]:
+              - strong [ref=f133e189]: "New version:"
+              - text: Signing files using a trusted certificate can allow certificate reputation to build, potentially avoiding warnings on new files signed by the same trusted certificate. Unsigned files must build reputation anew with every update.
+          - paragraph [ref=f133e190]: There is no need (or mechanism) to manually submit a file for SmartScreen reputation review for consumer endpoints. Reputation builds organically through download volume.
+          - generic [ref=f133e191]:
+            - paragraph [ref=f133e192]:
+              - generic [ref=f133e193]: ７
+              - text: Note
+            - paragraph [ref=f133e195]:
+              - text: Enterprise environments may have different SmartScreen behavior depending on policy configuration; for example, the ability to bypass a SmartScreen warning may be disabled. Enterprises may distribute files from Trusted Intranet locations not subject to SmartScreen review. Enterprise IT administrators may optionally submit files for review via the
+              - link "Microsoft Security Intelligence portal" [ref=f133e196] [cursor=pointer]:
+                - /url: https://www.microsoft.com/en-us/wdsi/filesubmission
+              - text: . This can accelerate trust for internal or managed deployments.
+          - generic [ref=f133e197]:
+            - 'link "Section titled: Minimizing SmartScreen warnings in practice" [ref=f133e198] [cursor=pointer]':
+              - /url: "#minimizing-smartscreen-warnings-in-practice"
+              - text: 
+            - heading "Minimizing SmartScreen warnings in practice" [level=2] [ref=f133e199]
+          - list [ref=f133e200]:
+            - listitem [ref=f133e201]:
+              - strong [ref=f133e202]: Publish to the Microsoft Store
+              - text: where feasible — this is the most reliable way to avoid warnings entirely
+            - listitem [ref=f133e203]:
+              - strong [ref=f133e204]: Sign every release
+              - text: — unsigned files cannot inherit a positive reputation from the signing certificate
+            - listitem [ref=f133e205]:
+              - strong [ref=f133e206]: Do not modify signed files
+              - text: "- Avoid modifying files after signing as doing so can"
+              - link "break the signature" [ref=f133e207] [cursor=pointer]:
+                - /url: /en-us/windows/win32/secbp/understanding-pe-signatures#security-implications
+              - text: depending on client configuration
+            - listitem [ref=f133e208]:
+              - strong [ref=f133e209]: Do not sign potentially unwanted applications
+              - text: "- Avoid signing any file which exhibits"
+              - link "malicious or potentially unwanted application" [ref=f133e210] [cursor=pointer]:
+                - /url: /en-us/unified-secops/criteria
+              - text: behavior, or the certificate may develop
+              - strong [ref=f133e211]: negative
+              - text: reputation
+            - listitem [ref=f133e212]:
+              - strong [ref=f133e213]: Use a consistent signing identity
+              - text: — changing your signing certificate affects the publisher trust signal
+            - listitem [ref=f133e214]:
+              - strong [ref=f133e215]: Communicate with early adopters
+              - text: — for new apps, let beta users know they may see a SmartScreen prompt on first download, and that they should only proceed after verifying the publisher and confirming they trust the download source
+          - generic [ref=f133e216]:
+            - paragraph [ref=f133e217]:
+              - generic [ref=f133e218]: 
+              - text: Tip
+            - paragraph [ref=f133e220]: On Windows 11 devices, the Smart App Control feature may supersede SmartScreen Application Reputation. Smart App Control will block execution of unsigned files unless the file has a positive reputation. Smart App Control signature checks apply to all executable files, not just those downloaded from the Internet.
+          - generic [ref=f133e221]:
+            - 'link "Section titled: Related content" [ref=f133e222] [cursor=pointer]':
+              - /url: "#related-content"
+              - text: 
+            - heading "Related content" [level=2] [ref=f133e223]
+          - list [ref=f133e224]:
+            - listitem [ref=f133e225]:
+              - link "Choose a distribution path for your Windows app" [ref=f133e226] [cursor=pointer]:
+                - /url: choose-distribution-path
+            - listitem [ref=f133e227]:
+              - link "Current status of Windows app distribution features" [ref=f133e228] [cursor=pointer]:
+                - /url: distribution-feature-status
+            - listitem [ref=f133e229]:
+              - link "Sign an app package using SignTool" [ref=f133e230] [cursor=pointer]:
+                - /url: /en-us/windows/msix/package/sign-app-package-using-signtool
+            - listitem [ref=f133e231]:
+              - link "Artifact Signing (formerly Trusted Signing) documentation" [ref=f133e232] [cursor=pointer]:
+                - /url: /en-us/azure/trusted-signing/
+            - listitem [ref=f133e233]:
+              - link "Microsoft Trusted Root Program requirements" [ref=f133e234] [cursor=pointer]:
+                - /url: /en-us/security/trusted-root/program-requirements
+        - alert [ref=f133e235]: Reading mode disabled
+        - status [ref=f133e236]
+        - generic [ref=f133e238]:
+          - generic [ref=f133e240]:
+            - generic [ref=f133e241]:
+              - generic [ref=f133e242]: ６
+              - text: Collaborate with us on GitHub
+            - generic [ref=f133e244]:
+              - text: The source for this content can be found on GitHub, where you can also create and review issues and pull requests. For more information, see
+              - link "our contributor guide" [ref=f133e245] [cursor=pointer]:
+                - /url: https://learn.microsoft.com/contribute/content/how-to-write-quick-edits
+              - text: .
+          - generic [ref=f133e251]:
+            - paragraph [ref=f133e252]: Windows developer feedback
+            - generic [ref=f133e253]:
+              - paragraph [ref=f133e254]: "Windows developer is an open source project. Select a link to provide feedback:"
+              - generic [ref=f133e255]:
+                - link "Open a documentation issue" [ref=f133e256] [cursor=pointer]:
+                  - /url: https://github.com/MicrosoftDocs/windows-dev-docs/issues/new?template=1-customer-feedback.yml&pageUrl=https%3A%2F%2Flearn.microsoft.com%2Fen-us%2Fwindows%2Fapps%2Fpackage-and-deploy%2Fsmartscreen-reputation&pageQueryParams=&contentSourceUrl=https%3A%2F%2Fgithub.com%2FMicrosoftDocs%2Fwindows-dev-docs%2Fblob%2Fdocs%2Fhub%2Fapps%2Fpackage-and-deploy%2Fsmartscreen-reputation.md&documentVersionIndependentId=b56f018d-5abd-ad4e-45b1-0a23d0b2360b&platformId=012973ab-d754-f519-51b9-3b089d0cd2e0&feedback=%0A%0A%5BEnter+feedback+here%5D%0A&author=%40GrantMeStrength&metadata=*+ID%3A+b56f018d-5abd-ad4e-45b1-0a23d0b2360b%0A*+PlatformId%3A+012973ab-d754-f519-51b9-3b089d0cd2e0+%0A*+Service%3A+**windows-app-sdk**%0A*+Sub-service%3A+**deployment**&labels=needs-triage
+                  - generic [ref=f133e257]: 
+                  - text: Open a documentation issue
+                - link "Provide product feedback" [ref=f133e259] [cursor=pointer]:
+                  - /url: https://github.com/microsoft/msix-packaging/issues
+                  - generic [ref=f133e260]: 
+                  - text: Provide product feedback
+        - text:   
+      - generic [ref=f133e262]:
+        - separator [ref=f133e263]
+        - list [ref=f133e264]:
+          - listitem [ref=f133e265]:
+            - generic [ref=f133e266]: Last updated on 05/05/2026
+  - complementary "Additional resources" [ref=f133e268]:
+    - generic [ref=f133e270]:
+      - navigation "In this article" [ref=f133e271]:
+        - heading "In this article" [level=2] [ref=f133e272]
+        - list [ref=f133e273]:
+          - listitem [ref=f133e274]:
+            - link "How SmartScreen reputation works" [ref=f133e275] [cursor=pointer]:
+              - /url: "#how-smartscreen-reputation-works"
+          - listitem [ref=f133e276]:
+            - link "Certificate options and their SmartScreen implications" [ref=f133e277] [cursor=pointer]:
+              - /url: "#certificate-options-and-their-smartscreen-implications"
+          - listitem [ref=f133e278]:
+            - link "What to expect when you publish a new app" [ref=f133e279] [cursor=pointer]:
+              - /url: "#what-to-expect-when-you-publish-a-new-app"
+          - listitem [ref=f133e280]:
+            - link "Minimizing SmartScreen warnings in practice" [ref=f133e281] [cursor=pointer]:
+              - /url: "#minimizing-smartscreen-warnings-in-practice"
+          - listitem [ref=f133e282]:
+            - link "Related content" [ref=f133e283] [cursor=pointer]:
+              - /url: "#related-content"
+      - generic [ref=f133e285]:
+        - paragraph [ref=f133e286]: Was this page helpful?
+        - generic [ref=f133e287]:
+          - button "This article is helpful" [ref=f133e288] [cursor=pointer]:
+            - generic [ref=f133e289]: 
+          - text: 
+          - group [ref=f133e291]:
+            - generic "This article is not helpful" [ref=f133e292] [cursor=pointer]: 
+  - contentinfo [ref=f133e296]:
+    - generic [ref=f133e297]:
+      - link "Content language selector. Currently set to English (United States)." [ref=f133e298] [cursor=pointer]:
+        - /url: /en-us/locale?target=https%3A%2F%2Flearn.microsoft.com%2Fen-us%2Fwindows%2Fapps%2Fpackage-and-deploy%2Fsmartscreen-reputation
+        - generic [ref=f133e299]: 
+        - generic [ref=f133e301]: English (United States)
+      - link "Your Privacy Choices" [ref=f133e303] [cursor=pointer]:
+        - /url: https://aka.ms/yourcaliforniaprivacychoices
+      - button "Theme" [ref=f133e312] [cursor=pointer]:
+        - generic [ref=f133e313]: ０
+        - generic [ref=f133e316]: Ｓ
+    - list [ref=f133e318]:
+      - listitem [ref=f133e319]:
+        - link "AI Disclaimer" [ref=f133e320] [cursor=pointer]:
+          - /url: https://learn.microsoft.com/en-us/principles-for-ai-generated-content
+      - listitem [ref=f133e321]:
+        - link "Previous Versions" [ref=f133e322] [cursor=pointer]:
+          - /url: https://learn.microsoft.com/en-us/previous-versions/
+      - listitem [ref=f133e323]:
+        - link "Blog" [ref=f133e324] [cursor=pointer]:
+          - /url: https://techcommunity.microsoft.com/t5/microsoft-learn-blog/bg-p/MicrosoftLearnBlog
+      - listitem [ref=f133e325]:
+        - link "Contribute" [ref=f133e326] [cursor=pointer]:
+          - /url: https://learn.microsoft.com/en-us/contribute
+      - listitem [ref=f133e327]:
+        - link "Privacy" [ref=f133e328] [cursor=pointer]:
+          - /url: https://go.microsoft.com/fwlink/?LinkId=521839
+      - listitem [ref=f133e329]:
+        - link "Consumer Health Privacy" [ref=f133e330] [cursor=pointer]:
+          - /url: https://go.microsoft.com/fwlink/?linkid=2259814
+      - listitem [ref=f133e331]:
+        - link "Terms of Use" [ref=f133e332] [cursor=pointer]:
+          - /url: https://learn.microsoft.com/en-us/legal/termsofuse
+      - listitem [ref=f133e333]:
+        - link "Trademarks" [ref=f133e334] [cursor=pointer]:
+          - /url: https://www.microsoft.com/legal/intellectualproperty/Trademarks/
+      - listitem [ref=f133e335]: © Microsoft 2026

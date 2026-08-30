@@ -1,0 +1,212 @@
+- generic [active] [ref=f108e1]:
+  - separator [ref=f108e2]
+  - heading [level=2] [ref=f108e3]:
+    - generic [ref=f108e4]:
+      - text: Richard Nakka's
+      - emphasis [ref=f108e5]: Experimental Rocketry
+      - text: Web Site
+  - separator [ref=f108e6]
+  - generic [ref=f108e7]:
+    - heading "Solid Rocket Motor Theory -- Propellant Grain" [level=3] [ref=f108e9]
+    - separator [ref=f108e10]
+  - table [ref=f108e11]:
+    - rowgroup [ref=f108e12]:
+      - row [ref=f108e13]:
+        - cell [ref=f108e14]:
+          - heading "Propellant Grain" [level=4] [ref=f108e16]
+          - paragraph [ref=f108e18]:
+            - text: The propellant utilized in amateur experimental rocket motors may be simple in composition, being comprised of two main constituents -- fuel and an oxidizer. Such is the case with the "sugar" based propellants. Experimental
+            - emphasis [ref=f108e19]: composite
+            - text: propellants, on the other hand, may have a composition that is fairly complex, and may contain oxidizer of various mesh sizes, polymer binder, and even metals such as aluminum or magnesium. Curing agents, phase stabilizers, and solvents may be other additives included in small percentages.For any propellant, additives may control the burnrate, either to accelerate or to slow the rate. An opacifier may be added to absorb heat that may otherwise be transmitted through a translucent grain resulting in unpredictable burning. Regardless of the composition, however, all propellants are processed into a similar basic
+            - strong [ref=f108e20]: geometric form
+            - text: ", referred to as a propellant"
+            - emphasis [ref=f108e21]: grain
+            - text: . As a rule, propellant grains are cylindrical in shape to fit neatly into a rocket motor in order to maximize
+            - emphasis [ref=f108e22]: volumetric efficiency
+            - text: . The grain may consist of a single cylindrical
+            - emphasis [ref=f108e23]: segment
+            - text: (Figure 1), or may contain many segments. Usually, a central
+            - emphasis [ref=f108e24]: core
+            - text: that extends the full length of the grain is introduced, in order to increase the propellant surface area initially exposed to combustion.
+          - paragraph
+          - img "hollow cylindrical grain" [ref=f108e26]
+          - paragraph
+          - generic [ref=f108e27]: Figure 1 -- Hollow cylindrical grain
+          - separator [ref=f108e28]
+          - paragraph [ref=f108e29]: The core may have a wide variety of cross-sections such as circular, star, cross, dog-bone, wagon-wheel, etc., however, for amateur motors, the most common shape is circular. The core shape has a profound influence on the shape of the thrust-time profile, as shown in Figure 2.
+          - paragraph
+          - img "core shapes" [ref=f108e31]
+          - paragraph
+          - generic [ref=f108e32]:
+            - text: Figure 2 -- Core shapes and influence on thrust curve
+            - link [ref=f108e33] [cursor=pointer]:
+              - /url: th_pix/grains4.gif
+              - emphasis [ref=f108e34]: Click
+            - emphasis [ref=f108e35]: for more...
+          - separator [ref=f108e36]
+          - paragraph [ref=f108e37]:
+            - text: How does the core shape influence the thrust-time curve? The thrust (and chamber pressure) that a rocket motor generates is proportional to the burning area at any particular instant in time. This is referred to as the
+            - emphasis [ref=f108e38]: instantaneous burning area
+            - text: . The burning surface at any point recedes in the direction normal (perpendicular) to the surface at that point, the result being a relationship between burning surface and web distance burned that depends almost entirely on the
+            - emphasis [ref=f108e39]: grain initial shape
+            - text: and restricted (inhibited) boundaries. This important concept is illustrated in Figure 3, where the contour lines represent the core shape at successive moments in time during the burn. Notice that the shape of the thrust-time curve changes, with the vertical lines corresponding the the same successive moments during the burn. As can be seen , the star grain provides an approximately
+            - emphasis [ref=f108e40]: neutral
+            - text: burn, as the surface area remains fairly constant throughout the burn duration. A neutral burn is usually desirable because it provides for greater efficiency in delivery of total impulse, as a nozzle operates most efficiently at a constant chamber pressure.
+          - img "star grain" [ref=f108e42]
+          - paragraph
+          - generic [ref=f108e43]: Figure 3 -- Grain regression
+          - separator [ref=f108e44]
+          - paragraph
+          - paragraph [ref=f108e45]:
+            - text: It is important to recognize that the
+            - strong [ref=f108e46]: burning area of a propellant grain is a key parameter in determining the performance of a rocket motor
+            - text: ". The primary function of a propellant grain is to produce combustion products at a prescribed flowrate defined by:"
+          - paragraph
+          - paragraph [ref=f108e49]:
+            - text: where
+            - subscript [ref=f108e51]: p
+            - text: is the propellant mass density,
+            - emphasis [ref=f108e52]:
+              - text: A
+              - subscript [ref=f108e53]: b
+            - text: is the burning area, and
+            - emphasis [ref=f108e54]: r
+            - text: is the propellant burn rate. A complete discussion on burn rate is provided in the
+            - link "Propellant Burn Rate" [ref=f108e55] [cursor=pointer]:
+              - /url: burnrate.html
+            - text: "web page. The total burning area consists of all propellant surfaces that are exposed to combustion (and thus not inhibited from burning by some means). The grain burning area is dependant upon:"
+          - list [ref=f108e56]:
+            - listitem [ref=f108e57]: Grain geometry, as described above
+            - listitem [ref=f108e58]: Use of inhibitors
+          - text: An
+          - emphasis [ref=f108e59]: inhibitor
+          - text: is a material or coating that is sufficiently heat resistant such that any propellant surfaces protected by the inhibitor do not combust during the entire operating duration of the motor. Inhibitors for amateur experimental motors are typically paper or cardboard, or a coating such as polyester or epoxy resin. For the
+          - emphasis [ref=f108e60]: design
+          - text: of a motor, we are most interested in the
+          - emphasis [ref=f108e61]: maximum
+          - text: burning area, since it is this area that determines the
+          - emphasis [ref=f108e62]: maximum chamber pressure
+          - text: that the motor will experience. The maximum chamber pressure is used to size the motor casing. For a completely unrestricted-burning grain (e.g. A-100, B-200 & C-400 motors), all surfaces are exposed to the heated gases and thus burning proceeds from all surfaces commencing at the beginning of the burn. A "BATES" grain (Figure 4), which is multiple-segment, hollow cylindrical grain that is case bonded or otherwise has the external surface inhibited, the initial burning surface is that area of the
+          - emphasis [ref=f108e63]: core and segment ends
+          - text: . The
+          - link "Kappa" [ref=f108e64] [cursor=pointer]:
+            - /url: kappa.html
+          - text: rocket motor utilizes such a grain configuration, with a total of four segments.
+          - paragraph
+          - img "BATES grain" [ref=f108e66]
+          - paragraph
+          - generic [ref=f108e67]: Figure 4 -- BATES grain
+          - separator [ref=f108e69]
+          - paragraph [ref=f108e70]:
+            - generic [ref=f108e71]: BATES grain configurations are often employed in amateur motors, as such a grain can be made to have approximately neutral burning, by choice of the appropriate Lo/D and D/do ratios. A more complete discussion on burning area and its relationship to grain geometry, and its influence on chamber pressure, is given in the
+            - link "Rocket Motor Design Charts -- Chamber Pressure" [ref=f108e72] [cursor=pointer]:
+              - /url: design1.html
+            - text: web page.
+          - paragraph [ref=f108e73]:
+            - text: The surface areas of a cylindrical grain
+            - emphasis [ref=f108e74]: with frustum
+            - text: (such as A-100, B-200 & C-400) are given in the
+            - link "Grain Area" [ref=f108e75] [cursor=pointer]:
+              - /url: area_g.html
+            - text: web page.
+          - paragraph [ref=f108e76]:
+            - generic [ref=f108e77]:
+              - text: An important
+              - emphasis [ref=f108e78]: physical property
+              - text: of the propellant grain is the
+              - strong [ref=f108e79]: Mass Density
+              - text: ", which is used in performance calculations. If a propellant is comprised of two constituents, and oxidizer and a fuel, the"
+              - emphasis [ref=f108e80]: ideal density
+              - text: is given by
+          - generic [ref=f108e84]:
+            - text: where the symbol (rho) designates density,
+            - strong [ref=f108e86]: f
+            - text: is the mass fraction, and subscripts
+            - strong [ref=f108e87]: o
+            - text: and
+            - strong [ref=f108e88]: f
+            - text: "refer to oxidizer and fuel , respectively. If a propellant is comprised of more than two constituents, then the ideal density is given by (where a, b, c... denote the individual constituents): In"
+          - link "Table 1" [ref=f108e91] [cursor=pointer]:
+            - /url: table1.html
+          - text: ", the density for some oxidizers and some fuels is given, as well as a worked example. The"
+          - emphasis [ref=f108e92]: actual density
+          - text: can be obtained by accurately weighing a grain to determine its mass, and by measuring its volume, with the density expressed as
+          - img "equation 3" [ref=f108e94]
+          - text: The actual density will usually be some percentage less than the ideal density (typically 94%-97%), owing to tiny voids in the grain, and is dependant upon manufacturing technique. Volume is best obtained by the Archimedes principle, which involves immersion of the grain in an appropriate liquid, and measuring the displaced volume.
+          - paragraph [ref=f108e95]:
+            - text: The
+            - strong [ref=f108e96]: Volumetric Loading Fraction
+            - text: is defined as the fraction of
+            - emphasis [ref=f108e97]: grain volume
+            - text: to
+            - emphasis [ref=f108e98]: available chamber volume
+            - text: ", and relates the volumetric efficiency of the motor, as well as a measure of performance efficiency:"
+          - paragraph
+          - paragraph [ref=f108e101]:
+            - text: where
+            - emphasis [ref=f108e102]: Vp
+            - text: is the grain volume,
+            - emphasis [ref=f108e103]: Va
+            - text: is the available chamber volume,
+            - emphasis [ref=f108e104]: It
+            - text: is the total impulse (deliverable), and
+            - emphasis [ref=f108e105]: Isp
+            - text: is the propellant specific impulse.
+          - paragraph [ref=f108e106]:
+            - text: The
+            - strong [ref=f108e107]: Web Fraction
+            - text: is the ratio of propellant
+            - emphasis [ref=f108e108]: web thickness
+            - text: to grain
+            - emphasis [ref=f108e109]: outer radius
+            - text: ", and is given by:"
+          - paragraph
+          - paragraph [ref=f108e112]:
+            - text: where
+            - emphasis [ref=f108e113]:
+              - text: t
+              - subscript [ref=f108e114]: b
+            - text: is the motor burn time. Clearly, to maximize burn duration, it is necessary to maximize the web fraction (i.e. thickness). The "price" for maximizing web thickness is reduction of the grain core diameter. This must be carefully considered, as explained below.
+          - paragraph [ref=f108e115]:
+            - text: The
+            - strong [ref=f108e116]: Port-to-Throat
+            - text: area ratio is given by the
+            - emphasis [ref=f108e117]: flow channel
+            - text: cross-sectional area to the
+            - emphasis [ref=f108e118]: nozzle throat
+            - text: "cross-sectional area:"
+          - paragraph
+          - paragraph [ref=f108e121]:
+            - text: where
+            - emphasis [ref=f108e122]: Ap
+            - text: is the flow (channel) area of the grain and
+            - emphasis [ref=f108e123]: At
+            - text: is the throat cross-sectional area. Gas velocity along the length of the flow channel is influenced significantly by the magnitude of the port-to-throat area ratio.
+            - emphasis [ref=f108e124]: Choked flow
+            - text: occurs when the ratio is 1.0, with flow velocity through the port being equal to the flow velocity through the nozzle throat (sonic). Severe erosive burning (core stripping) may occur under such a condition, and is generally avoided in design. The criticality of the port-to-throat ratio, however, depends upon the
+            - emphasis [ref=f108e125]: mass flowrate
+            - text: at a given location. In fact, a ratio of 1.0 (or less) may be used at the forward end of the grain where mass flowrate is minimum. The port-to-throat area ratio is often used as an index from which erosive burning tendencies are established. For those propellants where this has not been established, a ratio of 2.0 to 3.0 (dependant upon grain L/D ratio) is suggested.
+          - paragraph [ref=f108e126]:
+            - strong [ref=f108e127]: Length-to-Diameter
+            - text: ratio is the g
+            - emphasis [ref=f108e128]: rain overall length
+            - text: in relation to the grain
+            - emphasis [ref=f108e129]: outer diameter
+            - text: . This parameter is very significant in motor design, as larger L/D values tend to result in greater erosive burning effects (including negative erosive burning). High L/D values tend to generate high mass flow rate differentials along the grain length, and may be best served with a
+            - emphasis [ref=f108e130]: tapered
+            - text: core or
+            - emphasis [ref=f108e131]: stepped
+            - text: core diameters (largest nearer the nozzle).
+  - generic [ref=f108e132]:
+    - link [ref=f108e133] [cursor=pointer]:
+      - /url: th_comb.html
+      - strong [ref=f108e134]: Next -- Propellant Combustion
+    - separator [ref=f108e135]
+    - img "Last updated" [ref=f108e136]
+    - heading "Last updated July 5, 2001" [level=4] [ref=f108e137]
+    - paragraph [ref=f108e138]:
+      - link "Back to Theory Index Page" [ref=f108e139] [cursor=pointer]:
+        - /url: rtheory.html
+      - link "Back to Index Page" [ref=f108e140] [cursor=pointer]:
+        - /url: http://www.nakka-rocketry.net/index.html
+  - separator [ref=f108e141]

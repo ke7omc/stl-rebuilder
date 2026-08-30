@@ -122,7 +122,23 @@ a stale alias can't silently downgrade the loop.
 | M3 | 6-point star bore with fillets | volume < 0.1 %, deviation < 2·chord_tol |
 | M4 | finocyl, 8 fin slots aft of z=6 m | topology event found at z=6000 ± tol, still 1 solid |
 | M5 | M2 + M4 with `--adaptive` | all gates with ≤ 50 % of the uniform station count, < 120 s |
+| **Round 2** (MISSION §6.2) | | |
+| M6 | tapered star bore (ruled loft truth) | per-window loft; volume < 0.2 %, dev max < 2·ct, ≤ 200 faces |
+| M7 | wagon wheel: bore + 6 blind satellite perforations | loop matching, N cutters, event at z=7000 |
+| M8 | mid-burn finocyl (cavity dilated 150 mm, filleted) | feature-aware stations: per-band minimums under an 80-station cap |
+| M9 | M8 with a marching-cubes input (10×10×40 mm voxels, noise) | gates in voxel units; scale-relative constants |
+| M10 | M8 at 1/40 scale, x-axis, off-origin, inches | `--axis auto`, `--units`, frame + extent gates |
+| M11 | segmented BATES, 3 shells (dual-grain) | 3 solids, per-body volume |
+| M12 | near-burnout finocyl, slots break through the aft dome | cavity decomposition, thin webs, min edge ≥ 0.1 mm |
+| M13 | M12 rotated/translated, inches, 3.9 M unwelded/flipped/noisy triangles + islands | the capstone |
+| MR | a real burnback STL in `real_inputs/` (optional, skipped when absent) | self-referential gates |
 | HANDOFF | — | `HANDOFF.md` written for human review in SpaceClaim |
+
+Round 1 (M0–M5) finished 2026-08-29 (25 iterations, ≈$103). Round 2 re-enters M0 to extend the
+frozen harness (`driver/prompt_m0_round2.md`), re-reviews and re-freezes it, then fast-forwards
+through M1–M5 (they already pass) to M6. `LOOP_STOP_AT=HANDOFF` stops cleanly before the
+hand-off iteration if you want to inspect first. Round 3 (desktop GUI) follows the same pattern
+with G1–G3 milestones gated by headless tests and a packaging build.
 
 ## Layout
 

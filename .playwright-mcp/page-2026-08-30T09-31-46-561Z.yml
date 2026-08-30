@@ -1,0 +1,567 @@
+- generic [ref=f1e2]:
+  - banner [ref=f1e3]:
+    - heading "PyPI Stats" [level=1] [ref=f1e4]
+    - paragraph [ref=f1e5]:
+      - link "Search" [ref=f1e6] [cursor=pointer]:
+        - /url: /
+      - link "All packages" [ref=f1e7] [cursor=pointer]:
+        - /url: /packages/__all__
+      - link "Top packages" [ref=f1e8] [cursor=pointer]:
+        - /url: /top
+      - link "Track packages" [ref=f1e9] [cursor=pointer]:
+        - /url: /user
+  - generic [ref=f1e10]:
+    - heading "pyside6" [level=1] [ref=f1e11]
+    - separator [ref=f1e12]
+    - paragraph [ref=f1e13]:
+      - link "PyPI page" [ref=f1e14] [cursor=pointer]:
+        - /url: https://pypi.org/project/PySide6/
+      - link "Home page" [ref=f1e15] [cursor=pointer]:
+        - /url: None
+      - text: "Author: None License: LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only Summary: Python bindings for the Qt cross-platform application and UI framework Latest version: 6.11.2 Required dependencies:"
+      - link "pyside6_addons" [ref=f1e16] [cursor=pointer]:
+        - /url: /packages/pyside6_addons
+      - text: "|"
+      - link "pyside6_essentials" [ref=f1e17] [cursor=pointer]:
+        - /url: /packages/pyside6_essentials
+      - text: "|"
+      - link "shiboken6" [ref=f1e18] [cursor=pointer]:
+        - /url: /packages/shiboken6
+      - text: "|"
+      - link "tomli" [ref=f1e19] [cursor=pointer]:
+        - /url: /packages/tomli
+      - text: "Downloads last day: 62,560 Downloads last week: 725,713 Downloads last month: 3,855,169"
+    - generic [ref=f1e22]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: "0"
+              - generic: 50,000
+              - generic: 100,000
+              - generic: 150,000
+              - generic: 200,000
+      - img:
+        - generic:
+          - generic [ref=f1e39]:
+            - generic [ref=f1e40]:
+              - generic [ref=f1e41]: With_Mirrors
+              - generic [ref=f1e46] [cursor=pointer]
+            - generic [ref=f1e47]:
+              - generic [ref=f1e48]: Without_Mirrors
+              - generic [ref=f1e53] [cursor=pointer]
+          - generic [ref=f1e54] [cursor=pointer]:
+            - generic [ref=f1e55]: 30d
+            - generic [ref=f1e58]: 60d
+            - generic [ref=f1e61]: 90d
+            - generic [ref=f1e64]: 120d
+            - generic [ref=f1e67]: all
+          - generic: Daily Download Quantity of pyside6 package - Overall
+          - generic: Date
+          - generic: Downloads
+      - generic [ref=f1e70]:
+        - generic [ref=f1e71]:
+          - generic [ref=f1e72] [cursor=pointer]
+          - generic [ref=f1e75] [cursor=pointer]
+        - generic [ref=f1e78]:
+          - generic [ref=f1e79] [cursor=pointer]
+          - generic [ref=f1e82] [cursor=pointer]
+    - generic [ref=f1e87]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: "0"
+              - generic: 50,000
+              - generic: 100,000
+              - generic: 150,000
+      - img:
+        - generic:
+          - generic [ref=f1e104]:
+            - generic [ref=f1e105]:
+              - generic [ref=f1e106]: "2"
+              - generic [ref=f1e111] [cursor=pointer]
+            - generic [ref=f1e112]:
+              - generic [ref=f1e113]: "3"
+              - generic [ref=f1e118] [cursor=pointer]
+            - generic [ref=f1e119]:
+              - generic [ref=f1e120]: "Null"
+              - generic [ref=f1e125] [cursor=pointer]
+          - generic [ref=f1e126] [cursor=pointer]:
+            - generic [ref=f1e127]: 30d
+            - generic [ref=f1e130]: 60d
+            - generic [ref=f1e133]: 90d
+            - generic [ref=f1e136]: 120d
+            - generic [ref=f1e139]: all
+          - generic: Daily Download Quantity of pyside6 package - Python Major
+          - generic: Date
+          - generic: Downloads
+      - generic [ref=f1e142]:
+        - generic [ref=f1e143]:
+          - generic [ref=f1e144] [cursor=pointer]
+          - generic [ref=f1e147] [cursor=pointer]
+        - generic [ref=f1e150]:
+          - generic [ref=f1e151] [cursor=pointer]
+          - generic [ref=f1e154] [cursor=pointer]
+    - generic [ref=f1e159]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: 0%
+              - generic: 20%
+              - generic: 40%
+              - generic: 60%
+              - generic: 80%
+              - generic: 100%
+      - img:
+        - generic:
+          - generic [ref=f1e176]:
+            - generic [ref=f1e177]:
+              - generic [ref=f1e178]: "2"
+              - generic [ref=f1e183] [cursor=pointer]
+            - generic [ref=f1e184]:
+              - generic [ref=f1e185]: "3"
+              - generic [ref=f1e190] [cursor=pointer]
+            - generic [ref=f1e191]:
+              - generic [ref=f1e192]: "Null"
+              - generic [ref=f1e197] [cursor=pointer]
+          - generic [ref=f1e198] [cursor=pointer]:
+            - generic [ref=f1e199]: 30d
+            - generic [ref=f1e202]: 60d
+            - generic [ref=f1e205]: 90d
+            - generic [ref=f1e208]: 120d
+            - generic [ref=f1e211]: all
+          - generic: Daily Download Proportions of pyside6 package - Python Major
+          - generic: Date
+          - generic: Download Proportion
+      - generic [ref=f1e214]:
+        - generic [ref=f1e215]:
+          - generic [ref=f1e216] [cursor=pointer]
+          - generic [ref=f1e219] [cursor=pointer]
+        - generic [ref=f1e222]:
+          - generic [ref=f1e223] [cursor=pointer]
+          - generic [ref=f1e226] [cursor=pointer]
+    - generic [ref=f1e231]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: "0"
+              - generic: 10,000
+              - generic: 20,000
+              - generic: 30,000
+              - generic: 40,000
+              - generic: 50,000
+              - generic: 60,000
+      - img:
+        - generic:
+          - generic [ref=f1e248]:
+            - generic [ref=f1e249]:
+              - generic [ref=f1e250]: "2.7"
+              - generic [ref=f1e255] [cursor=pointer]
+            - generic [ref=f1e256]:
+              - generic [ref=f1e257]: "3.10"
+              - generic [ref=f1e262] [cursor=pointer]
+            - generic [ref=f1e263]:
+              - generic [ref=f1e264]: "3.11"
+              - generic [ref=f1e269] [cursor=pointer]
+            - generic [ref=f1e270]:
+              - generic [ref=f1e271]: "3.12"
+              - generic [ref=f1e276] [cursor=pointer]
+            - generic [ref=f1e277]:
+              - generic [ref=f1e278]: "3.13"
+              - generic [ref=f1e283] [cursor=pointer]
+            - generic [ref=f1e284]:
+              - generic [ref=f1e285]: "3.14"
+              - generic [ref=f1e290] [cursor=pointer]
+            - generic [ref=f1e291]:
+              - generic [ref=f1e292]: "3.15"
+              - generic [ref=f1e297] [cursor=pointer]
+            - generic [ref=f1e298]:
+              - generic [ref=f1e299]: "3.6"
+              - generic [ref=f1e304] [cursor=pointer]
+            - generic [ref=f1e305]:
+              - generic [ref=f1e306]: "3.7"
+              - generic [ref=f1e311] [cursor=pointer]
+            - generic [ref=f1e312]:
+              - generic [ref=f1e313]: "3.8"
+              - generic [ref=f1e318] [cursor=pointer]
+            - generic [ref=f1e319]:
+              - generic [ref=f1e320]: "3.9"
+              - generic [ref=f1e325] [cursor=pointer]
+            - generic [ref=f1e326]:
+              - generic [ref=f1e327]: "Null"
+              - generic [ref=f1e332] [cursor=pointer]
+          - generic [ref=f1e333] [cursor=pointer]:
+            - generic [ref=f1e334]: 30d
+            - generic [ref=f1e337]: 60d
+            - generic [ref=f1e340]: 90d
+            - generic [ref=f1e343]: 120d
+            - generic [ref=f1e346]: all
+          - generic: Daily Download Quantity of pyside6 package - Python Minor
+          - generic: Date
+          - generic: Downloads
+      - generic [ref=f1e349]:
+        - generic [ref=f1e350]:
+          - generic [ref=f1e351] [cursor=pointer]
+          - generic [ref=f1e354] [cursor=pointer]
+        - generic [ref=f1e357]:
+          - generic [ref=f1e358] [cursor=pointer]
+          - generic [ref=f1e361] [cursor=pointer]
+    - generic [ref=f1e366]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: 0%
+              - generic: 20%
+              - generic: 40%
+              - generic: 60%
+              - generic: 80%
+              - generic: 100%
+      - img:
+        - generic:
+          - generic [ref=f1e383]:
+            - generic [ref=f1e384]:
+              - generic [ref=f1e385]: "2.7"
+              - generic [ref=f1e390] [cursor=pointer]
+            - generic [ref=f1e391]:
+              - generic [ref=f1e392]: "3.10"
+              - generic [ref=f1e397] [cursor=pointer]
+            - generic [ref=f1e398]:
+              - generic [ref=f1e399]: "3.11"
+              - generic [ref=f1e404] [cursor=pointer]
+            - generic [ref=f1e405]:
+              - generic [ref=f1e406]: "3.12"
+              - generic [ref=f1e411] [cursor=pointer]
+            - generic [ref=f1e412]:
+              - generic [ref=f1e413]: "3.13"
+              - generic [ref=f1e418] [cursor=pointer]
+            - generic [ref=f1e419]:
+              - generic [ref=f1e420]: "3.14"
+              - generic [ref=f1e425] [cursor=pointer]
+            - generic [ref=f1e426]:
+              - generic [ref=f1e427]: "3.15"
+              - generic [ref=f1e432] [cursor=pointer]
+            - generic [ref=f1e433]:
+              - generic [ref=f1e434]: "3.6"
+              - generic [ref=f1e439] [cursor=pointer]
+            - generic [ref=f1e440]:
+              - generic [ref=f1e441]: "3.7"
+              - generic [ref=f1e446] [cursor=pointer]
+            - generic [ref=f1e447]:
+              - generic [ref=f1e448]: "3.8"
+              - generic [ref=f1e453] [cursor=pointer]
+            - generic [ref=f1e454]:
+              - generic [ref=f1e455]: "3.9"
+              - generic [ref=f1e460] [cursor=pointer]
+            - generic [ref=f1e461]:
+              - generic [ref=f1e462]: "Null"
+              - generic [ref=f1e467] [cursor=pointer]
+          - generic [ref=f1e468] [cursor=pointer]:
+            - generic [ref=f1e469]: 30d
+            - generic [ref=f1e472]: 60d
+            - generic [ref=f1e475]: 90d
+            - generic [ref=f1e478]: 120d
+            - generic [ref=f1e481]: all
+          - generic: Daily Download Proportions of pyside6 package - Python Minor
+          - generic: Date
+          - generic: Download Proportion
+      - generic [ref=f1e484]:
+        - generic [ref=f1e485]:
+          - generic [ref=f1e486] [cursor=pointer]
+          - generic [ref=f1e489] [cursor=pointer]
+        - generic [ref=f1e492]:
+          - generic [ref=f1e493] [cursor=pointer]
+          - generic [ref=f1e496] [cursor=pointer]
+    - generic [ref=f1e501]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: "0"
+              - generic: 20,000
+              - generic: 40,000
+              - generic: 60,000
+              - generic: 80,000
+              - generic: 100,000
+      - img:
+        - generic:
+          - generic [ref=f1e518]:
+            - generic [ref=f1e519]:
+              - generic [ref=f1e520]: Darwin
+              - generic [ref=f1e525] [cursor=pointer]
+            - generic [ref=f1e526]:
+              - generic [ref=f1e527]: Linux
+              - generic [ref=f1e532] [cursor=pointer]
+            - generic [ref=f1e533]:
+              - generic [ref=f1e534]: Windows
+              - generic [ref=f1e539] [cursor=pointer]
+            - generic [ref=f1e540]:
+              - generic [ref=f1e541]: "Null"
+              - generic [ref=f1e546] [cursor=pointer]
+            - generic [ref=f1e547]:
+              - generic [ref=f1e548]: Other
+              - generic [ref=f1e553] [cursor=pointer]
+          - generic [ref=f1e554] [cursor=pointer]:
+            - generic [ref=f1e555]: 30d
+            - generic [ref=f1e558]: 60d
+            - generic [ref=f1e561]: 90d
+            - generic [ref=f1e564]: 120d
+            - generic [ref=f1e567]: all
+          - generic: Daily Download Quantity of pyside6 package - System
+          - generic: Date
+          - generic: Downloads
+      - generic [ref=f1e570]:
+        - generic [ref=f1e571]:
+          - generic [ref=f1e572] [cursor=pointer]
+          - generic [ref=f1e575] [cursor=pointer]
+        - generic [ref=f1e578]:
+          - generic [ref=f1e579] [cursor=pointer]
+          - generic [ref=f1e582] [cursor=pointer]
+    - generic [ref=f1e587]:
+      - img:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 03-02
+              - generic: 03-09
+              - generic: 03-16
+              - generic: 03-23
+              - generic: 03-30
+              - generic: 04-06
+              - generic: 04-13
+              - generic: 04-20
+              - generic: 04-27
+              - generic: 05-04
+              - generic: 05-11
+              - generic: 05-18
+              - generic: 05-25
+              - generic: 06-01
+              - generic: 06-08
+              - generic: 06-15
+              - generic: 06-22
+              - generic: 06-29
+              - generic: 07-06
+              - generic: 07-13
+              - generic: 07-20
+              - generic: 07-27
+              - generic: 08-03
+              - generic: 08-10
+              - generic: 08-17
+              - generic: 08-24
+            - generic:
+              - generic: 0%
+              - generic: 20%
+              - generic: 40%
+              - generic: 60%
+              - generic: 80%
+              - generic: 100%
+      - img:
+        - generic:
+          - generic [ref=f1e604]:
+            - generic [ref=f1e605]:
+              - generic [ref=f1e606]: Darwin
+              - generic [ref=f1e611] [cursor=pointer]
+            - generic [ref=f1e612]:
+              - generic [ref=f1e613]: Linux
+              - generic [ref=f1e618] [cursor=pointer]
+            - generic [ref=f1e619]:
+              - generic [ref=f1e620]: Windows
+              - generic [ref=f1e625] [cursor=pointer]
+            - generic [ref=f1e626]:
+              - generic [ref=f1e627]: "Null"
+              - generic [ref=f1e632] [cursor=pointer]
+            - generic [ref=f1e633]:
+              - generic [ref=f1e634]: Other
+              - generic [ref=f1e639] [cursor=pointer]
+          - generic [ref=f1e640] [cursor=pointer]:
+            - generic [ref=f1e641]: 30d
+            - generic [ref=f1e644]: 60d
+            - generic [ref=f1e647]: 90d
+            - generic [ref=f1e650]: 120d
+            - generic [ref=f1e653]: all
+          - generic: Daily Download Proportions of pyside6 package - System
+          - generic: Date
+          - generic: Download Proportion
+      - generic [ref=f1e656]:
+        - generic [ref=f1e657]:
+          - generic [ref=f1e658] [cursor=pointer]
+          - generic [ref=f1e661] [cursor=pointer]
+        - generic [ref=f1e664]:
+          - generic [ref=f1e665] [cursor=pointer]
+          - generic [ref=f1e668] [cursor=pointer]
+  - contentinfo [ref=f1e671]:
+    - paragraph [ref=f1e672]:
+      - link "API" [ref=f1e673] [cursor=pointer]:
+        - /url: /api/
+      - link "About" [ref=f1e674] [cursor=pointer]:
+        - /url: /about
+      - link "FAQs" [ref=f1e675] [cursor=pointer]:
+        - /url: /faqs
+      - text: Hosted by
+      - link "The PSF" [ref=f1e676] [cursor=pointer]:
+        - /url: https://python.org/psf/

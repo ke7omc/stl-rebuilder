@@ -1,0 +1,371 @@
+- generic [ref=f143e1]:
+  - link "Skip to main content" [ref=f143e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=f143e4]:
+    - generic [ref=f143e7]:
+      - button [ref=f143e9] [cursor=pointer]
+      - generic [ref=f143e12]:
+        - link "Home":
+          - /url: /
+          - img "Home" [ref=f143e13] [cursor=pointer]
+      - navigation "Main navigation":
+        - heading "Main navigation" [level=2]
+        - list:
+          - listitem:
+            - link "Documentation":
+              - /url: /docs
+          - listitem:
+            - link "Knowledge base":
+              - /url: /knowledge-base
+          - listitem:
+            - link "Forum ":
+              - /url: https://discuss.ansys.com/
+          - listitem:
+            - link "App catalog":
+              - /url: /app-catalog/catalog
+          - listitem:
+            - link "GitHub ":
+              - /url: https://github.com/ansys
+      - search "Sitewide search" [ref=f143e15]:
+        - generic [ref=f143e16]:
+          - generic [ref=f143e17]: Search the site
+          - textbox "Search the site" [ref=f143e18]:
+            - /placeholder: Search
+          - text: 
+        - button "search" [ref=f143e19] [cursor=pointer]: 
+      - navigation "User account menu":
+        - heading "User account menu" [level=2]
+        - list:
+          - listitem:
+            - link "Sign in":
+              - /url: /hybridauth-connect/authenticate/azure_sso?ReturnTo=/docs/discovery-style-guide-2026-r1/colors.md
+    - banner [ref=f143e20]:
+      - heading "Discovery style guide 2026 R1" [level=2] [ref=f143e25]
+    - navigation [ref=f143e29]:
+      - heading "Breadcrumb" [level=2] [ref=f143e30]
+      - list [ref=f143e31]:
+        - listitem [ref=f143e32]:
+          - link "Home" [ref=f143e33] [cursor=pointer]:
+            - /url: /
+          - text: 
+        - listitem [ref=f143e34]:
+          - link "Developer documentation" [ref=f143e35] [cursor=pointer]:
+            - /url: /docs
+          - text: 
+        - listitem [ref=f143e36]:
+          - link "Discovery style guide 2026 R1" [ref=f143e37] [cursor=pointer]:
+            - /url: /docs/discovery-style-guide-2026-r1/introduction.md
+          - text: 
+        - listitem [ref=f143e38]: Colors
+    - main [ref=f143e39]:
+      - generic [ref=f143e42]:
+        - complementary [ref=f143e44]:
+          - navigation [ref=f143e46]:
+            - list [ref=f143e47]:
+              - listitem [ref=f143e48]:
+                - link "Introduction" [ref=f143e50] [cursor=pointer]:
+                  - /url: /docs/discovery-style-guide-2026-r1/introduction.md
+              - listitem [ref=f143e51]:
+                - link "Colors" [ref=f143e53] [cursor=pointer]:
+                  - /url: /docs/discovery-style-guide-2026-r1/colors.md
+              - listitem [ref=f143e54]:
+                - link "Themes" [ref=f143e56] [cursor=pointer]:
+                  - /url: /docs/discovery-style-guide-2026-r1/themes.md
+              - listitem [ref=f143e57]:
+                - link "Typography" [ref=f143e59] [cursor=pointer]:
+                  - /url: /docs/discovery-style-guide-2026-r1/typography.md
+              - listitem [ref=f143e60]:
+                - link "Icons" [ref=f143e62] [cursor=pointer]:
+                  - /url: /docs/discovery-style-guide-2026-r1/icons.md
+              - listitem [ref=f143e63]:
+                - link "Changelog" [ref=f143e65] [cursor=pointer]:
+                  - /url: /docs/discovery-style-guide-2026-r1/changelog.md
+        - generic [ref=f143e69]:
+          - button "" [ref=f143e70] [cursor=pointer]
+          - article [ref=f143e72]:
+            - generic [ref=f143e73]:
+              - heading "Colors" [level=1] [ref=f143e74]
+              - text: "Last update: 09.07.2026"
+            - generic [ref=f143e77]:
+              - heading "Color palettes and their usage" [level=2] [ref=f143e78]
+              - paragraph [ref=f143e79]:
+                - text: Details for all color palettes (including Hex and RGB info) are included in a separate Excel file (
+                - link "Ansys Design Language Color Palettes " [ref=f143e80] [cursor=pointer]:
+                  - /url: https://github.com/ansys/DevRelPublic/raw/main/Downloads/Discovery/2024R2/Ansys%20Design%20Language%20Color%20Palettes%20-%20Discovery.xlsx
+                - text: "). Guidelines for using the palettes are as follows:"
+              - table [ref=f143e82]:
+                - rowgroup [ref=f143e83]:
+                  - row [ref=f143e84]:
+                    - columnheader [ref=f143e85]:
+                      - strong [ref=f143e86]: Application
+                    - columnheader [ref=f143e87]:
+                      - strong [ref=f143e88]: Palette usage
+                - rowgroup [ref=f143e89]:
+                  - row [ref=f143e90]:
+                    - cell "UI elements such as buttons panel backgrounds indicators of status and state NOT icons or cursors" [ref=f143e91]
+                    - cell "Main UI Control Colors per Theme All UI Control Colors The “Main UI Control Colors per Theme” palette includes the main colors that are used in each theme and how they are used (see also Figures 1-4 below). If you need more colors, choose from the “All UI Control Colors” palette. For guidance on colors with specific meanings, see the semantic colors in Figure 5 below." [ref=f143e92]
+                  - row [ref=f143e93]:
+                    - cell "Icons and cursors" [ref=f143e94]
+                    - cell [ref=f143e95]:
+                      - text: Theme-Dependent Icon Colors Additional Colors Use the “Theme-Dependent Icon Colors” palette for icon colors that should change with the theme, as described in
+                      - link "Theme-Dependent Coloring" [ref=f143e96] [cursor=pointer]:
+                        - /url: "#theme-dependent-coloring"
+                      - text: If you need more colors, choose them from the “Additional Colors” palette.
+                  - row [ref=f143e97]:
+                    - cell "Predefined colors the user can assign" [ref=f143e98]
+                    - cell [ref=f143e99]:
+                      - text: User-Assignable Colors Additional Colors Use the “User-Assignable Colors” palette as the predefined colors in the color picker that appears in a product when a user has the option to choose a color explicitly (e.g., for a chart line). See
+                      - link "Assignable Colors" [ref=f143e100] [cursor=pointer]:
+                        - /url: "#_Assignable_Colors"
+                      - text: for details. There is a vivid palette and a muted palette. If you need to include more colors for the user to choose from, use colors from the “Additional Colors” palette.
+                  - row [ref=f143e101]:
+                    - cell "Colormaps and legends for data visualization" [ref=f143e102]
+                    - 'cell "3D Data Visualization Colors Default: Turbo, Alternate: Cool-warm" [ref=f143e103]'
+              - paragraph [ref=f143e104]:
+                - link [ref=f143e105] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/6aa7893d6f921ba3ebc73abe54fbb2cd.png
+              - generic [ref=f143e106]: "Figure 1: Main Colors Used in the Dark Theme"
+              - paragraph [ref=f143e107]:
+                - link [ref=f143e108] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/f39f861bc210d3f49b70f4112c94ab01.png
+              - generic [ref=f143e109]: "Figure 2: Main Colors Used in the Light Theme"
+              - paragraph [ref=f143e110]:
+                - link [ref=f143e111] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/bab162d004dcbfa748e2b2dab56708eb.png
+              - generic [ref=f143e112]: "Figure 3: Semantic Colors Used in All Themes"
+              - paragraph [ref=f143e113]:
+                - link [ref=f143e114] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/de7c121e5610da7df57d11f9933d1ee1.png
+              - generic [ref=f143e115]: "Figure 4: Example of Color Usage in a Product UI (Dark Theme)"
+              - paragraph [ref=f143e116]:
+                - link [ref=f143e117] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/ecc796e2c7281a7eb54f737058d5aea8.png
+              - generic [ref=f143e118]: "Figure 5: Example of Color Usage in a Product UI (Light Theme)"
+              - heading "Font colors" [level=2] [ref=f143e119]
+              - list [ref=f143e120]:
+                - listitem [ref=f143e121]:
+                  - text: • For the main UI font colors, see Figures 1 and 2 in
+                  - link "Color palettes and their usage" [ref=f143e122] [cursor=pointer]:
+                    - /url: "#color-palettes-and-their-usage"
+                  - text: .
+                - listitem [ref=f143e123]: • For console/scripting text, use the corresponding colors in the dark and light themes of Microsoft Visual Studio.
+                - listitem [ref=f143e124]:
+                  - text: • For overlay help text, see Figures 1 and 4 in
+                  - link "Color palettes and their usage" [ref=f143e125] [cursor=pointer]:
+                    - /url: "#color-palettes-and-their-usage"
+                  - text: .
+              - heading "Icon and cursor colors" [level=2] [ref=f143e126]
+              - heading "Icon colors" [level=3] [ref=f143e127]
+              - paragraph [ref=f143e128]:
+                - text: Some of the colors used for icons are constant across themes, while others
+                - link "change between themes" [ref=f143e129] [cursor=pointer]:
+                  - /url: "#theme-dependent-coloring"
+                - text: to better match the altered palette. Certain colors used in the icons have assigned meanings, which are discussed in detail in the
+                - link "Icons section" [ref=f143e130] [cursor=pointer]:
+                  - /url: "#themes-and-icon-colors"
+                - text: . See
+                - link "Color palettes and their usage" [ref=f143e131] [cursor=pointer]:
+                  - /url: "#color-palettes-and-their-usage"
+                - text: for details about which colors are to be used in icons.
+              - paragraph [ref=f143e132]:
+                - link [ref=f143e133] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/2207d4cba54a3aa3cf51261e68c6654d.png
+              - generic [ref=f143e134]: "Figure 6: Shades of Green and White as Examples of Icon Colors."
+              - heading "Cursor colors" [level=3] [ref=f143e135]
+              - paragraph [ref=f143e136]: The cursor must always be visible, no matter the color of the UI element below it. Unlike stationary icons, cursors move about the screen and are designed to maintain good contrast against any possible background.
+              - paragraph [ref=f143e137]: In most cases, the cursor is white with a black outline. The white stands out strongly on dark backgrounds, while the black outline ensures that the cursor will remain visible in a light setting. In certain situations where there’s a need to distinguish between a pair of tools that are similar in functionality and use the same shape cursor (e.g., Pull and Move tools for geometry modeling), you can reverse the cursor color treatment, so the fill color is black, and the outline is white. This change to the cursor reminds the user of the tool they are using as they make their selection.
+              - paragraph [ref=f143e138]: Cursors can also have a thin outline of a static color that maintains the cursor’s shape against varying backgrounds or UI elements. The outline alone might not be visible against backgrounds of similar color, but the infill of a contrasting color makes the cursor visible.
+              - paragraph [ref=f143e139]:
+                - link [ref=f143e140] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/a825507d518f8a74b8946943909cc41a.png
+                  - img "Shape Description automatically generated" [ref=f143e141]
+              - generic [ref=f143e142]: "Figure 7: Cursor Outline Ensures Visibility on Different Backgrounds"
+              - heading "Theme-dependent coloring" [level=3] [ref=f143e143]
+              - paragraph [ref=f143e144]: An icon may need to use different colors based on the selected theme. To ensure that the icons are rendered appropriately in all themes, the designer must create a separate version of the icon for each theme. Based on the active theme, the appropriate version of the icon is used.
+              - paragraph [ref=f143e145]: "The following example shows how the light and dark versions of an icon would look:"
+              - paragraph [ref=f143e146]:
+                - link [ref=f143e147] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/c862306d16b686dc308e84b077b4ae26.jpeg
+                  - img "A picture containing application Description automatically generated" [ref=f143e148]
+              - generic [ref=f143e149]: "Figure 8: Example of Theme-Dependent Coloring in an Icon"
+              - paragraph [ref=f143e150]: The theme-dependent colors for icons are shown below.
+              - paragraph [ref=f143e151]:
+                - link [ref=f143e152] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/9a75965ecd610c57cd32669e94be8628.jpeg
+                  - img "Graphical user interface, application Description automatically generated" [ref=f143e153]
+              - generic [ref=f143e154]: "Figure 9: Theme-Dependent Colors for Icons"
+              - heading "Status colors" [level=2] [ref=f143e155]
+              - paragraph [ref=f143e156]:
+                - text: These are colors that have been assigned meanings corresponding to the type of information being conveyed in a message or other UI element. As specified in the Main UI Control Colors per Theme palette described in
+                - link "Color palettes and their usage" [ref=f143e157] [cursor=pointer]:
+                  - /url: "#color-palettes-and-their-usage"
+                - text: ":"
+              - list [ref=f143e158]:
+                - listitem [ref=f143e159]: • blue for information
+                - listitem [ref=f143e160]: • green for good
+                - listitem [ref=f143e161]: • red for errors
+                - listitem [ref=f143e162]: • yellow for warnings
+              - paragraph [ref=f143e163]: Note that these colors reinforce a message, but they should not be the only cue conveying information since a portion of the population has some form of color vision deficiency.
+              - paragraph [ref=f143e164]:
+                - link [ref=f143e165] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/014f07a3587f599480b221185fb73bf0.png
+                  - img "Icon Description automatically generated" [ref=f143e166]
+              - generic [ref=f143e167]: "Figure 10: Red for Errors, Yellow for Warnings, Blue for Information"
+              - heading "Background colors" [level=2] [ref=f143e168]
+              - paragraph [ref=f143e169]:
+                - text: Background colors vary by theme (see
+                - link "Color palettes and their usage" [ref=f143e170] [cursor=pointer]:
+                  - /url: "#color-palettes-and-their-usage"
+                - text: ), and they may include transparency or gradient effects. They cover most of the UI and strongly influence the rest of the palette, as other elements must adjust to maintain proper contrast against the theme’s base colors.
+              - paragraph [ref=f143e171]:
+                - link [ref=f143e172] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/a295e07d070b846ac715fc30dee0b8ff.png
+              - generic [ref=f143e173]: "Figure 11: Background Colors are Theme-Dependent"
+              - heading "Assignable colors" [level=2] [ref=f143e174]
+              - paragraph [ref=f143e175]:
+                - text: "In most products, there are situations where the user can choose colors as part of their workflow. Examples include the colors of chart lines representing different data series and the colors of the bodies of a 3D geometric model. There are two color palettes offered for these situations: the user can choose from a vivid color palette or a muted color palette. See"
+                - link "Color palettes and their usage" [ref=f143e176] [cursor=pointer]:
+                  - /url: "#color-palettes-and-their-usage"
+                - text: for details.
+              - paragraph [ref=f143e177]:
+                - emphasis [ref=f143e178]:
+                  - img "Chart, line chart Description automatically generated" [ref=f143e179]
+              - generic [ref=f143e180]: "Figure 12: Chart Lines with Colors Assigned by the User"
+              - paragraph [ref=f143e181]: Note that 3D geometry models also have colors assigned to their bodies based on their defined materials; the user can choose whether to view the material-based colors or the user-specified colors. In either case, colors on the 3D model change to indicate what the user has selected, as indicated in the Graphical Selection row of Figure 5.
+              - paragraph [ref=f143e182]:
+                - link [ref=f143e183] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/94f43b36a7f00ed6718bc7d12ab65cb4.png
+              - generic [ref=f143e184]: "Figure 13: Body Colors Assigned by the User"
+              - paragraph [ref=f143e185]:
+                - link [ref=f143e186] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/2ec880c77f6ee1a2d7513b5e62a76921.png
+              - generic [ref=f143e187]: "Figure 14: Body Colors Based on Assigned Materials"
+              - heading "3D data visualization colors" [level=2] [ref=f143e188]
+              - paragraph [ref=f143e189]: Colormaps are used to graphically represent numerical data, such as simulation results displayed using streamlines, contours, or vectors. Alternate colormap options are provided for users with different preferences and needs. These colormaps can be visualized as continuous or discrete rendering (see images below).
+              - paragraph [ref=f143e190]: "Default colormap: Turbo Alternate colormap: Cool-warm"
+              - paragraph [ref=f143e191]:
+                - link [ref=f143e192] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/39f5a04a07792db9bf8aa52aec5278d7.png
+                  - img "A screenshot of a color chart Description automatically generated" [ref=f143e193]
+              - generic [ref=f143e194]: "Figure 15: Default and alternate colormaps (see the Color Palettes Excel File for RGB values)"
+              - paragraph [ref=f143e195]:
+                - link [ref=f143e196] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/4b4f0ce0983159ce1a484c6647432700.png
+                  - img "A computer generated image of a mechanical engine Description automatically generated" [ref=f143e197]
+              - generic [ref=f143e198]: "Figure 16: Turbo colormap: continuous rendering example"
+              - paragraph [ref=f143e199]:
+                - link [ref=f143e200] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/a8078e01b621f9d735aa7d46b931e45e.png
+                  - img "A computer screen shot of a machine Description automatically generated" [ref=f143e201]
+              - generic [ref=f143e202]: "Figure 17: Cool-warm colormap: continuous rendering example"
+              - paragraph [ref=f143e203]:
+                - link [ref=f143e204] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/3d3d02ff83f3f0827340abb5dce28eee.png
+                  - img "A computer generated image of a machine Description automatically generated" [ref=f143e205]
+              - generic [ref=f143e206]: "Figure 18: Turbo colormap: discrete rendering example"
+              - paragraph [ref=f143e207]:
+                - link [ref=f143e208] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/7b6504754bc8a6cf7d1c03381b0c4800.png
+                  - img "A computer screen shot of a machine Description automatically generated" [ref=f143e209]
+              - generic [ref=f143e210]: "Figure 19: Cool-warm colormap: discrete rendering example"
+              - heading "Lighting and gradients" [level=2] [ref=f143e211]
+              - paragraph [ref=f143e212]:
+                - text: The shading of 3D icons and other 3D elements in the UI (including a 3D model, if relevant) are dictated by an imaginary light source placed at the top left. This position is based on the
+                - link "historical convention " [ref=f143e213] [cursor=pointer]:
+                  - /url: https://www.frontiersin.org/articles/10.3389/fpsyg.2018.00454/full
+                - text: followed in Western art and
+                - link "studies " [ref=f143e214] [cursor=pointer]:
+                  - /url: https://pubmed.ncbi.nlm.nih.gov/15729910/
+                - text: in human perception.
+              - paragraph [ref=f143e215]: The highlights are cast on the top and left-side features of the icons and shadows are cast on the bottom and right-side features of the icons. It is imperative to be consistent with the shading of 3D elements; otherwise, the user will be confused by the inconsistent visual perception of the scene.
+              - paragraph [ref=f143e216]:
+                - emphasis [ref=f143e217]:
+                  - img "A picture containing icon Description automatically generated" [ref=f143e218]
+              - generic [ref=f143e219]: "Figure 20: Effect of Light Source on Highlights and Shadows"
+              - paragraph [ref=f143e220]:
+                - emphasis [ref=f143e221]:
+                  - img "A picture containing graphical user interface Description automatically generated" [ref=f143e222]
+              - generic [ref=f143e223]: "Figure 21: Consistent Highlight and Shadows Across a Group of Icons"
+              - paragraph [ref=f143e224]:
+                - text: In a 3D model-based application, slight gradient background coloring should be used for the scene in order to provide the necessary depth for an immersive experience. In other types of applications, a flat background color that contrasts well with the foreground UI elements should be used. (See
+                - link "Color palettes and their usage" [ref=f143e225] [cursor=pointer]:
+                  - /url: "#color-palettes-and-their-usage"
+                - text: for gradient and flat background colors.)
+              - paragraph [ref=f143e226]:
+                - link [ref=f143e227] [cursor=pointer]:
+                  - /url: /sites/default/files/git_ansys/markdown_f869fe854e37fdf588a4e9d550f09174_automation/f1c477790250560acd6cb5603e05ffa9.png
+                  - img "A picture containing text, electronics Description automatically generated" [ref=f143e228]
+              - generic [ref=f143e229]: "Figure 22: Gradient Background for 3D Model-Based Application"
+    - generic [ref=f143e232]:
+      - generic [ref=f143e234]:
+        - link "Home":
+          - /url: /
+          - img "Home" [ref=f143e235] [cursor=pointer]
+      - navigation [ref=f143e236]:
+        - heading "Documentation" [level=2] [ref=f143e237]
+        - list [ref=f143e238]:
+          - listitem [ref=f143e239]:
+            - link "Latest Articles" [ref=f143e240] [cursor=pointer]:
+              - /url: /blog
+          - listitem [ref=f143e241]:
+            - link "Ansys.com " [ref=f143e242] [cursor=pointer]:
+              - /url: https://www.ansys.com
+          - listitem [ref=f143e243]:
+            - link "Ansys Careers " [ref=f143e244] [cursor=pointer]:
+              - /url: https://www.ansys.com/careers
+      - navigation [ref=f143e245]:
+        - heading "Bottom center center" [level=2] [ref=f143e246]
+        - list [ref=f143e247]:
+          - listitem [ref=f143e248]:
+            - link "Ansys Help " [ref=f143e249] [cursor=pointer]:
+              - /url: https://ansyshelp.ansys.com/public/account/secured?returnurl=/Views/Secured/main_page.html
+          - listitem [ref=f143e250]:
+            - link "Ansys Learning Hub " [ref=f143e251] [cursor=pointer]:
+              - /url: https://www.ansys.com/services/ansys-learning-hub
+          - listitem [ref=f143e252]:
+            - link "Ansys Support " [ref=f143e253] [cursor=pointer]:
+              - /url: https://www.ansys.com/support
+      - generic [ref=f143e254]:
+        - heading "Connect with Ansys" [level=2] [ref=f143e255]
+        - generic [ref=f143e257]:
+          - link "Youtube" [ref=f143e258] [cursor=pointer]:
+            - /url: https://www.youtube.com/user/ansysinc
+          - link "Twitter" [ref=f143e260] [cursor=pointer]:
+            - /url: https://twitter.com/AnsysDev
+          - link "LinkedIn" [ref=f143e262] [cursor=pointer]:
+            - /url: https://www.linkedin.com/company/ansys-inc/
+          - link "GitHub" [ref=f143e264] [cursor=pointer]:
+            - /url: https://github.com/Ansys
+    - contentinfo [ref=f143e266]:
+      - generic [ref=f143e267]:
+        - generic [ref=f143e268]: ©2026 Copyright ANSYS, Inc
+        - navigation [ref=f143e269]:
+          - heading "Footer menu" [level=2] [ref=f143e270]
+          - list [ref=f143e271]:
+            - listitem [ref=f143e272]:
+              - link "Legal Notices " [ref=f143e273] [cursor=pointer]:
+                - /url: https://www.ansys.com/legal/legal-notices
+            - listitem [ref=f143e274]:
+              - link "Privacy Notice " [ref=f143e275] [cursor=pointer]:
+                - /url: https://www.ansys.com/legal/privacy-notice
+            - listitem [ref=f143e276]:
+              - link "Cookie Policy " [ref=f143e277] [cursor=pointer]:
+                - /url: https://www.ansys.com/legal/cookie-policy
+            - listitem [ref=f143e278]:
+              - link "Export Compliance " [ref=f143e279] [cursor=pointer]:
+                - /url: https://www.ansys.com/legal/export-control-compliance
+            - listitem [ref=f143e280]:
+              - link "Terms and Conditions" [ref=f143e281] [cursor=pointer]:
+                - /url: /terms-and-conditions
+  - generic:
+    - text:  
+    - alertdialog "Privacy" [ref=f143e284]:
+      - generic [ref=f143e286]:
+        - paragraph [ref=f143e289]:
+          - text: Synopsys uses cookies to enhance visitors’ navigation of our site, analyze site usage, and enable our marketing efforts. You may request that Synopsys not sell or share your personal data by modifying your cookie preferences.
+          - link "More information about your privacy, opens in a new tab" [ref=f143e290] [cursor=pointer]:
+            - /url: https://www.synopsys.com/company/legal/privacy-policy.html
+            - text: Cookie Policy
+        - generic [ref=f143e292]:
+          - button "Modify Preferences" [ref=f143e293] [cursor=pointer]
+          - button "I Understand" [ref=f143e294] [cursor=pointer]

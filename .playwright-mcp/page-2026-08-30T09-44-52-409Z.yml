@@ -1,0 +1,247 @@
+- generic [ref=f146e2]:
+  - link "Skip to main content" [ref=f146e3] [cursor=pointer]:
+    - /url: "#content"
+  - banner [ref=f146e4]:
+    - link [ref=f146e5] [cursor=pointer]:
+      - /url: https://arxiv.org/IgnoreMe
+    - link "archive home" [ref=f146e6] [cursor=pointer]:
+      - /url: https://arxiv.org/
+      - img "archive" [ref=f146e7]
+    - navigation "Main navigation" [ref=f146e8]:
+      - link "Search" [ref=f146e9] [cursor=pointer]:
+        - /url: https://arxiv.org/search
+      - link "Submit" [ref=f146e13] [cursor=pointer]:
+        - /url: https://arxiv.org/user/create
+      - link "Donate" [ref=f146e14] [cursor=pointer]:
+        - /url: https://info.arxiv.org/about/donate.html
+      - link "Log in" [ref=f146e16] [cursor=pointer]:
+        - /url: https://arxiv.org/login
+  - main [ref=f146e17]:
+    - generic [ref=f146e19]:
+      - generic [ref=f146e20]:
+        - heading "Computer Science > Computational Engineering, Finance, and Science" [level=1] [ref=f146e22]
+        - generic [ref=f146e24]:
+          - generic [ref=f146e25]:
+            - text: "[Submitted on 11 Jan 2023 ("
+            - link "v1" [ref=f146e26] [cursor=pointer]:
+              - /url: https://arxiv.org/abs/2301.04559v1
+            - text: ), last revised 3 Mar 2023 (this version, v2)]
+          - heading "Burnback Analysis of Solid Propellant Rocket Motors" [level=1] [ref=f146e27]
+          - link "Juan M. Tizón" [ref=f146e29] [cursor=pointer]:
+            - /url: https://arxiv.org/search/cs?searchtype=author&query=Tiz%C3%B3n,+J+M
+          - blockquote [ref=f146e30]: Burnback analysis is a geometric exercise, whose correct solution leads to obtaining the thrust curve of solid propellant rockets. Traditionally, Piobert statement, which introduces a certain amount of intuition, is used as an argument to construct analytical and numerical algorithms, although it is also common to use numerical integration of differential equations, whose solution is free of ambiguities. This paper presents a detailed study of the process experienced by the combustion surface that allows enunciating the properties of the kinematics of the surface without the need to appeal to heuristic considerations. Next, the methods used throughout the technological development of solid propellant rockets are reviewed, from their beginnings to modern methods, which obtain solutions to complex problems, based on the numerical solution of PDE. Other methods are also reviewed, which are developed around some of the properties presented by the solution, that is, methods of heuristic or phenomenological foundation. As a result of the review, it becomes clear that the solution of the Eikonal equation for burnback analysis is undertaken in the early 2000, clarifying the problem. Finally, several examples of the capabilities of the most relevant methods are provided, from the point of view of both efficiency and precision, presenting results in situations of interest, in the field of propulsion by solid-propellant rockets.
+          - table "Additional metadata" [ref=f146e32]:
+            - rowgroup [ref=f146e33]:
+              - row [ref=f146e34]:
+                - cell "Comments:" [ref=f146e35]
+                - cell "42 pages, 20 figures, 2 tables" [ref=f146e36]
+              - row [ref=f146e37]:
+                - cell "Subjects:" [ref=f146e38]
+                - cell "Computational Engineering, Finance, and Science (cs.CE)" [ref=f146e39]
+              - row [ref=f146e40]:
+                - cell "Cite as:" [ref=f146e41]
+                - cell [ref=f146e42]:
+                  - generic [ref=f146e43]:
+                    - link "arXiv:2301.04559" [ref=f146e44] [cursor=pointer]:
+                      - /url: https://arxiv.org/abs/2301.04559
+                    - text: "[cs.CE]"
+              - row [ref=f146e45]:
+                - cell [ref=f146e46]
+                - cell [ref=f146e47]:
+                  - text: (or
+                  - generic [ref=f146e48]:
+                    - link "arXiv:2301.04559v2" [ref=f146e49] [cursor=pointer]:
+                      - /url: https://arxiv.org/abs/2301.04559v2
+                    - text: "[cs.CE]"
+                  - text: for this version)
+              - row [ref=f146e50]:
+                - cell [ref=f146e51]
+                - cell [ref=f146e52]:
+                  - link "https://doi.org/10.48550/arXiv.2301.04559" [ref=f146e53] [cursor=pointer]:
+                    - /url: https://doi.org/10.48550/arXiv.2301.04559
+                  - button "Focus to learn more" [ref=f146e55]
+        - generic [ref=f146e58]:
+          - heading "Submission history" [level=2] [ref=f146e59]
+          - text: "From: Juan M. TizÃ³n ["
+          - link "view email" [ref=f146e60] [cursor=pointer]:
+            - /url: /show-email/9163a792/2301.04559
+          - text: "]"
+          - strong [ref=f146e61]:
+            - link "[v1]" [ref=f146e62] [cursor=pointer]:
+              - /url: /abs/2301.04559v1
+          - text: Wed, 11 Jan 2023 16:36:21 UTC (1,708 KB)
+          - strong [ref=f146e63]: "[v2]"
+          - text: Fri, 3 Mar 2023 13:44:40 UTC (1,711 KB)
+      - generic [ref=f146e64]:
+        - generic [ref=f146e65]:
+          - heading "Access Paper:" [level=2] [ref=f146e66]
+          - list [ref=f146e67]:
+            - listitem [ref=f146e68]:
+              - link "View PDF" [ref=f146e69] [cursor=pointer]:
+                - /url: /pdf/2301.04559
+          - link "view license" [ref=f146e71] [cursor=pointer]:
+            - /url: http://arxiv.org/licenses/nonexclusive-distrib/1.0/
+        - generic [ref=f146e72]:
+          - heading "Current browse context:" [level=3] [ref=f146e73]
+          - generic [ref=f146e74]: cs.CE
+          - generic [ref=f146e75]:
+            - link "< prev" [ref=f146e77] [cursor=pointer]:
+              - /url: /prevnext?id=2301.04559&function=prev&context=cs.CE
+            - text: "|"
+            - link "next >" [ref=f146e79] [cursor=pointer]:
+              - /url: /prevnext?id=2301.04559&function=next&context=cs.CE
+          - generic [ref=f146e80]:
+            - link "new" [ref=f146e81] [cursor=pointer]:
+              - /url: /list/cs.CE/new
+            - text: "|"
+            - link "recent" [ref=f146e82] [cursor=pointer]:
+              - /url: /list/cs.CE/recent
+            - text: "|"
+            - link "2023-01" [ref=f146e83] [cursor=pointer]:
+              - /url: /list/cs.CE/2023-01
+          - generic [ref=f146e84]:
+            - text: "Change to browse by:"
+            - link "cs" [ref=f146e86] [cursor=pointer]:
+              - /url: /abs/2301.04559?context=cs
+        - generic [ref=f146e87]:
+          - heading "References & Citations" [level=3] [ref=f146e88]
+          - list [ref=f146e89]:
+            - listitem [ref=f146e90]:
+              - link "NASA ADS" [ref=f146e91] [cursor=pointer]:
+                - /url: https://ui.adsabs.harvard.edu/abs/arXiv:2301.04559
+            - listitem [ref=f146e92]:
+              - link "Google Scholar" [ref=f146e93] [cursor=pointer]:
+                - /url: https://scholar.google.com/scholar_lookup?arxiv_id=2301.04559
+            - listitem [ref=f146e94]:
+              - link "Semantic Scholar" [ref=f146e95] [cursor=pointer]:
+                - /url: https://api.semanticscholar.org/arXiv:2301.04559
+        - button "export BibTeX citation" [ref=f146e97]
+        - generic [ref=f146e98]:
+          - heading "Bookmark" [level=3] [ref=f146e100]
+          - link [ref=f146e101] [cursor=pointer]:
+            - /url: http://www.bibsonomy.org/BibtexHandler?requTask=upload&url=https://arxiv.org/abs/2301.04559&description=Burnback Analysis of Solid Propellant Rocket Motors
+            - img "BibSonomy" [ref=f146e102]
+          - link [ref=f146e103] [cursor=pointer]:
+            - /url: https://reddit.com/submit?url=https://arxiv.org/abs/2301.04559&title=Burnback Analysis of Solid Propellant Rocket Motors
+            - img "Reddit" [ref=f146e104]
+      - tablist "arXivLabs tools" [ref=f146e106]:
+        - radio "Bibliographic Tools" [checked] [ref=f146e107]
+        - tab "Bibliographic Tools" [selected] [ref=f146e108] [cursor=pointer]
+        - tabpanel "Bibliographic Tools" [ref=f146e109]:
+          - heading "Bibliographic and Citation Tools" [level=1] [ref=f146e110]
+          - generic [ref=f146e111]:
+            - generic [ref=f146e112]:
+              - generic [ref=f146e114]:
+                - checkbox "Bibliographic Explorer Toggle"
+                - generic [ref=f146e115] [cursor=pointer]
+                - generic [ref=f146e116]: Bibliographic Explorer Toggle
+              - generic [ref=f146e117]:
+                - text: Bibliographic Explorer
+                - emphasis [ref=f146e118]:
+                  - text: (
+                  - link "What is the Explorer?" [ref=f146e119] [cursor=pointer]:
+                    - /url: https://info.arxiv.org/labs/showcase.html#arxiv-bibliographic-explorer
+                  - text: )
+            - generic [ref=f146e120]:
+              - generic [ref=f146e122]:
+                - checkbox "Connected Papers"
+                - generic [ref=f146e123] [cursor=pointer]
+                - generic [ref=f146e124]: Connected Papers Toggle
+              - generic [ref=f146e125]:
+                - text: Connected Papers
+                - emphasis [ref=f146e126]:
+                  - text: (
+                  - link "What is Connected Papers?" [ref=f146e127] [cursor=pointer]:
+                    - /url: https://www.connectedpapers.com/about
+                  - text: )
+            - generic [ref=f146e128]:
+              - generic [ref=f146e130]:
+                - checkbox "Litmaps"
+                - generic [ref=f146e131] [cursor=pointer]
+                - generic [ref=f146e132]: Litmaps Toggle
+              - generic [ref=f146e133]:
+                - text: Litmaps
+                - emphasis [ref=f146e134]:
+                  - text: (
+                  - link "What is Litmaps?" [ref=f146e135] [cursor=pointer]:
+                    - /url: https://www.litmaps.co/
+                  - text: )
+            - generic [ref=f146e136]:
+              - generic [ref=f146e138]:
+                - checkbox "scite Smart Citations"
+                - generic [ref=f146e139] [cursor=pointer]
+                - generic [ref=f146e140]: scite.ai Toggle
+              - generic [ref=f146e141]:
+                - text: scite Smart Citations
+                - emphasis [ref=f146e142]:
+                  - text: (
+                  - link "What are Smart Citations?" [ref=f146e143] [cursor=pointer]:
+                    - /url: https://www.scite.ai/
+                  - text: )
+        - radio "Code, Data, Media" [ref=f146e147]
+        - tab "Code, Data, Media" [ref=f146e148] [cursor=pointer]
+        - radio "Demos" [ref=f146e149]
+        - tab "Demos" [ref=f146e150] [cursor=pointer]
+        - radio "Related Papers" [ref=f146e151]
+        - tab "Related Papers" [ref=f146e152] [cursor=pointer]
+        - radio "About arXivLabs" [ref=f146e153]
+        - tab "About arXivLabs" [ref=f146e154] [cursor=pointer]
+      - generic [ref=f146e155]:
+        - link "Which authors of this paper are endorsers?" [ref=f146e156] [cursor=pointer]:
+          - /url: /auth/show-endorsers/2301.04559
+        - text: "|"
+        - link "Disable MathJax" [ref=f146e157] [cursor=pointer]:
+          - /url: javascript:setMathjaxCookie()
+        - text: (
+        - link "What is MathJax?" [ref=f146e158] [cursor=pointer]:
+          - /url: https://info.arxiv.org/help/mathjax.html
+        - text: )
+  - contentinfo [ref=f146e159]:
+    - generic [ref=f146e160]:
+      - generic [ref=f146e161]:
+        - generic [ref=f146e162]:
+          - text: We gratefully acknowledge support from our
+          - strong [ref=f146e163]: major funders
+          - text: ","
+          - link [ref=f146e164] [cursor=pointer]:
+            - /url: https://info.arxiv.org/about/ourmembers.html
+            - strong [ref=f146e165]: member institutions
+          - text: ", and all contributors."
+        - navigation "Site navigation" [ref=f146e166]:
+          - link "About" [ref=f146e167] [cursor=pointer]:
+            - /url: https://info.arxiv.org/about
+          - generic [ref=f146e168]: ·
+          - link "Help" [ref=f146e169] [cursor=pointer]:
+            - /url: https://info.arxiv.org/help
+          - generic [ref=f146e170]: ·
+          - link "Contact" [ref=f146e171] [cursor=pointer]:
+            - /url: https://info.arxiv.org/help/contact.html
+          - generic [ref=f146e172]: ·
+          - link "Subscribe" [ref=f146e173] [cursor=pointer]:
+            - /url: https://info.arxiv.org/help/subscribe
+          - generic [ref=f146e174]: ·
+          - link "Copyright" [ref=f146e175] [cursor=pointer]:
+            - /url: https://info.arxiv.org/help/license/index.html
+          - generic [ref=f146e176]: ·
+          - link "Privacy" [ref=f146e177] [cursor=pointer]:
+            - /url: https://info.arxiv.org/help/policies/privacy_policy.html
+          - generic [ref=f146e178]: ·
+          - link "Accessibility" [ref=f146e179] [cursor=pointer]:
+            - /url: https://info.arxiv.org/help/web_accessibility.html
+          - generic [ref=f146e180]: ·
+          - link "Operational Status (opens in new tab)" [ref=f146e181] [cursor=pointer]:
+            - /url: https://status.arxiv.org
+            - text: Operational Status
+            - generic [ref=f146e182]: (opens in new tab)
+      - generic "Major funders" [ref=f146e183]:
+        - generic [ref=f146e184]: Major funding support from
+        - generic [ref=f146e185]:
+          - link [ref=f146e186] [cursor=pointer]:
+            - /url: https://www.simonsfoundation.org/
+            - img "Simons Foundation" [ref=f146e187]
+          - link [ref=f146e188] [cursor=pointer]:
+            - /url: https://www.sfi.org.bm/
+            - img "Simons Foundation International" [ref=f146e189]
+          - link [ref=f146e190] [cursor=pointer]:
+            - /url: https://www.schmidtsciences.org/
+            - img "Schmidt Sciences" [ref=f146e191]

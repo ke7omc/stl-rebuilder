@@ -1,0 +1,4 @@
+[     252ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://nuitka.net/user-documentation/faqs.html:0
+[     479ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://nuitka.net/favicon.ico:0
+[    6296ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://nuitka.net/doc/license.html:0
+[    6688ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://nuitka.net/doc/faq.html:0

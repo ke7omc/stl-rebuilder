@@ -1,0 +1,298 @@
+- generic [ref=f109e2]:
+  - navigation "Skip links":
+    - link "Skip to content" [ref=f109e3] [cursor=pointer]:
+      - /url: "#skip-to-content-link-target"
+  - region "Leaderboard advert" [ref=f109e4]:
+    - iframe [ref=f109e8]:
+      - generic [ref=f115e1]:
+        - generic [ref=f115e2] [cursor=pointer]
+        - button [ref=f115e9] [cursor=pointer]
+        - iframe [ref=f115e20]:
+          
+  - banner [ref=f109e9]:
+    - navigation "Site" [ref=f109e11]:
+      - link "IOP Science home" [ref=f109e12] [cursor=pointer]:
+        - /url: /
+      - list [ref=f109e14]:
+        - listitem:
+          - link "Accessibility Help" [ref=f109e15] [cursor=pointer]:
+            - /url: /page/accessibility
+        - listitem [ref=f109e16]:
+          - button "Search" [ref=f109e17]:
+            - img "Search" [ref=f109e18]
+        - listitem [ref=f109e20]:
+          - button "Journals" [ref=f109e21]
+        - listitem [ref=f109e24]:
+          - link "Books" [ref=f109e25] [cursor=pointer]:
+            - /url: /booklistinfo/home
+        - listitem [ref=f109e26]:
+          - link "Publishing Support" [ref=f109e27] [cursor=pointer]:
+            - /url: https://publishingsupport.iopscience.iop.org
+        - listitem [ref=f109e28]:
+          - button "Login" [ref=f109e29]
+  - main [ref=f109e36]:
+    - generic [ref=f109e38]:
+      - 'link "Journal of Physics: Conference Series" [ref=f109e41] [cursor=pointer]':
+        - /url: /journal/1742-6596
+      - button [ref=f109e44]:
+        - img "Purpose-Led Publishing, find out more." [ref=f109e45]
+    - generic [ref=f109e46]:
+      - generic [ref=f109e47]:
+        - generic [ref=f109e48]:
+          - text: Paper •
+          - generic [ref=f109e49]: The following article is
+          - text: Open access
+        - heading "Solid Rocket Motor Propellant Grain Burnback Simulation Based on Level Set Method" [level=1] [ref=f109e50]
+        - paragraph [ref=f109e51]:
+          - generic [ref=f109e52]:
+            - generic [ref=f109e53]: Han chao-fan
+            - text: ","
+            - generic [ref=f109e54]: Xu jin-sheng
+            - text: and
+            - generic [ref=f109e55]: Wang Shuang-hong
+        - paragraph [ref=f109e56]:
+          - text: Published under licence by IOP Publishing Ltd
+          - 'link "Journal of Physics: Conference Series" [ref=f109e59] [cursor=pointer]':
+            - /url: /journal/1742-6596
+          - text: ","
+          - link "Volume 2478" [ref=f109e62] [cursor=pointer]:
+            - /url: /volume/1742-6596/2478
+          - text: ","
+          - link "Ballistics and Application" [ref=f109e64] [cursor=pointer]:
+            - /url: /issue/1742-6596/2478/11
+          - generic [ref=f109e65]:
+            - strong [ref=f109e66]: Citation
+            - text: Han chao-fan
+            - emphasis [ref=f109e67]: et al
+            - text: "2023"
+            - emphasis [ref=f109e68]: "J. Phys.: Conf. Ser."
+            - text: 2478 112010
+          - generic [ref=f109e69]:
+            - strong [ref=f109e70]: DOI
+            - text: 10.1088/1742-6596/2478/11/112010
+        - link "PDF Opens in a new tab." [ref=f109e72] [cursor=pointer]:
+          - /url: /article/10.1088/1742-6596/2478/11/112010/pdf
+          - text: PDF
+          - generic [ref=f109e74]: Opens in a new tab.
+        - navigation "Article toolbar" [ref=f109e82]:
+          - button "Authors" [ref=f109e84]
+          - button "References" [ref=f109e88]
+      - generic [ref=f109e92]:
+        - generic [ref=f109e93]:
+          - heading "Article metrics" [level=2] [ref=f109e94]
+          - paragraph [ref=f109e95]:
+            - generic [ref=f109e96]: 544 Total downloads
+        - generic [ref=f109e97]:
+          - heading "Share this article" [level=2] [ref=f109e98]
+          - list [ref=f109e99]:
+            - listitem [ref=f109e100]:
+              - link "Share this content via email" [ref=f109e101] [cursor=pointer]:
+                - /url: mailto:?subject=Solid Rocket Motor Propellant Grain Burnback Simulation Based on Level Set Method&body=Solid Rocket Motor Propellant Grain Burnback Simulation Based on Level Set Method - https://doi.org/10.1088/1742-6596/2478/11/112010
+            - listitem [ref=f109e104]:
+              - link "Share on LinkedIn (opens new window)" [ref=f109e105] [cursor=pointer]:
+                - /url: https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fiopscience.iop.org%2Farticle%2F10.1088%2F1742-6596%2F2478%2F11%2F112010
+            - listitem [ref=f109e108]:
+              - link "Share on Facebook (opens new window)" [ref=f109e109] [cursor=pointer]:
+                - /url: https://www.facebook.com/sharer.php?u=https%3A%2F%2Fdoi.org%2F10.1088%2F1742-6596%2F2478%2F11%2F112010
+            - listitem [ref=f109e112]:
+              - link "Share on Twitter (opens new window)" [ref=f109e113] [cursor=pointer]:
+                - /url: https://x.com/share?url=https%3A%2F%2Fdoi.org%2F10.1088%2F1742-6596%2F2478%2F11%2F112010&text=Solid+Rocket+Motor+Propellant+Grain+Burnback+Simulation+Based+on+Level+Set+Method&via=ioppublishing
+            - listitem [ref=f109e116]:
+              - link "Share on Mendeley (opens new window)" [ref=f109e117] [cursor=pointer]:
+                - /url: https://www.mendeley.com/import/?doi=10.1088%2F1742-6596%2F2478%2F11%2F112010
+            - listitem [ref=f109e120]:
+              - link "Share on Bluesky (opens new window)" [ref=f109e121] [cursor=pointer]:
+                - /url: https://bsky.app/intent/compose?text=Solid+Rocket+Motor+Propellant+Grain+Burnback+Simulation+Based+on+Level+Set+Method%0Ahttps%3A%2F%2Fdoi.org%2F10.1088%2F1742-6596%2F2478%2F11%2F112010%0Avia+%40ioppublishing.bsky.social
+      - generic [ref=f109e124]:
+        - heading [level=2] [ref=f109e127]:
+          - button "Article information" [ref=f109e128]
+        - generic [ref=f109e131]:
+          - generic [ref=f109e132]:
+            - heading "Abstract" [level=2] [ref=f109e133]
+            - paragraph [ref=f109e135]: Burning surface calculation is an important item in solid rocket engine design. In order to accurately calculate the parameters such as burning surface change law in the combustion chamber, the level set based method is used for burning surface calculation, firstly, the complex burning surface is divided into a uniform grid by voxelization; then the distance transformation method is used to calculate the signed distance function, and finally the information of the contour surface in the grid is obtained to generate the burning surface change curve. The comparison with the CAD method shows that the relative root-mean-square error of the method used in this paper is within 2% with the numerical calculation results.
+            - paragraph [ref=f109e136]:
+              - generic [ref=f109e137]: Export citation and abstract
+              - generic [ref=f109e138]:
+                - link "BibTeX of citation and abstract" [ref=f109e139] [cursor=pointer]:
+                  - /url: /export?type=article&doi=10.1088/1742-6596/2478/11/112010&exportFormat=iopexport_bib&exportType=abs&navsubmit=Export+abstract
+                  - text: BibTeX
+                - link "RIS of citation and abstract" [ref=f109e140] [cursor=pointer]:
+                  - /url: /export?type=article&doi=10.1088/1742-6596/2478/11/112010&exportFormat=iopexport_ris&exportType=abs&navsubmit=Export+abstract
+                  - text: RIS
+          - generic [ref=f109e142]:
+            - link [ref=f109e144] [cursor=pointer]:
+              - /url: /article/10.1088/1742-6596/2478/11/112009
+              - strong [ref=f109e147]: Previous
+              - text: article in issue
+            - link [ref=f109e149] [cursor=pointer]:
+              - /url: /article/10.1088/1742-6596/2478/11/112011
+              - strong [ref=f109e150]: Next
+              - text: article in issue
+          - paragraph [ref=f109e155]:
+            - text: Content from this work may be used under the terms of the
+            - link "Creative Commons Attribution 3.0 licence" [ref=f109e156] [cursor=pointer]:
+              - /url: http://creativecommons.org/licenses/by/3.0
+            - text: . Any further distribution of this work must maintain attribution to the author(s) and the title of the work, journal citation and DOI.
+          - region "Main column advert" [ref=f109e157]:
+            - iframe [ref=f109e161]:
+              - generic [ref=f113e1]:
+                - generic [ref=f113e2] [cursor=pointer]
+                - button [ref=f113e9] [cursor=pointer]
+                - iframe [ref=f113e20]:
+                  
+          - heading [level=2] [ref=f109e163]:
+            - button "Show References" [ref=f109e164]
+      - navigation "Table of contents" [ref=f109e168]:
+        - list [ref=f109e169]:
+          - listitem [ref=f109e170]:
+            - link "Abstract" [ref=f109e171] [cursor=pointer]:
+              - /url: "#artAbst"
+          - listitem [ref=f109e172]:
+            - link "References" [ref=f109e173] [cursor=pointer]:
+              - /url: "#references"
+    - generic [ref=f109e175]:
+      - region [ref=f109e176]:
+        - heading "You may also like" [level=2] [ref=f109e177]
+        - generic [ref=f109e178]:
+          - heading "Journal articles" [level=3] [ref=f109e179]
+          - list [ref=f109e181]:
+            - listitem [ref=f109e182]:
+              - link "Combustion Surface Calculation Method of Solid Rocket Propellant Based on Parameterized Volume Boolean Operation" [ref=f109e183] [cursor=pointer]:
+                - /url: /article/10.1088/1742-6596/2508/1/012026
+            - listitem [ref=f109e184]:
+              - link "Application of the level set method in solid propellant grain burnback with dogbone grain as a case study" [ref=f109e185] [cursor=pointer]:
+                - /url: /article/10.1088/1757-899X/1172/1/012045
+            - listitem [ref=f109e186]:
+              - link "Research on the flow field characteristics of solid rocket motor work at high altitudes based on immersed boundary method" [ref=f109e187] [cursor=pointer]:
+                - /url: /article/10.1088/1742-6596/2820/1/012023
+            - listitem [ref=f109e188]:
+              - link "Method of gas flows calculation in solid propellant rocket engines taking into account the combustion of solid fuel charge" [ref=f109e189] [cursor=pointer]:
+                - /url: /article/10.1088/1757-899X/597/1/012077
+            - listitem [ref=f109e190]:
+              - link "Calculation of closed combustion performance based on evolution of gun propellant burning surface" [ref=f109e191] [cursor=pointer]:
+                - /url: /article/10.1088/1742-6596/2891/2/022009
+          - generic:
+            - list
+      - region [ref=f109e192]:
+        - heading [level=2] [ref=f109e193]:
+          - img "Physics World Jobs" [ref=f109e194]
+        - list [ref=f109e195]:
+          - listitem [ref=f109e196]:
+            - link "Senior Scientist - Plasma Diagnostics" [ref=f109e198] [cursor=pointer]:
+              - /url: https://www.physicsworldjobs.com/job/32851/?trackid=9&utm_source=RestAPI&utm_medium=Referral&utm_source=IOPscience&utm_medium=organic&utm_campaign=IOPscience&utm_term=1742-6596&utm_content=ABSTRACT_PLUS
+            - text: TAE Technologies
+          - listitem [ref=f109e199]:
+            - link "Faculty Positions at Institute of Physics (IOP), Chinese Academy of Sciences" [ref=f109e201] [cursor=pointer]:
+              - /url: https://www.physicsworldjobs.com/job/32787/?trackid=9&utm_source=RestAPI&utm_medium=Referral&utm_source=IOPscience&utm_medium=organic&utm_campaign=IOPscience&utm_term=1742-6596&utm_content=ABSTRACT_PLUS
+            - text: Institute of Physics, Chinese Academy of Sciences
+          - listitem [ref=f109e202]:
+            - link "Postdoctoral Researcher positions – Statistical Physics and Active Matter –" [ref=f109e204] [cursor=pointer]:
+              - /url: https://www.physicsworldjobs.com/job/32656/?trackid=9&utm_source=RestAPI&utm_medium=Referral&utm_source=IOPscience&utm_medium=organic&utm_campaign=IOPscience&utm_term=1742-6596&utm_content=ABSTRACT_PLUS
+            - text: Max Planck Institute for Dynamics and Self-Organization
+          - listitem [ref=f109e205]:
+            - generic [ref=f109e206]:
+              - link "More jobs" [ref=f109e207] [cursor=pointer]:
+                - /url: https://www.physicsworldjobs.com/jobs?utm_source=IOPscience&utm_medium=organic&utm_campaign=IOPscience&utm_term=1742-6596&utm_content=ABSTRACT_PLUS
+              - link "Post a job" [ref=f109e208] [cursor=pointer]:
+                - /url: https://employers.physicsworldjobs.com?utm_source=IOPscience&utm_medium=organic&utm_campaign=IOPscience&utm_term=1742-6596&utm_content=ABSTRACT_PLUS
+      - region "Right sidebar adverts" [ref=f109e209]:
+        - iframe [ref=f109e213]:
+          - generic [ref=f116e1]:
+            - generic [ref=f116e2] [cursor=pointer]
+            - button [ref=f116e9] [cursor=pointer]
+            - iframe [ref=f116e20]:
+              
+      - region "Skyscraper sidebar advert" [ref=f109e214]:
+        - iframe [ref=f109e218]:
+          - generic [ref=f114e1]:
+            - generic [ref=f114e2] [cursor=pointer]
+            - button [ref=f114e9] [cursor=pointer]
+            - iframe [ref=f114e20]:
+              
+  - contentinfo [ref=f109e219]:
+    - navigation "Further resources" [ref=f109e220]:
+      - generic [ref=f109e221]:
+        - heading "IOPscience" [level=2] [ref=f109e222]
+        - list [ref=f109e223]:
+          - listitem [ref=f109e224]:
+            - link "Journals" [ref=f109e225] [cursor=pointer]:
+              - /url: /journalList
+          - listitem [ref=f109e226]:
+            - link "Books" [ref=f109e227] [cursor=pointer]:
+              - /url: /booklistinfo/home
+          - listitem [ref=f109e228]:
+            - link "IOP Conference Series" [ref=f109e229] [cursor=pointer]:
+              - /url: /conference-series
+          - listitem [ref=f109e230]:
+            - link "About IOPscience" [ref=f109e231] [cursor=pointer]:
+              - /url: /page/aboutiopscience
+          - listitem [ref=f109e232]:
+            - link "Contact Us" [ref=f109e233] [cursor=pointer]:
+              - /url: https://ioppublishing.org/about-us/contact-us/
+          - listitem [ref=f109e234]:
+            - link "Developing countries access" [ref=f109e235] [cursor=pointer]:
+              - /url: /info/page/developing-countries-access
+          - listitem [ref=f109e236]:
+            - link "IOP Publishing open access policy" [ref=f109e237] [cursor=pointer]:
+              - /url: https://publishingsupport.iopscience.iop.org/open_access/
+          - listitem [ref=f109e238]:
+            - link "Accessibility" [ref=f109e239] [cursor=pointer]:
+              - /url: /page/accessibility
+      - generic [ref=f109e240]:
+        - heading "IOP Publishing" [level=2] [ref=f109e241]
+        - list [ref=f109e242]:
+          - listitem [ref=f109e243]:
+            - link "Copyright 2024 IOP Publishing" [ref=f109e244] [cursor=pointer]:
+              - /url: https://ioppublishing.org/legal/copyright/
+          - listitem [ref=f109e245]:
+            - link "Terms and Conditions" [ref=f109e246] [cursor=pointer]:
+              - /url: /page/terms
+          - listitem [ref=f109e247]:
+            - link "Disclaimer" [ref=f109e248] [cursor=pointer]:
+              - /url: /page/disclaimer
+          - listitem [ref=f109e249]:
+            - link "Privacy and Cookie Policy" [ref=f109e250] [cursor=pointer]:
+              - /url: https://ioppublishing.org/legal/privacy-cookies-policy/
+          - listitem [ref=f109e251]:
+            - link "Text and Data mining policy" [ref=f109e252] [cursor=pointer]:
+              - /url: https://ioppublishing.org/legal/textanddataminingpolicy/
+        - heading "Publishing Support" [level=2] [ref=f109e253]
+        - list [ref=f109e254]:
+          - listitem [ref=f109e255]:
+            - link "Authors" [ref=f109e256] [cursor=pointer]:
+              - /url: https://publishingsupport.iopscience.iop.org/
+          - listitem [ref=f109e257]:
+            - link "Reviewers" [ref=f109e258] [cursor=pointer]:
+              - /url: https://publishingsupport.iopscience.iop.org/publishing-support/reviewers/
+          - listitem [ref=f109e259]:
+            - link "Conference Organisers" [ref=f109e260] [cursor=pointer]:
+              - /url: https://publishingsupport.iopscience.iop.org/publishing-support/organisers/
+      - generic [ref=f109e261]:
+        - heading "About IOP Publishing" [level=2] [ref=f109e262]
+        - text: IOP Publishing, the publishing arm of the Institute of Physics, is a purpose-led, not-for-profit, society-owned scientific publisher. We publish high-quality, trusted, peer-reviewed research in over 100 scientific journals on our IOPscience platform, providing visibility, recognition, and impact for work across the physical sciences.
+    - generic [ref=f109e265]:
+      - link [ref=f109e266] [cursor=pointer]:
+        - /url: https://ioppublishing.org/
+        - img "IOP Publishing" [ref=f109e267]
+      - list [ref=f109e268]:
+        - listitem [ref=f109e269]:
+          - link "IOP Publishing Facebook page" [ref=f109e270] [cursor=pointer]:
+            - /url: https://www.facebook.com/ioppublishing/
+        - listitem [ref=f109e274]:
+          - link "IOP Publishing LinkedIn page" [ref=f109e275] [cursor=pointer]:
+            - /url: https://www.linkedin.com/company/iop-publishing/
+        - listitem [ref=f109e279]:
+          - link "IOP Publishing Youtube page" [ref=f109e280] [cursor=pointer]:
+            - /url: https://www.youtube.com/channel/UC6sGrQTcmY8NpmfGEfRqRrg
+        - listitem [ref=f109e284]:
+          - link "IOP Publishing WeChat QR code" [ref=f109e285] [cursor=pointer]:
+            - /url: https://ioppublishing.org/wp-content/uploads/2020/11/WeChat-QR-Code.png
+        - listitem [ref=f109e289]:
+          - link "IOP Publishing Weibo page" [ref=f109e290] [cursor=pointer]:
+            - /url: https://www.weibo.com/u/2931886367
+        - listitem [ref=f109e294]:
+          - link "IOP Publishing Bluesky page" [ref=f109e295] [cursor=pointer]:
+            - /url: https://bsky.app/profile/ioppublishing.bsky.social
+        - listitem [ref=f109e299]:
+          - link "IOP Publishing Threads page" [ref=f109e300] [cursor=pointer]:
+            - /url: https://www.threads.com/@iop.publishing
