@@ -405,15 +405,43 @@
 (newest first — one block per iteration, format in MISSION.md §8)
 
 ### iter 21 (WIP, testing) — M5 — sonnet/medium — 2026-08-29T19:52
-- Testing: threaded `chord_tol` into `export.finalize()` and call `ShapeFix_Shape.SetPrecision
-  (chord_tol)` before `fixer.Perform()` (this is exactly the lever iter-20's log flagged as
-  "unexplored, worth pursuing" for the fore-seam gmsh sliver — previous ad hoc probe at prec=0.25
-  on a coarse hmax=30 mesh got min_quality ~0.025, up from 0.006, but was never checked at the
-  real gate hmax and the sweep 0.5/1.0 never finished). `pytest tests/ --ignore=test_selftest.py`
-  still 15/15 green after the change (default `chord_tol=None` keeps old behavior for any other
-  caller). Expected result: `harness/score.py --milestone M5` progress moves from 0.9476 either
-  to 1.0 (gmsh_tet clears) or partially up (SICN improves but still < 0.1 gate) — running the
-  real scorer next, takes a few minutes for gmsh.
+- First tried: threaded `chord_tol` into `export.finalize()` and called
+  `ShapeFix_Shape.SetPrecision(chord_tol)` before `fixer.Perform()` (this is exactly the lever
+  iter-20's log flagged as "unexplored, worth pursuing"). **Result: zero effect** —
+  `harness/score.py --milestone M5` reproduced the *exact same* `gmsh_tet` value
+  (0.005706777190469922, bit-identical) as without it. Root cause: the shape was already
+  `BRepCheck_Analyzer`-valid going in, so `ShapeFix_Shape` had nothing to fix regardless of the
+  precision passed — `SetPrecision` only matters when the fixer actually needs to close gaps/
+  snap tolerances, not as a general "heal slivers" knob. Left the plumbing in place (harmless,
+  default `chord_tol=None` preserves old behavior) since it's now proven-inert rather than
+  unexplored, and moved to the milestone's other suggested idea (below) instead of retrying
+  precision sweeps — do not retry `ShapeFix_Shape.SetPrecision` on this bug again.
+- Second, real fix attempted: confirmed via `/tmp`-script probe (see below) that the M5 sandwich
+  fore-seam sliver's root cause is exactly what iter-20 suspected — `_build_prism_bore`'s
+  representative cross-section (raw ring points at the bore_rings midpoint station, z~8448) gets
+  its "main bore" arc via `GC_MakeArcOfCircle`'s **exact 3-point fit** through only 3 raw,
+  chord-tessellated mesh points. Measured across the fin ring's 8 main-bore arc runs: fitted
+  radius ranges 299.77-300.95 mm (whole-run least-squares fit), i.e. up to ~1 mm noise around
+  true R=300, because a 3-point fit on ~0.5mm chord-tessellated points is poorly conditioned.
+  Meanwhile the accurate stations flanking the seams (`pts_before[-1][1]`=299.9435,
+  `pts_after[0][1]`=299.9823, both least-squares fits over full circular rings) sit within
+  0.04 mm of true R — so the fin ring's own bore arc can be up to ~1mm off from the circular
+  cutter it's fused to at the seam, which is exactly a near-tangent mismatch of the right
+  magnitude to produce the observed knife-edge sliver.
+  Fix: `pipeline/solids.py::build_prism_solid` gained an optional `bore_radius` param. For each
+  detected arc run, fit a circle over the *whole* run (not the 3-point construction subset); if
+  that run's radius is within 10% of `bore_radius` (i.e. this is the main-bore arc, not a
+  ~40mm fin-tip fillet — the two scales are 7x apart, no ambiguity), re-project the 3
+  construction points (`p0`, `pm`, `p1`) onto the *exact* circle of radius `bore_radius`
+  centered at the run's own fitted center, before calling `GC_MakeArcOfCircle`. `cli.py`'s
+  `_build_prism_bore` forwards a new `bore_radius` kwarg through; call sites pass the
+  known-accurate radius from the circular side(s) of the seam: the sandwich case
+  (`pts_before`/`pts_after` both present) uses their average (`0.5*(pts_before[-1][1] +
+  pts_after[0][1])`, since one fin_solid spans both seams and can only match one radius
+  exactly); the single-event M4-style cases use whichever side's `bore_pts` value sits at the
+  event boundary. The M3 pure-prism case (no `bore_pts` at all) passes no `bore_radius` — no
+  known-accurate reference radius exists there, unchanged behavior.
+  `pytest tests/ --ignore=test_selftest.py` still 15/15 green. Running the real M5 scorer next.
 
 ### iter 19 — M4 — sonnet/medium — 2026-08-29
 - Score before: M4 not attempted yet (`pipeline/cli.py` only handled a single bore, either

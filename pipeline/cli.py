@@ -202,7 +202,7 @@ def _bisect_topology_event(mesh, z_a: float, z_b: float, chord_tol: float, circ_
 
 
 def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
-                       eps_end_val: float, chord_tol: float):
+                       eps_end_val: float, chord_tol: float, bore_radius: float = None):
     """Build the cutter solid for a non-circular but axially-constant bore (e.g. M3's star):
     take the station closest to mid-length as the representative cross-section (least likely to
     be distorted by any inset/end effects) and hand its raw ring points straight to
@@ -213,10 +213,13 @@ def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
     count low without it). Extrudes past `z_min` by `eps_start` and past `z_max` by `eps_end_val`
     (independent, since a topology-event seam (M4/M5) wants only a small fuse-robustness overlap
     on that side, not the full `eps_cut` margin a true outer end needs for a robust boolean cut
-    against the envelope)."""
+    against the envelope). `bore_radius`, if given, is forwarded to `build_prism_solid` to snap
+    this ring's own main-bore arc onto the same accurately-fitted radius the circular cutter on
+    the other side of the seam uses (see that function's docstring for why)."""
     mid = bore_rings[len(bore_rings) // 2][1]
     pts = list(mid.coords)
-    return solids.build_prism_solid(pts, z_min - eps_start, z_max + eps_end_val)
+    return solids.build_prism_solid(pts, z_min - eps_start, z_max + eps_end_val,
+                                     bore_radius=bore_radius)
 
 
 def _run(args) -> int:
@@ -396,8 +399,9 @@ def _run(args) -> int:
                 + [(event_fore + seam_eps, pts_before[-1][1])]
             circ_aft_full = [(event_aft - seam_eps, pts_after[0][1])] + pts_after \
                 + [(z_max + eps_cut_val, pts_after[-1][1])]
+            seam_bore_radius = 0.5 * (pts_before[-1][1] + pts_after[0][1])
             fin_solid = _build_prism_bore(bore_rings, event_fore, event_aft, seam_eps, seam_eps,
-                                           chord_tol)
+                                           chord_tol, bore_radius=seam_bore_radius)
             circ_fore_solid = solids.build_revolve_solid(circ_fore_full, chord_tol)
             circ_aft_solid = solids.build_revolve_solid(circ_aft_full, chord_tol)
             bore_solid = booleans.fuse(circ_fore_solid, fin_solid, seam_eps)
@@ -405,13 +409,15 @@ def _run(args) -> int:
         elif circ_before:
             circ_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
                 + [(event_z + seam_eps, bore_pts[-1][1])]
-            fin_solid = _build_prism_bore(bore_rings, event_z, z_max, seam_eps, eps_cut_val, chord_tol)
+            fin_solid = _build_prism_bore(bore_rings, event_z, z_max, seam_eps, eps_cut_val,
+                                           chord_tol, bore_radius=bore_pts[-1][1])
             circ_solid = solids.build_revolve_solid(circ_full, chord_tol)
             bore_solid = booleans.fuse(circ_solid, fin_solid, tol.fuzzy(chord_tol))
         else:
             circ_full = [(event_z - seam_eps, bore_pts[0][1])] + bore_pts \
                 + [(z_max + eps_cut_val, bore_pts[-1][1])]
-            fin_solid = _build_prism_bore(bore_rings, z_min, event_z, eps_cut_val, seam_eps, chord_tol)
+            fin_solid = _build_prism_bore(bore_rings, z_min, event_z, eps_cut_val, seam_eps,
+                                           chord_tol, bore_radius=bore_pts[0][1])
             circ_solid = solids.build_revolve_solid(circ_full, chord_tol)
             bore_solid = booleans.fuse(circ_solid, fin_solid, tol.fuzzy(chord_tol))
     elif bore_rings:

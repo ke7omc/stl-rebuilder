@@ -32,7 +32,7 @@ from OCP.GeomAPI import GeomAPI_Interpolate
 from OCP.TColgp import TColgp_HArray1OfPnt
 from OCP.TopoDS import TopoDS_Shape
 
-from pipeline.fitting import rdp, detect_arc_runs
+from pipeline.fitting import rdp, detect_arc_runs, fit_circle
 
 
 def _dedupe(pts):
@@ -138,7 +138,8 @@ def build_revolve_solid(z_r_pairs, chord_tol: float, curve_windows=None) -> Topo
     return revol.Shape()
 
 
-def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float = None) -> TopoDS_Shape:
+def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float = None,
+                       bore_radius: float = None) -> TopoDS_Shape:
     """`xy_pts`: closed-ring (x, y) points (first == last, as returned by a shapely polygon's
     `.exterior.coords`/`.interiors[i].coords`), raw or lightly deduped. Builds the cross-section
     wire as a hybrid of exact circular-arc edges (`GC_MakeArcOfCircle`, 3-point through each
@@ -170,7 +171,18 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
     fillet radius vs. ill-conditioned straight sides) but is wrong for M4/M5's finocyl bore,
     where a ~300 mm main-bore arc is real curvature needing an exact arc edge, not a fraction of
     the ~700 mm fin-tip radius away from a hardcoded threshold that happened to put it on the
-    "straight" side (18 mm chord sagitta against a 1 mm deviation gate)."""
+    "straight" side (18 mm chord sagitta against a 1 mm deviation gate).
+
+    `bore_radius`, if given, is the accurately-fitted (least-squares over a whole circular
+    station, not 3 raw mesh points) radius of the axis-centered main-bore arc, as already used
+    for the circular cutters on either side of this prism's seam. Each arc run's own 3-point
+    exact fit (`GC_MakeArcOfCircle` through raw, chord-tessellated mesh points) is noisy at the
+    ~1 mm level even though the true radius is constant; a run whose whole-run circle fit lands
+    within 10% of `bore_radius` is the main-bore arc, and its 3 construction points are
+    re-projected onto the exact circle (fitted center, `bore_radius`) before building the arc
+    edge. This removes the near-tangent radius mismatch between this prism's bore arc and the
+    circular cutters it seams against, which otherwise leaves a knife-edge sliver volume at the
+    seam that gmsh can't tet cleanly (see PROGRESS.md M5 log, `gmsh_tet` failure)."""
     pts = [p for p in xy_pts]
     if len(pts) > 1 and math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-9:
         pts = pts[:-1]
@@ -193,6 +205,23 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
         for i in range(n_arcs):
             run = arcs[i]
             p0, pm, p1 = P(run[0]), P(run[len(run) // 2]), P(run[-1])
+            if bore_radius is not None and len(run) >= 3:
+                sub = [pts[j] for j in run]
+                cx, cy, rfit, _resid, _ = fit_circle(sub)
+                if abs(rfit - bore_radius) < 0.1 * bore_radius:
+                    def _snap(pt, cx=cx, cy=cy):
+                        dx, dy = pt[0] - cx, pt[1] - cy
+                        d = math.hypot(dx, dy)
+                        if d < 1e-9:
+                            return pt
+                        s = bore_radius / d
+                        return (cx + dx * s, cy + dy * s)
+                    sx0, sy0 = _snap(pts[run[0]])
+                    sxm, sym = _snap(pts[run[len(run) // 2]])
+                    sx1, sy1 = _snap(pts[run[-1]])
+                    p0 = gp_Pnt(sx0, sy0, z_lo)
+                    pm = gp_Pnt(sxm, sym, z_lo)
+                    p1 = gp_Pnt(sx1, sy1, z_lo)
             # A run can degenerate to 1-2 (near-)duplicate points at the classifier's boundary
             # (a single sample straddling a real corner, misread as "curved" by its own
             # 5-point local window) — GC_MakeArcOfCircle raises Standard_Failure on a
