@@ -441,7 +441,22 @@
   exactly); the single-event M4-style cases use whichever side's `bore_pts` value sits at the
   event boundary. The M3 pure-prism case (no `bore_pts` at all) passes no `bore_radius` — no
   known-accurate reference radius exists there, unchanged behavior.
-  `pytest tests/ --ignore=test_selftest.py` still 15/15 green. Running the real M5 scorer next.
+  First real-scorer run crashed the pipeline outright (`TypeError: list indices must be
+  integers or slices, not tuple` in `fit_circle`) — `sub` was a plain list of tuples, not an
+  ndarray; fixed by wrapping in `np.asarray` (added `import numpy as np` to `solids.py`).
+  Second bug, found via a standalone repro script (`build_prism_solid` on the real M5 mid-ring
+  with `bore_radius` set raised `RuntimeError: prism cross-section wire construction failed`,
+  but the same call with `bore_radius=None` succeeded): the closing/bridging straight edge
+  between run i and run i+1 was built as `BRepBuilderAPI_MakeEdge(p1, P(next_run[0]))` — using
+  the RAW, unsnapped `P(next_run[0])` even when run i+1 is itself a bore-arc run whose OWN start
+  point gets snapped by up to ~1 mm. That leaves a sub-mm-but-way-past-tolerance gap between
+  where the bridge edge ends and where the next run's actual arc starts, which
+  `BRepBuilderAPI_MakeWire` refuses to close. Fixed by precomputing every run's (possibly
+  snapped) `(p0, pm, p1)` in one pass (`run_endpoints`) before building any edges, then using
+  `run_endpoints[(i+1) % n_arcs][0]` for the bridge edge's target instead of re-deriving it from
+  raw points. Confirmed fixed with the same standalone repro (both `bore_radius=None` and
+  `bore_radius=<seam value>` now build successfully). `pytest tests/ --ignore=test_selftest.py`
+  still 15/15 green. Running the real M5 scorer next.
 
 ### iter 19 — M4 — sonnet/medium — 2026-08-29
 - Score before: M4 not attempted yet (`pipeline/cli.py` only handled a single bore, either

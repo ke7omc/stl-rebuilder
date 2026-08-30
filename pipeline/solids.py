@@ -20,6 +20,8 @@ quadratic-in-R^2 model, then keep this module's simple straight-chord polyline e
 """
 import math
 
+import numpy as np
+
 from OCP.gp import gp_Pnt, gp_Ax1, gp_Dir, gp_Vec
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
@@ -202,11 +204,18 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
             mkwire.Add(BRepBuilderAPI_MakeEdge(P(i), P((i + 1) % n)).Edge())
     else:
         n_arcs = len(arcs)
-        for i in range(n_arcs):
-            run = arcs[i]
+        # Precompute each run's (possibly bore_radius-snapped) construction points up front,
+        # rather than re-deriving the "next run's start point" via the raw, unsnapped `P()`
+        # when connecting runs: the straight bridge edge from run i's end to run i+1's start
+        # MUST land on the exact same point run i+1's own arc/straight edge starts from, or the
+        # wire has a sub-tolerance-scale gap there and `BRepBuilderAPI_MakeWire.IsDone()` fails.
+        # (A snap can move a bore-arc's endpoint by up to ~1 mm, far past the wire builder's
+        # default confusion tolerance, so this must be exact, not "close enough".)
+        run_endpoints = []
+        for run in arcs:
             p0, pm, p1 = P(run[0]), P(run[len(run) // 2]), P(run[-1])
             if bore_radius is not None and len(run) >= 3:
-                sub = [pts[j] for j in run]
+                sub = np.asarray([pts[j] for j in run])
                 cx, cy, rfit, _resid, _ = fit_circle(sub)
                 if abs(rfit - bore_radius) < 0.1 * bore_radius:
                     def _snap(pt, cx=cx, cy=cy):
@@ -222,6 +231,11 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
                     p0 = gp_Pnt(sx0, sy0, z_lo)
                     pm = gp_Pnt(sxm, sym, z_lo)
                     p1 = gp_Pnt(sx1, sy1, z_lo)
+            run_endpoints.append((p0, pm, p1))
+
+        for i in range(n_arcs):
+            run = arcs[i]
+            p0, pm, p1 = run_endpoints[i]
             # A run can degenerate to 1-2 (near-)duplicate points at the classifier's boundary
             # (a single sample straddling a real corner, misread as "curved" by its own
             # 5-point local window) — GC_MakeArcOfCircle raises Standard_Failure on a
@@ -234,8 +248,8 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
                 mkwire.Add(BRepBuilderAPI_MakeEdge(arc).Edge())
             except Exception:
                 mkwire.Add(BRepBuilderAPI_MakeEdge(p0, p1).Edge())
-            next_run = arcs[(i + 1) % n_arcs]
-            mkwire.Add(BRepBuilderAPI_MakeEdge(p1, P(next_run[0])).Edge())
+            next_p0 = run_endpoints[(i + 1) % n_arcs][0]
+            mkwire.Add(BRepBuilderAPI_MakeEdge(p1, next_p0).Edge())
 
     if not mkwire.IsDone():
         raise RuntimeError("prism cross-section wire construction failed")
