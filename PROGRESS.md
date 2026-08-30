@@ -15,6 +15,24 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 37 (M0, round 2, in progress): `harness/generators.py::_make_m13` implemented** —
+  factored `_capsule_slot_breakthrough_shape` out of `_make_m12`'s body (identical boolean
+  sequence, now shared) so `_make_m13` reuses it, then combines M10's `_place_in_frame`
+  (rotate to +x, translate, scale=1.0 — M13 doesn't shrink like M10) with M9's voxelize
+  wiring (fine ref tessellation -> `voxelize.synthesize_voxel_input`), passing `scale=
+  1/spec.frame.scale_to_mm` to `synthesize_voxel_input` so the pathological STL is written in
+  inches directly instead of a second transform pass. Added `_make_bore_filled_m13` to
+  `selftest.py` (M12's fuse trick + `_place_in_frame`, mirrors `_make_bore_filled_m10`).
+  Testing `.venv/bin/python harness/selftest.py --milestone M13` now; expect ~9/9 PASS given
+  M9/M10 both passed with the equivalent halves of this recipe. Will re-run M1..M12 individually
+  after to confirm the `_capsule_slot_breakthrough_shape` refactor didn't change M12's geometry
+  (same code, just moved into a function — behavior should be byte-identical).
+  Next after this: MR (real-STL ingestion) needs both a `score.py` wiring pass (self-referential
+  checks, `optional`/`input_glob` skip semantics — currently unwired, see `milestones.py`
+  `MilestoneSpec.optional`/`input_glob` fields that already exist but nothing reads them) and a
+  `selftest.py` `[SKIP]` path when `real_inputs/` is empty — bigger than a single iteration,
+  start with score.py's skip semantics first since that's the harder ambiguity to get right.
+
 - **iter 36 (M0, round 2): `harness/generators.py::_make_m9` implemented — wires `harness/voxelize.py`
   (built iter 34, unused until now) into a truth generator for the first `kind="voxel"`
   `InputSpec` (MISSION §7.2 M9: noisy skewed marching-cubes surface on a 10x10x40mm anisotropic

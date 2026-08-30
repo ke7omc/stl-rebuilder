@@ -382,13 +382,34 @@ def _make_bore_filled_m10(spec, work_dir: Path) -> Path:
     return path
 
 
+def _make_bore_filled_m13(spec, work_dir: Path) -> Path:
+    """M13 reuses M12's exact params (`ms._m13()` copies `dict(m12.params)`), so the same
+    bore-filler trick as `_make_bore_filled_m12` applies, then placed in M13's frame (same
+    rotate+translate, scale=1.0, as `_make_bore_filled_m10` does for M10's frame) so the
+    mutation is a fair apples-to-apples comparison against the transformed truth."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+
+    L = spec.params["L"]
+    outer = generators._capsule_outer_shape(L, spec.params["R_o"], spec.params["dome_semi_axial"])
+    bore = generators._straight_bore(spec.params["R_bore"], L)
+    fuse = BRepAlgoAPI_Fuse(outer, bore)
+    fuse.Build()
+    if not fuse.IsDone():
+        raise RuntimeError("M13 bore-filler fuse failed")
+    placed = generators._place_in_frame(fuse.Shape(), spec.frame, scale=1.0)
+    path = work_dir / "M13_bore_filled.step"
+    generators._write_step(placed, path)
+    return path
+
+
 _BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2,
                   "M3": _make_bore_filled_m3, "M4": _make_bore_filled_m4,
                   "M5": _make_bore_filled_m5, "M6": _make_bore_filled_m6,
                   "M7": _make_bore_filled_m7, "M8": _make_bore_filled_m8,
                   "M9": _make_bore_filled_m9,
                   "M10": _make_bore_filled_m10,
-                  "M11": _make_bore_filled_m11, "M12": _make_bore_filled_m12}
+                  "M11": _make_bore_filled_m11, "M12": _make_bore_filled_m12,
+                  "M13": _make_bore_filled_m13}
 
 
 def check_milestone(name: str, work_dir: Path, skip_gmsh: bool = False) -> None:

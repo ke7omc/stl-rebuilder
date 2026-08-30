@@ -741,16 +741,15 @@ def _make_m10() -> Truth:
     return _finish_framed("M10", shape_mm, spec.frame, spec.chord_tol)
 
 
-def _make_m12() -> Truth:
-    """Near-end-of-burn cavity decomposition: same dilated-cavity construction as M8 (straight
-    bore fused with `n_slots` wedge-revolve obround slots), but with M12's larger params (wider
-    bore, wider/taller slots) that push the slot cutter's outer radius past the aft dome's local
-    envelope radius — the boolean cut naturally opens the slots through the dome surface there
-    (the "breakthrough" the spec's params/description call out), no special-case geometry needed:
-    `_obround_slot_cutter` and `_capsule_outer_shape` are already general in z and r.
-    """
-    spec = ms.get("M12")
-    p = spec.params
+def _capsule_slot_breakthrough_shape(p: dict, label: str) -> TopoDS_Shape:
+    """Shared M12/M13 construction: same dilated-cavity build as M8 (straight bore fused with
+    `n_slots` wedge-revolve obround slots), but with the larger bore/slot params that push the
+    slot cutter's outer radius past the aft dome's local envelope radius — the boolean cut
+    naturally opens the slots through the dome surface there (the "breakthrough" the spec's
+    params/description call out), no special-case geometry needed: `_obround_slot_cutter` and
+    `_capsule_outer_shape` are already general in z and r. Factored out of `_make_m12` so `_make_m13`
+    (M12's shape, just placed in a non-canonical frame with a pathological voxel input) can reuse
+    it without duplicating the boolean sequence."""
     L = p["L"]
     outer = _capsule_outer_shape(L, p["R_o"], p["dome_semi_axial"])
     cutter = _straight_bore(p["R_bore"], L)
@@ -774,14 +773,57 @@ def _make_m12() -> Truth:
         fuse = BRepAlgoAPI_Fuse(cutter, slot)
         fuse.Build()
         if not fuse.IsDone():
-            raise RuntimeError(f"M12 cutter fuse failed on slot {k}")
+            raise RuntimeError(f"{label} cutter fuse failed on slot {k}")
         cutter = fuse.Shape()
 
     cut = BRepAlgoAPI_Cut(outer, cutter)
     cut.Build()
     if not cut.IsDone():
-        raise RuntimeError("M12 boolean cut failed")
-    return _finish("M12", cut.Shape())
+        raise RuntimeError(f"{label} boolean cut failed")
+    return cut.Shape()
+
+
+def _make_m12() -> Truth:
+    spec = ms.get("M12")
+    return _finish("M12", _capsule_slot_breakthrough_shape(spec.params, "M12"))
+
+
+def _make_m13() -> Truth:
+    """M12's cavity (same params, unchanged), rotated to +x and translated per `spec.frame`
+    (MISSION §6.2 M13), with the truth STL replaced by a pathological marching-cubes surface
+    (noisy, unwelded, 2% flipped facets, 3 islands) written in inches — the combination of M9's
+    voxel-input synthesis and M10's frame placement. `truth.shape`/`V_truth`/`A_truth`/`bbox`/
+    `step_path` stay the exact rotated/translated analytic solid (mm); only `truth.stl_path`
+    carries the pathology and the unit change."""
+    spec = ms.get("M13")
+    shape_full = _capsule_slot_breakthrough_shape(spec.params, "M13")
+    shape_mm = _place_in_frame(shape_full, spec.frame, scale=1.0)
+    V, A = _volume_area(shape_mm)
+    bbox = _bbox(shape_mm)
+    step_path = TRUTH_DIR / "M13.step"
+    stl_path = TRUTH_DIR / "M13.stl"
+    _write_step(shape_mm, step_path)
+
+    # Clean, fine reference tessellation (mm) for voxelize.py's occupancy/SDF sampling -- never
+    # written to M13.stl itself, and far finer than the M13 input grid spacing (h=8mm).
+    ref_path = TRUTH_DIR / "M13.ref.stl"
+    _write_stl(shape_mm, ref_path, chord_tol=spec.chord_tol / 2.0)
+    ref_mesh = metrics.load_mesh(ref_path)
+
+    unit_scale = 1.0 / spec.frame.scale_to_mm  # mm -> frame.units (in)
+    input_mesh = voxelize.synthesize_voxel_input(ref_mesh, spec.input, seed=7, scale=unit_scale)
+    stl_path.parent.mkdir(parents=True, exist_ok=True)
+    input_mesh.export(str(stl_path))
+
+    return Truth(
+        milestone="M13",
+        shape=shape_mm,
+        V_truth=V,
+        A_truth=A,
+        bbox=bbox,
+        step_path=step_path,
+        stl_path=stl_path,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -829,6 +871,7 @@ _MAKERS = {
     "M10": _make_m10,
     "M11": _make_m11,
     "M12": _make_m12,
+    "M13": _make_m13,
 }
 
 
