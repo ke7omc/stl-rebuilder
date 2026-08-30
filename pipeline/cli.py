@@ -35,6 +35,35 @@ def _axis_centered(cx: float, cy: float, R: float, chord_tol: float) -> bool:
     return (cx ** 2 + cy ** 2) ** 0.5 < 0.5 * tol.circle_max_resid(chord_tol)
 
 
+def _fit_r2_quadratic(pts, at_start: bool, min_dz: float):
+    """Fit R^2 as a quadratic (or linear, with only 2 points) function of z, using the nearest
+    fitted stations from the start or end of `pts`. Returns (z0, coef) for `np.polyval(coef,
+    z - z0)`. See `_extrapolate_end`/`_fill_pinch_gap` for why R^2-vs-z and why z-centered."""
+    ordered = pts if at_start else pts[::-1]
+    near = [ordered[0]]
+    for p in ordered[1:]:
+        if abs(p[0] - near[-1][0]) >= min_dz:
+            near.append(p)
+        if len(near) == 6:
+            break
+    # Center z on the nearest station before fitting: raw z can be ~1e4 mm while the spread
+    # across 3 near-clustered stations is only ~1e2 mm, and np.polyfit is numerically unstable
+    # on that large-offset/tiny-spread combination (measured: same shape, same conditioning at
+    # both ends, but the un-centered fit at the z~9877 end returned R^2 = -91000 garbage while
+    # the z~123 end happened to come out right — pure float precision, not a real asymmetry).
+    z0 = near[0][0]
+    zs = np.array([p[0] - z0 for p in near], dtype=float)
+    r2 = np.array([p[1] ** 2 for p in near], dtype=float)
+    deg = 2 if len(near) >= 3 else 1
+    coef = np.polyfit(zs, r2, deg)
+    return z0, coef
+
+
+def _eval_r2_quadratic(z0: float, coef, z: float) -> float:
+    r2 = np.polyval(coef, z - z0)
+    return math.sqrt(max(0.0, r2))
+
+
 def _extrapolate_end(pts, target_z: float, at_start: bool, min_dz: float) -> float:
     """Extrapolate R at target_z from the nearest fitted stations, quadratic in R^2 vs z.
 
@@ -53,25 +82,27 @@ def _extrapolate_end(pts, target_z: float, at_start: bool, min_dz: float) -> flo
     singular and the extrapolation blows up (measured: -91000 mm^2 for R^2, i.e. garbage). Pick
     points that are at least `min_dz` apart instead of the raw 3 nearest.
     """
-    ordered = pts if at_start else pts[::-1]
-    near = [ordered[0]]
-    for p in ordered[1:]:
-        if abs(p[0] - near[-1][0]) >= min_dz:
-            near.append(p)
-        if len(near) == 3:
-            break
-    # Center z on the nearest station before fitting: raw z can be ~1e4 mm while the spread
-    # across 3 near-clustered stations is only ~1e2 mm, and np.polyfit is numerically unstable
-    # on that large-offset/tiny-spread combination (measured: same shape, same conditioning at
-    # both ends, but the un-centered fit at the z~9877 end returned R^2 = -91000 garbage while
-    # the z~123 end happened to come out right — pure float precision, not a real asymmetry).
-    z0 = near[0][0]
-    zs = np.array([p[0] - z0 for p in near], dtype=float)
-    r2 = np.array([p[1] ** 2 for p in near], dtype=float)
-    deg = 2 if len(near) >= 3 else 1
-    coef = np.polyfit(zs, r2, deg)
-    r2_end = np.polyval(coef, target_z - z0)
-    return math.sqrt(max(0.0, r2_end))
+    z0, coef = _fit_r2_quadratic(pts, at_start, min_dz)
+    return _eval_r2_quadratic(z0, coef, target_z)
+
+
+def _fill_pinch_gap(pts, z_lo: float, z_hi: float, at_start: bool, min_dz: float, n: int = 8):
+    """Densify the excluded-residual inset band between a dome/bore pinch endpoint and the
+    nearest usable fitted station with points from the same quadratic-in-R^2 model that
+    `_extrapolate_end` already uses for the endpoint itself.
+
+    Why this exists: that inset band (`station_eps`, ~100 mm on M2) has *no* real station data
+    by construction — it's excluded because the circle-fit residual blows up close to the pinch.
+    `build_revolve_solid` connects whatever points it's given with straight chords, so leaving
+    the band as a single ~100 mm chord from the (now-accurate, bore-snapped) pinch radius
+    straight to the first real station misses all of the curvature in between — measured as the
+    dominant term in M2's volume_err_pct (see PROGRESS.md iter 14/15). The quadratic model is
+    already validated to ~1e-6 mm at the endpoint itself; evaluating it at several z's *inside*
+    the same data range (interpolation, not extrapolation) is strictly better-conditioned than
+    that endpoint call and gives the revolve real curvature to follow across the gap."""
+    z0, coef = _fit_r2_quadratic(pts, at_start, min_dz)
+    zs = np.linspace(z_lo, z_hi, n + 2)[1:-1]
+    return [(float(z), _eval_r2_quadratic(z0, coef, z)) for z in zs]
 
 
 def _run(args) -> int:
@@ -144,11 +175,19 @@ def _run(args) -> int:
     # is far more reliable than the outer extrapolation, since it isn't near the dome's steep
     # curvature). Snap to it when the extrapolation already landed close, rather than trusting
     # the extrapolation's residual ~10 mm error verbatim.
-    if abs(r_start - bore_pts[0][1]) < 50.0:
+    is_pinch_start = abs(r_start - bore_pts[0][1]) < 50.0
+    is_pinch_end = abs(r_end - bore_pts[-1][1]) < 50.0
+    if is_pinch_start:
         r_start = bore_pts[0][1]
-    if abs(r_end - bore_pts[-1][1]) < 50.0:
+    if is_pinch_end:
         r_end = bore_pts[-1][1]
-    outer_full = [(z_min, r_start)] + outer_pts + [(z_max, r_end)]
+    # Densify the excluded inset band at a pinch end with the same quadratic-in-R^2 model used
+    # for the endpoint itself — see `_fill_pinch_gap` for why a straight chord across that band
+    # is not good enough. Not done for a non-pinch end (M1): there the profile is flat there and
+    # a straight chord is already exact.
+    fore_gap = _fill_pinch_gap(outer_pts, z_min, outer_pts[0][0], True, min_dz) if is_pinch_start else []
+    aft_gap = _fill_pinch_gap(outer_pts, outer_pts[-1][0], z_max, False, min_dz) if is_pinch_end else []
+    outer_full = [(z_min, r_start)] + fore_gap + outer_pts + aft_gap + [(z_max, r_end)]
     bore_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
         + [(z_max + eps_cut_val, bore_pts[-1][1])]
 

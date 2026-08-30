@@ -4,6 +4,19 @@ Only the "all circles centered on the axis" decision-order case is implemented s
 is a list of (z, R) samples, one per station, whose fitted circle centers all sit on the axis.
 The meridian (R, z) polyline is RDP-simplified then revolved 360 deg about Z. Loft / prism paths
 (non-axisymmetric sections) are not yet built — out of scope until M2/M3 need them.
+
+Tried and reverted this iteration (see PROGRESS.md iter 15): fitting a single global curve
+(both `GeomAPI_Interpolate` and `GeomAPI_PointsToBSpline`) through the RDP-retained (z, R)
+points instead of straight chords, to remove the chord-vs-arc volume bias on M2's domes.
+Interpolation overshot +20% volume from a single bulge between the sparse mid-cylinder points
+(non-uniform station spacing makes a global cubic spline badly conditioned); the approximating
+fit avoided the overshoot but failed to revolve (self-intersecting profile) across the steep,
+under-sampled ~100 mm gap between the pinch endpoint and the first station outside the
+excluded-residual inset band. Both are global-curve approaches fighting the same problem: this
+meridian mixes a near-vertical-tangent region (the dome-bore pinch) with a flat one (the
+cylinder) in one z-parametrized curve. The actual fix landed in `pipeline/cli.py`
+(`_fill_pinch_gap`): densify only that specific gap with the already-validated local
+quadratic-in-R^2 model, then keep this module's simple straight-chord polyline everywhere else.
 """
 import math
 

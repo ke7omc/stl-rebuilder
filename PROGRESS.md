@@ -15,8 +15,65 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
-- Milestone: **M2**, in progress. Local score: `pass:false, progress:0.4601`, first failure
-  `volume_err_pct` 0.1381% (gate 0.05%). No crash, no timeout — the pipeline runs end-to-end.
+- Milestone: **M2**, in progress. Local score: `pass:false, progress:0.4788`, first failure
+  `volume_err_pct` 0.0756% (gate 0.05%) — down from 0.1381% at the top of iter 15, still ~1.5x
+  over gate. No crash, no timeout — the pipeline runs end-to-end.
+- **Iter 15 summary (read this before touching `pipeline/cli.py` or `pipeline/solids.py`
+  again):** the 0.138% volume error left by iter 14 was NOT dominated by the pinch-endpoint
+  radius itself (that was already snapped to the bore's fitted radius, which is accurate). It
+  was the ~100 mm *inset band* on either side of the pinch (`station_eps`, excluded from real
+  station data because the circle-fit residual blows up there — see iter 14's finding 2) being
+  bridged by a single straight chord from the pinch point to the first real station, while the
+  true dome curve inside that band has steep, fast-changing dR/dz (~2-6 mm/mm) — a straight
+  chord across it misses real curvature and biases the revolved volume. Fix: `pipeline/cli.py`
+  now has `_fill_pinch_gap()`, which densifies exactly that band with points evaluated from the
+  same quadratic-in-R^2 model `_extrapolate_end` already uses for the endpoint (refactored the
+  shared fit into `_fit_r2_quadratic`/`_eval_r2_quadratic`). This took volume_err_pct
+  0.138% → 0.0756% (progress 0.4601 → 0.4788) with M1 still `pass:true, progress:1.0` and
+  `pytest tests/` still 15/15.
+- **Two things tried and reverted this iteration — do not retry them without a new idea, see
+  `pipeline/solids.py`'s module docstring for the full account:**
+  1. Replacing `build_revolve_solid`'s straight-chord polyline with a single global curve
+     (`GeomAPI_Interpolate` exact-interpolation, then `GeomAPI_PointsToBSpline`
+     least-squares-approximation) through the RDP-retained stations, to remove chord-vs-arc bias
+     everywhere at once rather than just in the pinch band. **Interpolation** overshot to
+     `volume_err_pct=20.06%` (+20%, an order of magnitude worse) — a single bulge between the
+     sparse mid-cylinder stations, because a global cubic spline is badly conditioned across
+     M2's mix of a near-vertical-tangent pinch region and a flat cylinder in one z-parametrized
+     curve. **Approximation** avoided the bulge but the fitted curve dipped through the
+     ~100 mm under-sampled pinch-to-first-station gap and made the profile self-intersect,
+     failing `BRepPrimAPI_MakeRevol.IsDone()` outright (`RuntimeError: revolve failed`). Also,
+     feeding *every* raw station (not RDP-simplified first) into either fitter broke M1: an
+     interpolating spline chased the circle-fit float noise between M1's near-duplicate-R
+     stations and produced a spurious 0.93 mm bump at z=9968, tripping
+     `surface_deviation_max_mm` (M1 had been passing cleanly at progress 1.0). Net conclusion:
+     the chord-vs-arc bias is real, but it needs to be fixed locally (see `_fill_pinch_gap`), not
+     by swapping the whole meridian representation.
+  2. Widening `_fit_r2_quadratic`'s number of near-points from 3 (exact interpolation) to a
+     least-squares fit over more points, hoping to average out circle-fit noise: swept
+     4/5/6/7/8/10. **4 through 8 all land within noise of each other** (volume_err_pct
+     0.0756–0.0758%, progress 0.4787–0.4789) — essentially a plateau, not a lever. **10 is a
+     regression**: distant stations pull the local quadratic off the true near-pinch curvature
+     and produced `surface_deviation_max_mm=33.24 mm` at z=23 (the fore pinch itself) — a
+     30x-over-gate failure. Settled on **6** (used in both `_extrapolate_end` and
+     `_fill_pinch_gap` via the shared `_fit_r2_quadratic`) as a safe middle of the plateau.
+     Confirmed with a direct probe that the remaining ~0.076% is not a resolution artifact
+     either: disabling RDP simplification entirely (`solids.py` epsilon → 1e-9, keeping every
+     raw station instead of the usual `0.5*chord_tol`-simplified set) moved volume_err_pct from
+     0.0756% to 0.0775% — *worse*, not better, meaning extra unsimplified points just reinject
+     circle-fit noise rather than resolving real curvature RDP was missing.
+- **What's actually left, for the next iteration:** the remaining ~0.076% appears to be a real
+  floor of the "sample discrete stations + connect with local quadratic/straight segments"
+  approach on this shape — not fixable by more points, more near-points in the quadratic fit, or
+  a smarter global curve (both tried and reverted, see above). It likely needs either (a) a
+  genuinely more accurate local model in the pinch band specifically (e.g. fit the *entire*
+  dome-side outer point set, not just 6 near-pinch points, to a single global quadratic-in-R^2 —
+  valid because the whole dome truly is one ellipse, not just its tip — then evaluate that at the
+  gap AND check it doesn't regress the far side of the dome), or (b) instrumenting where the
+  remaining error is physically concentrated (dump per-band volume of outer_solid vs an
+  analytically-known dome-band volume) before guessing further. (a) is worth trying first: it's
+  cheap and directly tests whether 6-nearest-point local fitting is throwing away information a
+  wider dome-wide fit would use.
 - **Key discovery this iteration, worth internalizing before touching this again:** M2's (and
   M5's) bore does NOT reach the geometric apex of the dome. Because the straight R_i=300 bore
   extends the full length, the CUT solid's cross-section is empty wherever the dome radius drops
@@ -66,16 +123,8 @@
   low volume number is because the erroneous cap only spans a vanishingly short z-band near a
   near-duplicate station and so contributes ~0 volume even though it's a bad *local* fit) — do
   not chase that volume number again without also checking deviation.
-- Ideas not yet tried, ranked for the next iteration: (a) verify what fraction of the 0.138%
-  error is actually the end-cap band vs. general dome-curve RDP resolution elsewhere — add a
-  quick probe that reports the CUT solid's volume with r_start/r_end forced to the *exact*
-  analytic pinch value (computable for M2 since R_i is known) to isolate the two error sources
-  before optimizing further; (b) if it's dominated by general dome resolution, tighten the RDP
-  epsilon for this milestone or add more clustered stations mid-dome (not just near the tip);
-  (c) if the endpoint really is the dominant term, try widening the `min_dz` separation used in
-  `_extrapolate_end` (currently 5*chord_tol — try e.g. 20*chord_tol) since the fit stations are
-  now farther from the tip than the isolated test that got 1e-6 mm precision, or fit against
-  more than 3 points (least-squares quadratic, not exact interpolation) for noise averaging.
+- (Iter 15 resolved most of the above "not yet tried" list — see `## Current state` at the top
+  of this file for what was actually tried, what worked, and what's left.)
 - Deviation/dome_stations/gmsh/face_count/step_roundtrip checks not yet reached (fail-fast stops
   at volume_err_pct) — unknown whether they pass; check after volume is fixed.
 
@@ -258,6 +307,45 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 15 — M2 — sonnet/medium — 2026-08-29T17:29
+- Score before: driver verdict `M2 progress=0.4601`, first failure `volume_err_pct=0.1381%`
+  (gate 0.05%). (Iter 14 was a driver auto-commit with no log entry of its own — see
+  `a6b8d4e`/`afaf3fd`; it left the cosine-clustered stations + pinch-radius-snap work described
+  in the M1/M2 history above, uncommitted-reasoning but committed code.)
+- Change: added `_fill_pinch_gap()` to `pipeline/cli.py` — densifies the ~100 mm excluded-residual
+  inset band on either side of a dome/bore pinch (where no real station data exists, see iter 14
+  finding 2) with points evaluated from the same quadratic-in-R^2 model `_extrapolate_end` uses
+  for the pinch radius itself, instead of leaving that whole band as a single straight chord.
+  Refactored the shared fit/eval logic out of `_extrapolate_end` into
+  `_fit_r2_quadratic`/`_eval_r2_quadratic` so both call sites use it. Widened the near-point
+  count for that fit from 3 (exact interpolation) to 6 (light least-squares) after sweeping
+  4–10 (see `## Current state` for the full sweep and why 10 regresses).
+- Score after (local): `harness/score.py --milestone M2` → `pass:false, progress:0.4788`,
+  `volume_err_pct=0.0756%` (was 0.1381%). `harness/score.py --milestone M1` → unchanged
+  `pass:true, progress:1.0`. `pytest tests/ --ignore=tests/test_selftest.py` → 15 passed.
+- Also tried and reverted (kept as a documented dead end in `pipeline/solids.py`'s module
+  docstring, so it isn't retried blind): replacing the straight-chord meridian polyline in
+  `build_revolve_solid` with a single global curve through all RDP-retained points, both via
+  `GeomAPI_Interpolate` (exact — overshot to `volume_err_pct=20.06%`, a global cubic spline
+  through non-uniformly spaced points bulges between the sparse mid-cylinder stations) and
+  `GeomAPI_PointsToBSpline` (approximating — avoided the bulge but self-intersected across the
+  under-sampled pinch gap and failed `BRepPrimAPI_MakeRevol.IsDone()`). Also broke M1 along the
+  way (interpolating spline chased circle-fit float noise into a spurious 0.93 mm deviation bump)
+  before the fix was narrowed to the local `_fill_pinch_gap` approach instead.
+- Learned: the volume error was not concentrated at the pinch endpoint itself (already accurate
+  via the bore-radius snap) — it was the *unsampled band next to it* being bridged by one long
+  straight chord across real, fast-changing curvature. Fixing that took 0.138% → 0.076%, but a
+  further sweep (more near-points in the quadratic fit, or disabling RDP simplification
+  entirely — see `## Current state`) showed the remaining ~0.076% is a plateau, not something
+  reachable by tuning the current local-quadratic-plus-straight-chords approach further.
+- Next: try fitting the quadratic-in-R^2 model to the *whole* dome side's point set (not just
+  the 6 nearest the pinch) before evaluating it in the gap — the dome is genuinely one ellipse
+  end to end, so a wider fit may recover information the narrow local fit discards; verify it
+  doesn't regress the far (cylinder-adjacent) side of the dome. If that doesn't close the gate,
+  instrument per-band volume (outer_solid restricted to the fore_dome/aft_dome z-range vs. an
+  analytically-computed dome-band volume, since R_i/R_o/dome_h are all known for M2) to localize
+  the remaining error before guessing further.
 
 ### iter 13 — M1 — sonnet/medium — 2026-08-29T13:02
 - Score before: driver verdict `M1 progress=0.0667, first_failure=pipeline_exit` — `rebuild.py`
