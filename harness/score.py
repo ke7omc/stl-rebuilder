@@ -91,6 +91,10 @@ _GATED = [  # (check name, gate key that enables it) — order = evaluation orde
     ("bbox_err_pct", "bbox_err_pct"),
     # Report-derived checks are a JSON parse plus arithmetic — they belong ahead of the
     # 100k-sample deviation metric in the cheap→expensive ladder.
+    ("frame_axis_err_deg", "frame_axis_err_deg"),
+    ("axial_extent_err_mm", "axial_extent_err_mm"),
+    # Ties the two self-reported station fields together; runs before anything that reads either.
+    ("stations_consistent", ("station_bands", "n_stations_max")),
     ("dome_stations_min", "dome_stations_min"),
     ("station_bands", "station_bands"),
     ("n_stations_max", "n_stations_max"),
@@ -113,7 +117,8 @@ _LOWER_IS_BETTER = {"volume_err_pct", "per_solid_volume_err_pct", "bbox_err_pct"
                     "surface_deviation_max_mm",
                     "surface_deviation_p99_mm", "surface_deviation_p99_by_region",
                     "face_count_max", "step_roundtrip", "n_stations_max",
-                    "topo_event_z", "topo_events", "adaptive_efficiency"}
+                    "topo_event_z", "topo_events", "adaptive_efficiency",
+                    "frame_axis_err_deg", "axial_extent_err_mm"}
 _HIGHER_IS_BETTER = {"gmsh_tet", "dome_stations_min", "min_edge_mm"}
 
 # The deviation metric compares two *tessellations*, so each side carries its own chordal error.
@@ -201,8 +206,25 @@ def _truth_hidden():
         hidden.rename(src)
 
 
+def _gate_keys(gate) -> tuple:
+    """A `_GATED` entry's gate spec is either one key or a tuple of keys (any of which enables
+    the check)."""
+    return gate if isinstance(gate, tuple) else (gate,)
+
+
 def check_plan(spec) -> list:
-    return _ALWAYS + [name for name, gate in _GATED if gate in spec.gates]
+    # A gate key with no consumer in `_GATED` is silently dropped here, which is how
+    # `frame_axis_err_deg` and `axial_extent_err_mm` sat in M10/M13's specs for a whole round
+    # while being enforced by nothing — the milestones looked gated and were not. Fail loudly
+    # instead: this raises out of `score()` into the exit-2 handler (harness bug, not pipeline).
+    known = {k for _, gate in _GATED for k in _gate_keys(gate)}
+    orphans = sorted(set(spec.gates) - known)
+    if orphans:
+        raise RuntimeError(
+            f"{spec.name}: gate key(s) {orphans} have no check in _GATED — they would be "
+            "silently unenforced. Add a check or remove the gate.")
+    return _ALWAYS + [name for name, gate in _GATED
+                      if any(k in spec.gates for k in _gate_keys(gate))]
 
 
 def _partial(check_name, value, threshold) -> float:
@@ -256,6 +278,76 @@ def _bbox_err_pct(shape, truth_bbox) -> float:
             worst = max(worst, abs(b[axis + side] - truth_bbox[axis + side]) / extent * 100.0)
     return worst
 
+
+def _canonical_matrix(frame):
+    """4x4 rigid transform taking points from the milestone's frame into the *canonical* frame,
+    where the motor axis is +z and `frame.origin_mm` is the origin (MISSION §7.2: "transform
+    truth and result meshes by inverse(frame) so pts[:, 2] is the canonical axial coordinate").
+
+    Round 1's frame is axis=+z / origin=0, for which this is exactly the identity — so M1–M5 keep
+    their frozen numbers bit-for-bit. Deviation magnitudes are invariant under a rigid transform,
+    so applying it before the metric changes only which coordinate counts as "axial".
+    """
+    axis = np.asarray(frame.axis, dtype=float)
+    norm = float(np.linalg.norm(axis))
+    if norm <= 0:
+        raise ValueError(f"frame.axis {frame.axis} is not a direction")
+    axis = axis / norm
+    z_hat = np.array([0.0, 0.0, 1.0])
+    # Rodrigues rotation taking `axis` onto +z (identity when already +z, a flip when -z).
+    v = np.cross(axis, z_hat)
+    c = float(np.dot(axis, z_hat))
+    if float(np.linalg.norm(v)) < 1e-12:
+        rot = np.eye(3) if c > 0 else np.diag([1.0, -1.0, -1.0])
+    else:
+        vx = np.array([[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]], [-v[1], v[0], 0.0]])
+        rot = np.eye(3) + vx + vx @ vx * (1.0 / (1.0 + c))
+    mat = np.eye(4)
+    mat[:3, :3] = rot
+    mat[:3, 3] = -rot @ np.asarray(frame.origin_mm, dtype=float)
+    return mat
+
+
+def _canonical(spec, truth):
+    """(matrix, axial_lo, axial_hi) for the milestone's canonical frame.
+
+    The matrix rotates the motor axis onto +z and puts `frame.origin_mm` at the origin; the
+    axial window is then the truth's own extent along that axis, NOT renormalised to start at 0.
+
+    That anchoring is forced by Round 1, which is frozen. A milestone's part does not generally
+    begin at the frame origin: M2/M5's bore breaks through both 2:1 domes at z = 23.03, so their
+    truth spans 23.03 … 9976.97 and Round 1's region bands are anchored at 23.03. Sliding the
+    fore end to 0 "to match" MISSION §7.2's phrase "axial mm from the input's fore end" would
+    move every M2/M5 band by 23 mm and change frozen numbers — so `stations_z_mm` is read as the
+    axial coordinate measured from `frame.origin_mm`, which for Round 1's identity frame is just
+    the input STL's z, exactly as before.
+
+    The truth bbox is axis-aligned and every milestone's axis is a coordinate axis, so mapping
+    its 8 corners recovers the axial extent exactly.
+    """
+    mat = _canonical_matrix(spec.frame)
+    corners = np.array([[x, y, z]
+                        for x in (truth.bbox[0], truth.bbox[3])
+                        for y in (truth.bbox[1], truth.bbox[4])
+                        for z in (truth.bbox[2], truth.bbox[5])])
+    axial = (corners @ mat[:3, :3].T + mat[:3, 3])[:, 2]
+    return mat, float(axial.min()), float(axial.max())
+
+
+def _deviation_deflection(spec) -> float:
+    """Tessellation tolerance for the deviation metric — per-spec, not global (MISSION §7.2:
+    `DEVIATION_DEFLECTION = ct/2`). Using the global 0.5/2 for every milestone would leave M10
+    (ct=0.0125, p99 gate 0.010 mm) measuring against a 0.125 mm faceting noise floor — 12x its
+    own gate, i.e. unpassable at any pipeline quality — and would needlessly over-refine M9/M13,
+    whose inputs are voxel-scale. M1–M5 have chord_tol == CHORD_TOL, so they are unchanged."""
+    return spec.chord_tol / 2.0
+
+
+#: Slack allowed when checking that a reported station lies inside the part's axial extent. A
+#: station exactly on the fore/aft face is legitimate, and the extent itself is only known to the
+#: tessellation's accuracy, so this is deliberately loose — it is a sanity bound against
+#: fabricated stations, not a placement gate.
+_STATION_EXTENT_TOL_MM = 1.0
 
 #: A region bin needs at least this many pooled sample points before its p99 is gated. The truth
 #: mesh is sampled independently of the result, so every band always receives truth-side points —
@@ -718,6 +810,107 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
         stations = report.get("stations_z_mm") if report else None
         stations = [float(z) for z in stations] if isinstance(stations, list) else None
 
+        # Canonical axial extent (MISSION §7.2). For Round 1 this is exactly (bbox[2], bbox[5]);
+        # for M10/M13, whose motor axis is +x, raw world z is a *radial* coordinate and every
+        # region/station gate computed from it would be meaningless.
+        canon_mat, axial_lo, axial_hi = _canonical(spec, truth)
+        axial_span = axial_hi - axial_lo
+        metrics_out["axial_extent_mm"] = axial_span
+
+        # --- check: frame_axis_err_deg (MISSION §6.2 M10/M13) -----------------------------
+        # The report's axis lives in *input* coordinates and may point either way along the
+        # motor; §7.2 says to flip when dot < 0, so the angle is taken against |dot|. That is a
+        # direction-only allowance: a genuinely wrong axis still fails, because flipping a wrong
+        # axis leaves it just as far from the truth axis.
+        if "frame_axis_err_deg" in spec.gates:
+            threshold = spec.gates["frame_axis_err_deg"]
+            frame_rep = report.get("frame") if report else None
+            axis_rep = frame_rep.get("axis") if isinstance(frame_rep, dict) else None
+            vec = None
+            if isinstance(axis_rep, (list, tuple)) and len(axis_rep) == 3:
+                with contextlib.suppress(TypeError, ValueError):
+                    vec = np.asarray([float(c) for c in axis_rep], dtype=float)
+            if vec is None or not np.all(np.isfinite(vec)) or float(np.linalg.norm(vec)) <= 0:
+                add("frame_axis_err_deg", False, value=None, threshold=threshold,
+                    reason=_report_hint("frame.axis"))
+                fail_here("frame_axis_err_deg", threshold=threshold,
+                          hint=_report_hint("frame.axis"))
+            vec = vec / float(np.linalg.norm(vec))
+            truth_axis = np.asarray(spec.frame.axis, dtype=float)
+            truth_axis = truth_axis / float(np.linalg.norm(truth_axis))
+            err_deg = math.degrees(math.acos(min(1.0, abs(float(np.dot(vec, truth_axis))))))
+            metrics_out["frame_axis_err_deg"] = err_deg
+            ok = err_deg <= threshold
+            add("frame_axis_err_deg", ok, value=err_deg, threshold=threshold)
+            if not ok:
+                fail_here("frame_axis_err_deg", value=err_deg, threshold=threshold,
+                          location={"axis_reported": [float(c) for c in vec],
+                                    "axis_truth": [float(c) for c in truth_axis]},
+                          hint=f"reported motor axis is {err_deg:.3f}° off the true axis "
+                               f"(gate <= {threshold}°); detect the axis from the input mesh "
+                               "(inertia/PCA or the cylinder fit), do not assume +z")
+
+        # --- check: axial_extent_err_mm (MISSION §6.2 M10/M13) ----------------------------
+        if "axial_extent_err_mm" in spec.gates:
+            threshold = spec.gates["axial_extent_err_mm"]
+            extent_rep = report.get("axial_extent_mm") if report else None
+            if isinstance(extent_rep, (list, tuple)) and len(extent_rep) == 2:
+                with contextlib.suppress(TypeError, ValueError):
+                    extent_rep = float(extent_rep[1]) - float(extent_rep[0])
+            if not isinstance(extent_rep, (int, float)) or isinstance(extent_rep, bool) \
+                    or not math.isfinite(float(extent_rep)):
+                add("axial_extent_err_mm", False, value=None, threshold=threshold,
+                    reason=_report_hint("axial_extent_mm"))
+                fail_here("axial_extent_err_mm", threshold=threshold,
+                          hint=_report_hint("axial_extent_mm"))
+            err_mm = abs(float(extent_rep) - axial_span)
+            metrics_out["axial_extent_err_mm"] = err_mm
+            ok = err_mm <= threshold
+            add("axial_extent_err_mm", ok, value=err_mm, threshold=threshold)
+            if not ok:
+                fail_here("axial_extent_err_mm", value=err_mm, threshold=threshold,
+                          location={"reported_mm": float(extent_rep),
+                                    "truth_mm": axial_span},
+                          hint=f"reported axial extent {float(extent_rep):.3f} mm differs from "
+                               f"the truth's {axial_span:.3f} mm by {err_mm:.3f} mm "
+                               f"(gate <= {threshold} mm); report it in mm along the motor axis "
+                               "after applying the unit scale")
+
+        # --- check: stations_consistent ---------------------------------------------------
+        # `n_stations` and `stations_z_mm` are both self-reported, and every station gate reads
+        # one or the other: `n_stations_max` reads the scalar while `station_bands` /
+        # `dome_stations_min` count the list. Untied, a pipeline can place 5000 uniform stations,
+        # report `n_stations: 40`, and hand over a short fabricated list that satisfies every
+        # band. MISSION §7.2 requires len(stations_z_mm) == n_stations and every station inside
+        # the extent, which is what makes the other three gates mean anything.
+        if any(k in spec.gates for k in ("station_bands", "n_stations_max")):
+            n_rep = report.get("n_stations") if report else None
+            n_ok = isinstance(n_rep, int) and not isinstance(n_rep, bool)
+            if stations is None or not n_ok:
+                missing = "stations_z_mm" if stations is None else "n_stations"
+                add("stations_consistent", False, value=None, reason=_report_hint(missing))
+                fail_here("stations_consistent", hint=_report_hint(missing))
+            outside = [z for z in stations
+                       if not (axial_lo - _STATION_EXTENT_TOL_MM <= z
+                               <= axial_hi + _STATION_EXTENT_TOL_MM)]
+            ok = (len(stations) == n_rep) and not outside
+            add("stations_consistent", ok, value={"n_stations": n_rep,
+                                                  "len_stations_z_mm": len(stations),
+                                                  "n_outside_extent": len(outside)})
+            if not ok:
+                if len(stations) != n_rep:
+                    hint = (f"report claims n_stations={n_rep} but stations_z_mm has "
+                            f"{len(stations)} entr{'y' if len(stations) == 1 else 'ies'}; both "
+                            "must describe the same station set")
+                    loc = None
+                else:
+                    hint = (f"{len(outside)} station(s) lie outside the part's axial extent "
+                            f"[{axial_lo:.3f}, {axial_hi:.3f}] mm, e.g. z={outside[0]:.3f}; "
+                            "stations_z_mm are axial mm along the motor axis, measured from the "
+                            "fore end")
+                    loc = {"z_mm": outside[0]}
+                fail_here("stations_consistent", location=loc, hint=hint)
+
         # --- check: dome_stations_min (MISSION §6 M2/M5: >= 8 stations in EACH dome) ------
         if "dome_stations_min" in spec.gates:
             threshold = spec.gates["dome_stations_min"]
@@ -726,7 +919,7 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
                     threshold=threshold, reason=_report_hint("stations_z_mm"))
                 fail_here("dome_stations_min", threshold=threshold,
                           hint=_report_hint("stations_z_mm"))
-            z_min, z_max = truth.bbox[2], truth.bbox[5]
+            z_min, z_max = axial_lo, axial_hi
             span = z_max - z_min
             per_dome = {}
             for rb in spec.regions:
@@ -752,7 +945,7 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
             if stations is None:
                 add("station_bands", False, value=None, reason=_report_hint("stations_z_mm"))
                 fail_here("station_bands", hint=_report_hint("stations_z_mm"))
-            z_min, z_max = truth.bbox[2], truth.bbox[5]
+            z_min, z_max = axial_lo, axial_hi
             span = z_max - z_min
             per_band = {}
             for label, min_count in spec.station_bands.items():
@@ -879,9 +1072,17 @@ def score(milestone: str, keep_dir: Path | None) -> dict:
         needs_deviation = any(k in spec.gates for k in
                                ("surface_deviation_max_mm", "surface_deviation_p99_mm"))
         if needs_deviation:
-            truth_mesh = _mesh_from_step(truth.step_path, work_dir / "truth_fine.stl")
-            result_mesh = _mesh_from_step(out_step, work_dir / "result_fine.stl")
-            z_min, z_max = truth.bbox[2], truth.bbox[5]
+            deflection = _deviation_deflection(spec)
+            truth_mesh = _mesh_from_step(truth.step_path, work_dir / "truth_fine.stl",
+                                         deflection)
+            result_mesh = _mesh_from_step(out_step, work_dir / "result_fine.stl", deflection)
+            # Both meshes go into the canonical frame so `pts[:, 2]` is the axial coordinate the
+            # region bands are defined in. A rigid transform leaves every deviation distance
+            # unchanged; for Round 1 the matrix is the identity.
+            if not np.allclose(canon_mat, np.eye(4)):
+                truth_mesh.apply_transform(canon_mat)
+                result_mesh.apply_transform(canon_mat)
+            z_min, z_max = axial_lo, axial_hi
             dev = metrics.surface_deviation(
                 truth_mesh, result_mesh, regions=spec.regions, z_min=z_min, z_max=z_max,
             )
