@@ -15,6 +15,56 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 32 (M0, round 2): `harness/generators.py::_make_m8` implemented — the dilated-cavity
+  mid-burn grain (bore R=450 through + 8 obround slots, half-width 190, outer r 850,
+  z=[5850,9650], end-loops filleted r=150), registered in `_MAKERS` and `_BORE_FILLERS`.**
+  - Outer: `_capsule_outer_shape` (same 2:1-dome capsule as M5). Cutter: `_straight_bore` fused
+    with 8 `_obround_slot_cutter` instances at `2*pi*k/8`.
+  - **First attempt (reverted) was a Cartesian box** (`BRepPrimAPI_MakeBox` + a 3-D
+    `BRepFilletAPI_MakeFillet` on the two end-face edge loops, matching "end-edge loops
+    filleted r=150" literally). Geometrically valid but produced gmsh min SICN 0.0125 (gate
+    0.1) — traced the worst tet's vertices to the exact plane where two neighbouring (45 deg
+    apart) flat `half_w=190` boxes intersect near-tangentially around r~500-650mm (r0=400 is
+    close enough to the axis that constant-Cartesian-width boxes overlap their neighbours
+    below ~r500; a rotated-coordinate check confirmed a vertex sat within 0.03mm of the
+    adjacent slot's own y=+190 face). That's a genuine geometric overlap, not a meshing fluke.
+  - **Fix: rebuilt each slot as an angular wedge.** Meridian rectangle (r0=R_bore-50 .. r1=850,
+    z0=5850 .. z1=9650) built in the XZ half-plane (y=0) with all 4 corners rounded via
+    `BRepFilletAPI_MakeFillet2d` (radius 150 — the 2-D analogue of the same "end-loop" fillet,
+    now applied pre-revolve so it survives as a smoothly curved surface), then
+    `BRepPrimAPI_MakeRevol` swept through `2*theta_half` about Z, `theta_half = atan(half_w /
+    r1)` (matches the stated half-width AT the outer radius, tapers toward the bore). 8 slots
+    at 22.5 deg half-angle apart, `theta_half=12.6deg` → ~201 deg total occupied out of 360,
+    comfortably inside each 45 deg sector — no neighbour can ever touch, by construction,
+    instead of by careful margin-tuning. Re-verified: gmsh min SICN 0.248 (n_tet=104213).
+  - **Separately, `_ideal_report` (selftest) only densified `station_bands` labels containing
+    "dome"** — M8's `station_bands={"fore_wall":10,"aft_wall":10}` (neither label matches) made
+    even the *truth* STEP's synthetic ideal report fail its own `station_bands` gate
+    (`aft_wall` had 1 station). Generalized: any region whose label is a key in
+    `spec.station_bands` now gets `min_count+2` stations spread across its z-span, same pattern
+    as the dome densification, not just labels containing "dome".
+  - **Also fixed `_make_bore_filled_m8`**: the bare (un-boolean'd) revolved capsule shape fails
+    `BRepCheck_Analyzer` after a STEP round-trip (a periodic-seam tolerance quirk — reproduced
+    even for M5's identical `_capsule_outer_shape`, in isolation outside the full selftest
+    flow), which made the mutation test fail on `brep_valid` instead of the intended
+    `volume_err_pct`. Matched `_make_bore_filled_m5`'s existing trick: fuse the bare capsule
+    with a straight bore that sits entirely inside it (zero volume change, but routes the shape
+    through a boolean op, which implicitly heals it via OCCT's ShapeFix) before writing the STEP.
+  - **Verified:** `selftest.py --milestone M1..M8,M11` (no `--skip-gmsh`): all pass, including
+    M8's full 2b/2c/3/4/5 mutation suite and the truth-STEP-passes-all-gates baseline. `pytest
+    tests/` running in background (M8 touches no test files directly, but generators.py's
+    import block changed). `score.py --milestone M1..M5` against the real `rebuild.py`: all
+    still `pass: true, progress: 1.0` (regression gate). `score.py --milestone M8`: exit 1,
+    contract-valid JSON, fails at `pipeline_exit` (rebuild.py can't do non-circular/adaptive
+    stations yet — expected, `pipeline/` is untouched this milestone).
+  - **Next:** M9 (reuses M8's truth+params, only the input STL changes — noisy skewed
+    marching-cubes via `harness/voxelize.py`, not yet built) or M12 (reuses M8 again, adds a
+    breakthrough/burnout event — see `milestones.py::_m12`, `station_bands={"fore_wall":10,
+    "breakthrough":10}`). M10 needs `frame_axis_err_deg`/`axial_extent_err_mm` resolved first
+    (still blocked on `truth.bbox`'s frame convention per iter 30's note — unaffected by
+    today's work). The wedge-slot pattern in `_obround_slot_cutter` should be reusable as-is
+    for M12/M13 since they share M8's `dilation_w`/slot params.
+
 - **iter 31b (M0, round 2): `harness/score.py` wires `min_edge_mm` (M12/M13/MR).** New
   `_min_edge_length_mm(shape)` helper walks `TopExp_Explorer(shape, TopAbs_EDGE)`,
   `BRepGProp.LinearProperties_s(edge, GProp_GProps())` per edge (`.Mass()` is curve length for

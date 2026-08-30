@@ -75,10 +75,19 @@ def _ideal_report(spec, truth) -> dict:
     z_min, z_max = truth.bbox[2], truth.bbox[5]
     span = z_max - z_min
     stations = [z_min + span * i / 11.0 for i in range(12)]
+    station_bands = spec.station_bands or {}
     for rb in spec.regions:
         if "dome" in rb.label:
             z0, z1 = z_min + rb.z_frac_lo * span, z_min + rb.z_frac_hi * span
             stations += [z0 + (z1 - z0) * i / 9.0 for i in range(10)]
+        if rb.label in station_bands:
+            # Densify every band the spec's `station_bands` gate actually checks a minimum
+            # count for (M8/M9/M10/M12/M13's fore_wall/aft_wall etc, not just dome bands) — a
+            # sparse-everywhere-else report would otherwise fail the ideal pipeline's own report
+            # on the exact gate it exists to enforce.
+            n = station_bands[rb.label] + 2
+            z0, z1 = z_min + rb.z_frac_lo * span, z_min + rb.z_frac_hi * span
+            stations += [z0 + (z1 - z0) * i / (n - 1) for i in range(n)]
     # topo_events_z_mm (M7/M8/M9/M12/M13, harness/milestones.py) is the general Round 2 list of
     # expected events; the older topo_event_z_tolerance_mm gate (M4/M5) only ever expects one, at
     # fin_z_start. Emit whichever the spec actually declares — a milestone with both would emit
@@ -285,10 +294,36 @@ def _make_m11_mass_shifted(spec, work_dir: Path) -> Path:
     return path
 
 
+def _make_bore_filled_m8(spec, work_dir: Path) -> Path:
+    """M8 with neither central bore nor obround slots: the plain domed capsule outer shape —
+    should badly fail volume_err_pct against the dilated-cavity truth.
+
+    Fused (not bare) with a straight bore that sits entirely inside the capsule, same trick as
+    `_make_bore_filled_m5`: the fuse doesn't change the volume (the bore adds no material outside
+    the capsule) but routes the shape through a boolean op, which OCCT's algorithm implicitly
+    heals via ShapeFix. The bare revolved capsule alone reads back from a STEP round-trip as an
+    invalid BRep (a periodic-seam tolerance quirk), which would trip `brep_valid` before the
+    check under test (`volume_err_pct`) is ever reached.
+    """
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+
+    L = spec.params["L"]
+    outer = generators._capsule_outer_shape(L, spec.params["R_o"], spec.params["dome_semi_axial"])
+    bore = generators._straight_bore(spec.params["R_bore"], L)
+    fuse = BRepAlgoAPI_Fuse(outer, bore)
+    fuse.Build()
+    if not fuse.IsDone():
+        raise RuntimeError("M8 bore-filler fuse failed")
+    path = work_dir / "M8_bore_filled.step"
+    generators._write_step(fuse.Shape(), path)
+    return path
+
+
 _BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2,
                   "M3": _make_bore_filled_m3, "M4": _make_bore_filled_m4,
                   "M5": _make_bore_filled_m5, "M6": _make_bore_filled_m6,
-                  "M7": _make_bore_filled_m7, "M11": _make_bore_filled_m11}
+                  "M7": _make_bore_filled_m7, "M8": _make_bore_filled_m8,
+                  "M11": _make_bore_filled_m11}
 
 
 def check_milestone(name: str, work_dir: Path, skip_gmsh: bool = False) -> None:

@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple
 
-from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder, BRepPrimAPI_MakeRevol, BRepPrimAPI_MakePrism
+from OCP.BRepPrimAPI import (
+    BRepPrimAPI_MakeCylinder,
+    BRepPrimAPI_MakeRevol,
+    BRepPrimAPI_MakePrism,
+)
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
@@ -540,6 +544,80 @@ def _make_m7() -> Truth:
 
 
 # ---------------------------------------------------------------------------
+# M8: M5 cavity "dilated" by web w=150 -> bore R=450 + 8 obround slots, end-loops filleted
+# ---------------------------------------------------------------------------
+
+def _obround_slot_cutter(r0: float, r1: float, half_w: float, z0: float, z1: float,
+                          fillet_r: float, angle: float) -> TopoDS_Shape:
+    """A radial *wedge* slot cutter: a meridian rectangle [r0,r1] x [z0,z1] (built in the
+    half-plane y=0, all 4 corners rounded by `fillet_r` via 2-D fillet — the "end-edge loop"
+    rounding) revolved a limited angle about Z, centred on `angle`.
+
+    A constant-Cartesian-width box was tried first and rejected: at `n_slots=8` (45 deg apart)
+    a `half_w=190` box overlaps its neighbour for any radius below ~500 mm (`r0` starts at 400),
+    and the resulting near-tangent boolean fuse produced sub-0.02 gmsh SICN slivers right on the
+    shared boundary. A wedge with constant *angular* half-width `theta_half = atan(half_w/r1)`
+    (matching the stated half-width at the slot's outer radius) tapers toward the bore instead of
+    staying full-width, which keeps every slot's angular span (~2*theta_half*n_slots ~ 201 deg
+    total for these params) safely inside its own 45 deg sector — no neighbour ever touches.
+    """
+    theta_half = math.atan(half_w / r1)
+    pts = [gp_Pnt(r0, 0.0, z0), gp_Pnt(r1, 0.0, z0), gp_Pnt(r1, 0.0, z1), gp_Pnt(r0, 0.0, z1)]
+    vertices = [BRepBuilderAPI_MakeVertex(p).Vertex() for p in pts]
+    mkwire = BRepBuilderAPI_MakeWire()
+    for i in range(len(vertices)):
+        v1, v2 = vertices[i], vertices[(i + 1) % len(vertices)]
+        mkwire.Add(BRepBuilderAPI_MakeEdge(v1, v2).Edge())
+    if not mkwire.IsDone():
+        raise RuntimeError("M8 slot meridian wire construction failed")
+    face = BRepBuilderAPI_MakeFace(mkwire.Wire(), True).Face()
+
+    fillet = BRepFilletAPI_MakeFillet2d(face)
+    for v in vertices:
+        fillet.AddFillet(v, fillet_r)
+    fillet.Build()
+    if not fillet.IsDone():
+        raise RuntimeError("M8 slot meridian fillet construction failed")
+    filleted_face = TopoDS.Face_s(fillet.Shape())
+
+    rot0 = gp_Trsf()
+    rot0.SetRotation(gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0)), angle - theta_half)
+    placed = TopoDS.Face_s(BRepBuilderAPI_Transform(filleted_face, rot0, True).Shape())
+
+    axis = gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0))
+    return BRepPrimAPI_MakeRevol(placed, axis, 2.0 * theta_half).Shape()
+
+
+def _make_m8() -> Truth:
+    spec = ms.get("M8")
+    p = spec.params
+    L = p["L"]
+    outer = _capsule_outer_shape(L, p["R_o"], p["dome_semi_axial"])
+    cutter = _straight_bore(p["R_bore"], L)
+
+    n_slots = p["n_slots"]
+    hw = p["slot_half_width"]
+    r1 = p["slot_outer_r"]
+    z0 = p["slot_z_lo"]
+    z1 = p["slot_z_hi"]
+    fr = p["slot_fillet"]
+    r0 = p["R_bore"] - 50.0  # overlap into the bore so the fuse is transversal, not tangent
+    for k in range(n_slots):
+        slot = _obround_slot_cutter(r0, r1, hw, z0, z1, fr, 2.0 * math.pi * k / n_slots)
+        fuse = BRepAlgoAPI_Fuse(cutter, slot)
+        fuse.Build()
+        if not fuse.IsDone():
+            raise RuntimeError(f"M8 cutter fuse failed on slot {k}")
+        cutter = fuse.Shape()
+
+    cut = BRepAlgoAPI_Cut(outer, cutter)
+    cut.Build()
+    if not cut.IsDone():
+        raise RuntimeError("M8 boolean cut failed")
+    return _finish("M8", cut.Shape())
+
+
+# ---------------------------------------------------------------------------
 # M11: 3 disjoint annular BATES segments (gapped, flat ends) -> one compound of 3 solids
 # ---------------------------------------------------------------------------
 
@@ -579,6 +657,7 @@ _MAKERS = {
     "M5": _make_m5,
     "M6": _make_m6,
     "M7": _make_m7,
+    "M8": _make_m8,
     "M11": _make_m11,
 }
 
