@@ -15,6 +15,28 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
+- **iter 25 (HANDOFF mode): rewrote `HANDOFF.md` into its final form. No code changes.**
+  Re-scored M5 on HEAD (`d66d4aa`) as an independent check — `pass:true, progress:1.0`, numbers
+  identical to iter 24's `--keep` run, so the table in HANDOFF.md is verified, not estimated.
+  Restructured to the six sections the handoff spec asks for (summary with an explicit *not
+  proven* sentence / results table / artifacts / SpaceClaim checklist / how to run on a real
+  STL / limitations + next).
+- **Correction found while writing it: `--adaptive` and `--refine-bands` are dead flags.**
+  `pipeline/cli.py:247` calls `stations.uniform_stations()` unconditionally; both flags are
+  parsed and discarded (`pipeline/stations.py`'s module docstring says so explicitly). The
+  iter-24 draft of HANDOFF.md claimed `--adaptive` "clusters stations near topology events and
+  dome apexes" — it does not. M5's `adaptive_efficiency` result (40 stations vs 2048 uniform)
+  comes from `uniform_stations`' doubly-composed cosine end-warp, which is also what clears
+  `dome_stations_min>=8`. Practical consequence, now the top limitation in HANDOFF.md: stations
+  cannot be steered toward a mid-barrel feature; the only lever is raising `--sections`
+  globally. Making `--adaptive` real is listed as next-step #2.
+- The frozen scorer computes no rms deviation (`harness/metrics.py` emits `max_mm`/`p99_mm`
+  only), so HANDOFF.md reports max/p99 and says why rather than inventing an rms. M3/M4 have no
+  p99 gate in MISSION §6, so those cells read "not gated" with the per-region p99 in a footnote
+  (M3 0.338 cylinder, M4 0.418 fin_zone).
+- HANDOFF.md §5's failure-mode table is built from the real exit codes in `pipeline/cli.py`
+  (2 = caught exception, 3 = non-watertight/multi-body input, 4 = unsupported station topology)
+  with the actual stderr strings, so a human can match what they see to the right knob.
 - **iter 24: confirmed M1–M5 all still pass on HEAD (no code change needed) and pre-wrote
   `HANDOFF.md`.** Re-ran `harness/score.py --milestone M{1..5} --keep` fresh: all five
   `pass:true, progress:1.0` with comfortable gate margins (worst case M4's surface deviation at
@@ -488,6 +510,36 @@
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 25 — HANDOFF — opus/medium — 2026-08-29T20:36
+- Score before: driver header "M5 PASSED (progress 1.0)", milestone HANDOFF, mode handoff.
+  `HANDOFF.md` already existed (iter 24 pre-wrote a draft).
+- Change: no code changes (handoff mode forbids them). Rewrote `HANDOFF.md` from the iter-24
+  draft into the six-section form the mode specifies. Independently re-scored M5 on HEAD
+  (`harness/score.py --milestone M5 --out out/score.M5.handoff.json`) → `pass:true,
+  progress:1.0`, runtime 2.13 s, all values matching iter 24's `--keep` artifacts, so every
+  number in the results table is traceable to `out/handoff/score.M*.json` rather than estimated.
+- Result: `HANDOFF.md` now carries — a 3-sentence summary that states plainly what is *not*
+  proven (nothing has run on a real, non-synthetic STL; multi-loop, loft, and mesh-repair paths
+  are unbuilt); a results table with volume err %, dev max/p99, gmsh min SICN + n_tet, faces,
+  stations, path fired per chain, and runtime for M1–M5; an artifact table mapping each
+  milestone to its rebuilt STEP / truth STEP / truth STL / report JSON / scorer verdict plus the
+  exact `rebuild.py` command; a 5-step SpaceClaim checklist with the per-milestone visual
+  features to look for (incl. M5's star ending at z=9500, the check that catches a missed second
+  topology event); a real-STL section with a concrete `--chord-tol` estimator (median STL edge
+  length, via a trimesh one-liner) and a failure-mode→knob table keyed to the actual exit codes
+  and stderr strings in `pipeline/cli.py`; and limitations + ranked next steps.
+- Notable finding (documented, not fixed — code is out of scope this iteration): **`--adaptive`
+  and `--refine-bands` do nothing.** `pipeline/cli.py:247` always calls
+  `stations.uniform_stations()`. The iter-24 draft asserted `--adaptive` clustered stations near
+  topology events; that claim is false and is now replaced by an explanation that M5's
+  `adaptive_efficiency` (40 vs 2048) and the `dome_stations_min` pass both come from the cosine
+  end-warp inside `uniform_stations`. Left the `--adaptive` flag in M5's documented command
+  because it is what `MilestoneSpec.rebuild_args` passes and therefore what the scorer ran — but
+  §6 says outright that it is inert.
+- Next: nothing is blocking. If the loop continues, the highest-value code work is making
+  `--adaptive` actually place stations adaptively (#2 in HANDOFF §7), behind the loft path (#1),
+  which is the real gap between the proven envelope and an actual burnback surface.
 
 ### iter 24 — M5 (verification + HANDOFF prep) — sonnet/medium — 2026-08-29T20:26
 - Score before: driver header showed milestone M5, last eval "M4 PASSED (progress 1.0)" (iter
