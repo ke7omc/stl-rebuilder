@@ -140,6 +140,38 @@ def detect_arc_runs(pts, r_thresh: float = None, window: int = 2, resid_tol: flo
     return [_trim_run_to_circle(arr, run, resid_tol) if len(run) >= 3 else run for run in runs]
 
 
+def simplify_closed_ring(pts, epsilon: float):
+    """Douglas-Peucker simplification of a CLOSED 2D ring (`pts`: (x, y), no repeated
+    first==last point). `rdp` above only handles an open polyline (fixed start/end anchors); a
+    closed ring has no natural anchor pair, so split it at its two most-distant points (any pair
+    far enough apart that both resulting chains are well-conditioned for RDP) into two open
+    chains, simplify each independently, then rejoin.
+
+    Used by `pipeline/cli.py::_build_bore_prism_or_loft` (MISSION §6.2 M6's linearly-scaling star
+    bore) to turn a raw mesh-sliced ring (hundreds of points, most within sub-mm of a straight
+    line) into a small vertex set before lofting -- straight runs collapse to 2 points while
+    genuinely curved runs (the fillets) keep enough points to track the curve, which is exactly
+    what `epsilon ~= chord_tol` should do without needing per-point arc/line *classification*
+    (see that function's docstring for why classification itself is unreliable here: mesh-
+    tessellation noise a doubly-ruled loft surface introduces reads as spurious low-radius
+    "curvature" at a sub-chord_tol sagitta, well below `epsilon`, so RDP silently absorbs it
+    into the nearest straight chord instead of needing a separate noise filter)."""
+    pts = list(pts)
+    n = len(pts)
+    if n < 4:
+        return pts
+    arr = np.asarray(pts, dtype=float)
+    d = np.sum((arr[:, None, :] - arr[None, :, :]) ** 2, axis=-1)
+    i, j = np.unravel_index(np.argmax(d), d.shape)
+    if i > j:
+        i, j = j, i
+    chain1 = pts[i:j + 1]
+    chain2 = pts[j:] + pts[:i + 1]
+    s1 = rdp(chain1, epsilon)
+    s2 = rdp(chain2, epsilon)
+    return s1[:-1] + s2[:-1]
+
+
 def rdp(points, epsilon: float):
     """Douglas-Peucker simplification of a (z, R) polyline using perpendicular distance in the
     (z, R) plane (never radial |ΔR|, which diverges at a vertical dR/dz — MISSION.md §10)."""

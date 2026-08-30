@@ -40,6 +40,62 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 40 (M6): ruled-loft bore path for the linearly-scaling star (fixes `volume_err_pct`
+  0.72%→0.001%, `surface_deviation_p99_mm` unblocked); `gmsh_min_sicn` still fails
+  (0.0077 vs gate 0.1) — the one remaining blocker.** M6's cutter is a ruled loft between two
+  differently-scaled star cross-sections, but `pipeline/cli.py::_run`'s `elif bore_rings:`
+  branch was unconditionally calling `_build_prism_bore` (M3's constant-cross-section extrude),
+  which is wrong for a bore whose size actually changes with z. Added
+  `_build_bore_prism_or_loft` (`pipeline/cli.py`) as the dispatcher: fit each station's ring
+  area (shoelace, `_ring_area`) against z as a degree-2 polynomial (`np.polyfit`) — for a shape
+  uniformly scaled about the axis, area ∝ scale², and MISSION §6.2 says scale is itself linear
+  in z, so this fit is exact, not milestone-hardcoded; a near-zero area span still routes to the
+  old `_build_prism_bore` so M3 is untouched (verified: M1–M5 regression run, all `pass=True,
+  progress=1.0`, byte-identical to the pre-change baseline). When area does change, the fit
+  extrapolates to the cutter's true (extended) ends `z_min - eps`/`z_max + eps` without needing
+  station data out there (MISSION's loft spans z=-10..L+10, past the input STL's own z=[0,L]).
+  - **Reference-ring construction**: scale ONE well-conditioned mid-station ring by the fitted
+    ratio at each end, rather than re-deriving each end's geometry from noisy near-boundary
+    points. Tried exact fillet-arc fitting (`detect_arc_runs`, mirroring `_build_prism_bore`'s M3
+    path) first — does NOT transfer: M3's bore is a flat constant-cross-section extrude, but
+    M6's intermediate stations are sliced from a genuinely curved (skew ruled — corresponding
+    wire0/wire1 edges are not coplanar in general, since two differently-scaled straight edges
+    from a common center are skew) 3D loft surface, whose STL tessellation reads as spurious
+    sub-mm "curvature" at unstable points around the ring (`detect_arc_runs` returned 8–30
+    garbage runs instead of the true 12). **Fix**: `fitting.simplify_closed_ring` (new — closed-
+    ring Douglas-Peucker: split the ring at its two farthest-apart points into two open chains,
+    reuse the existing open-chain `rdp`, rejoin) at `epsilon = 0.3 * chord_tol`, then
+    `solids.build_ruled_loft_solid(..., r_fillet_thresh=0.0)` (new — `BRepOffsetAPI_ThruSections`
+    between the two scaled wires, forcing plain dense polygons, no arc detection at all) on the
+    simplified points. Sub-chord_tol sagitta gets silently absorbed into a straight chord by RDP;
+    real fillet curvature (bigger sagitta) keeps enough points to track it.
+  - **Tried and reverted**: running `detect_arc_runs` on the RDP-simplified (not raw) reference
+    ring DOES classify cleanly (12 runs, clean `[14,5]×6` pattern — the noise that broke it on
+    raw per-station data is gone once RDP has thinned it), so `build_ruled_loft_solid`'s default
+    arc-fit path was tried instead of `r_fillet_thresh=0.0`. Regressed hard:
+    `surface_deviation_max_mm` 0.50→3.25 mm (gate 1.0) — the 3-point `GC_MakeArcOfCircle` fit
+    through a run's first/middle/last point doesn't lie exactly on the true fillet circle once
+    the run itself is an RDP-simplified chord approximation, and that error amplifies ×1.5 at
+    the scaled (far) end. Reverted to `r_fillet_thresh=0.0` (plain polygon).
+  - **`gmsh_min_sicn` (0.0077, gate 0.1) — diagnosed, not fixed.** Traced the worst tets
+    directly (`gmsh.model.mesh.getElementQualities(..., "minSICN")` + `getElement` on the
+    worst-quality tags): all cluster at the star's valley (small-fillet, R≈230–330 at various z)
+    — near-flat slivers connecting adjacent long, thin, *twisted* (skew-ruled, not planar) side
+    quads. Root cause: the harness's `meshcheck.py` sets `MeshSizeMin = hmax/10` (10 mm for M6,
+    `hmax = R_o/10`), but RDP leaves CAD vertices ~1.9–3.1 mm apart right at the valley
+    (needed for fillet-curvature sagitta) — well under that floor — so gmsh is forced to place
+    tiny elements immediately adjacent to 100 mm-scale ones on a non-planar patch. Tried
+    thinning close-together points post-RDP (`_drop_close_ring_points`, new helper, floor
+    `5*chord_tol` = 2.5 mm): min SICN barely moved (0.0075→0.0077, 159→157 faces) — spacing
+    alone isn't the dominant driver. A more aggressive floor (`20*chord_tol` = 10 mm) broke
+    `surface_deviation_max_mm` (1.38 mm, gate 1.0) by discarding real fillet curvature instead.
+    Kept the mild `5*chord_tol` filter (harmless, doesn't regress anything) but the real fix is
+    still open — most likely needs the loft built from several intermediate scaled sections
+    (not just the two true ends) so each ruled sub-patch spans less axial twist, or an actual
+    curved (non-polygon) fillet representation that doesn't fight the 3-point arc-fit instability
+    found above. **Progress 0.4852 → 0.9384** (`out/score.local.json`), all checks pass except
+    `gmsh_tet`; that is the single next thing to fix.
+
 - **iter 39 (M0, round 2): the Round 2 harness review pass — the audit before the freeze.**
   Five real defects fixed (full detail in the iter-39 log block): two dead gates
   (`frame_axis_err_deg`, `axial_extent_err_mm`) plus a structural guard so an orphan gate key now
@@ -1106,6 +1162,13 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **M6 (or any bore loft between two differently-scaled cross-sections): do not fit exact fillet
+  arcs (`detect_arc_runs`) on the loft's end wires, even on an RDP-simplified (clean-classifying)
+  reference ring.** A 3-point `GC_MakeArcOfCircle` through a simplified run's first/middle/last
+  point isn't exactly on the true fillet circle, and that small error amplifies with the scale
+  factor at the far (larger) end — measured M6 `surface_deviation_max_mm` 0.50→3.25 mm (gate 1.0)
+  switching from a plain simplified polygon (`r_fillet_thresh=0.0`) to the arc-fit default. Use
+  the plain dense/RDP-simplified straight polygon for loft wires instead.
 - Do not try to provoke `surface_deviation_p99_by_region` with a perturbed *shape*. To survive the
   global p99 the bad band must hold under 1 % of the pooled sample points, and no region band of
   M1–M5 is that small (the domes are ~20 % of ~200 k points). Any shape error big enough to move a

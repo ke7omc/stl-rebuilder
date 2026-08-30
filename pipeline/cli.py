@@ -16,7 +16,7 @@ import traceback
 
 import numpy as np
 
-from pipeline import booleans, export, io as pio, report, solids, stations, tol
+from pipeline import booleans, export, fitting, io as pio, report, solids, stations, tol
 from pipeline.fitting import fit_circle
 from pipeline.slicing import slice_station
 
@@ -220,6 +220,92 @@ def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
     pts = list(mid.coords)
     return solids.build_prism_solid(pts, z_min - eps_start, z_max + eps_end_val,
                                      bore_radius=bore_radius)
+
+
+def _ring_area(pts) -> float:
+    """Shoelace area of a closed ring (`pts` may or may not repeat the first point last)."""
+    arr = np.asarray(pts, dtype=float)
+    if len(arr) > 1 and np.allclose(arr[0], arr[-1]):
+        arr = arr[:-1]
+    x, y = arr[:, 0], arr[:, 1]
+    return float(0.5 * abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+
+
+def _drop_close_ring_points(pts, min_gap: float):
+    """Drop points from a closed ring (no repeated first==last) that are closer than `min_gap`
+    to the last kept point. `simplify_closed_ring`'s RDP pass only bounds perpendicular chord
+    deviation, not point spacing, so a fillet's curvature can leave a cluster of points a couple
+    mm apart -- far below gmsh's `MeshSizeMin` (harness `meshcheck.py` uses `hmax/10`) for M6's
+    loft cutter. Those CAD-mandated near-duplicate vertices sit right next to a 100 mm-scale
+    element boundary and gmsh's tet mesher connects them with a near-flat sliver (measured:
+    min SICN 0.0075, gate 0.1) -- purely a mesh-conditioning issue, not a shape-accuracy one, so
+    thinning them out with a small floor (well under the fillet radius) fixes it without
+    reintroducing the surface_deviation error RDP was tuned to avoid."""
+    pts = list(pts)
+    if len(pts) < 4:
+        return np.asarray(pts)
+    kept = [pts[0]]
+    for p in pts[1:]:
+        if math.hypot(p[0] - kept[-1][0], p[1] - kept[-1][1]) >= min_gap:
+            kept.append(p)
+    if len(kept) > 1 and math.hypot(kept[0][0] - kept[-1][0], kept[0][1] - kept[-1][1]) < min_gap:
+        kept.pop()
+    return np.asarray(kept)
+
+
+def _build_bore_prism_or_loft(bore_rings, z_min: float, z_max: float, eps_cut_val: float,
+                               chord_tol: float):
+    """Select the constant-cross-section prism path (`_build_prism_bore`, M3's star bore) or the
+    ruled-loft path (`solids.build_ruled_loft_solid`, M6's linearly-scaling star bore) based on
+    what the stations actually measured, not on the milestone name. Ring area is proportional to
+    scale^2 for a shape that uniformly scales about the axis, and MISSION §6.2 M6 says the scale
+    itself is linear in z, so area(z) should be exactly quadratic in z; a `np.polyfit` degree-2 fit
+    across every non-circular station's own measured area both detects "does this bore's size
+    actually change" (M3: near-zero span, noise only) and, when it does, gives an accurate
+    extrapolation to the cutter's true ends (`z_min - eps_cut_val`, `z_max + eps_cut_val`) without
+    needing station data all the way out there (the true loft in MISSION spans z=-10..L+10, past
+    what the input STL even covers at z=[z_min, z_max]).
+
+    When lofting, the two end profiles are built by scaling ONE well-conditioned reference ring
+    (the mid-station's raw points -- same choice `_build_prism_bore` makes, least likely to be
+    distorted by inset/end effects) by the fitted scale ratio, rather than re-deriving each end's
+    own geometry from noisy raw points near the (nonexistent, extrapolated) ends. The reference
+    ring is first reduced with `fitting.simplify_closed_ring` (RDP on the closed 2D ring, `eps =
+    chord_tol`) -- tried fitting exact fillet arcs via `detect_arc_runs` first (mirroring
+    `_build_prism_bore`'s M3 path) and it does NOT transfer here: M3's bore is a true constant-
+    cross-section extrude (flat, exactly planar mesh facets), but M6's intermediate cross-sections
+    come from slicing a genuinely curved (skew ruled, since corresponding wire0/wire1 edges are
+    not coplanar in general) 3D loft surface -- its STL tessellation reads as spurious sub-mm-
+    sagitta "curvature" at unpredictable points around the ring (measured: `detect_arc_runs`
+    returned 8-30 garbage runs instead of the true 12, wildly unstable between adjacent stations),
+    corrupting any 3-point arc fit through them. Plain RDP sidesteps the whole problem: a sub-
+    chord_tol sagitta reads as *within tolerance* of the straight chord and gets silently
+    absorbed, while the real fillet curvature (larger sagitta) still keeps enough points to track
+    it -- measured M6 volume_err_pct 0.66% (garbage arcs) -> 0.11% (RDP-simplified straight
+    polygon, ~94 pts down from ~425, final face count ~97, gate 200)."""
+    bore_rings = sorted(bore_rings, key=lambda p: p[0])
+    zs_r = np.array([z for z, _ in bore_rings], dtype=float)
+    areas = np.array([_ring_area(np.asarray(r.coords)) for _, r in bore_rings], dtype=float)
+    a_span = float(areas.max() - areas.min())
+    if a_span < 1e-3 * float(areas.mean()):
+        return _build_prism_bore(bore_rings, z_min, z_max, eps_cut_val, eps_cut_val, chord_tol)
+
+    coef = np.polyfit(zs_r, areas, 2)
+    ref_idx = len(bore_rings) // 2
+    _, ref_ring = bore_rings[ref_idx]
+    ref_pts_raw = np.asarray(ref_ring.coords)[:-1]
+    ref_pts = np.asarray(fitting.simplify_closed_ring(ref_pts_raw.tolist(), 0.3 * chord_tol))
+    ref_pts = _drop_close_ring_points(ref_pts, 5.0 * chord_tol)
+    ref_area = areas[ref_idx]
+    z_lo_t = z_min - eps_cut_val
+    z_hi_t = z_max + eps_cut_val
+    a_lo_t = max(1e-9, float(np.polyval(coef, z_lo_t)))
+    a_hi_t = max(1e-9, float(np.polyval(coef, z_hi_t)))
+    s_lo = math.sqrt(a_lo_t / ref_area)
+    s_hi = math.sqrt(a_hi_t / ref_area)
+    pts_lo = ref_pts * s_lo
+    pts_hi = ref_pts * s_hi
+    return solids.build_ruled_loft_solid(z_lo_t, pts_lo, z_hi_t, pts_hi, r_fillet_thresh=0.0)
 
 
 def _run(args) -> int:
@@ -459,7 +545,7 @@ def _run(args) -> int:
             circ_solid = solids.build_revolve_solid(circ_full, chord_tol)
             bore_solid = booleans.fuse(circ_solid, fin_solid, seam_eps)
     elif bore_rings:
-        bore_solid = _build_prism_bore(bore_rings, z_min, z_max, eps_cut_val, eps_cut_val, chord_tol)
+        bore_solid = _build_bore_prism_or_loft(bore_rings, z_min, z_max, eps_cut_val, chord_tol)
     else:
         bore_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
             + [(z_max + eps_cut_val, bore_pts[-1][1])]
