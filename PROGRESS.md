@@ -15,18 +15,22 @@
   pre-review pass); it has been reset. Time budget per iteration is now in the header.
 
 ## Current state
-- Milestone: **M3 PASSES** — `pass:true, progress:1.0`, all 12 checks green (volume_err_pct
-  0.0024%, surface_deviation_max_mm 0.365, face_count_max 27, gmsh min_quality 0.187 vs gate
-  0.1). M2 and M1 both still `pass:true, progress:1.0`. `pytest tests/` 15 passed / 1
-  pre-existing unrelated failure (same `test_every_m1_check_passes_and_missing_generators_
-  block_the_freeze` argparse/conftest issue as before, not a regression).
-- M3 required a genuinely new pipeline path: a non-axisymmetric but axially-constant
-  (prismatic) star bore, extruded rather than revolved. See iter 18 log below for the arc+line
-  hybrid that made it pass, and the two approaches tried and reverted first.
-- **Next milestone: M4.** Read `harness/milestones.py::_m4` for its spec/gates and
-  `harness/generators.py` for whether its truth generator exists yet. Check whether M4 needs
-  yet another new geometric path, or can reuse the revolve (`build_revolve_solid` +
-  `curve_windows`) or prism (`build_prism_solid` + `detect_arc_runs`) machinery already built.
+- Milestone: **M4 PASSES** — `pass:true, progress:1.0`, all 13 checks green (volume_err_pct
+  0.0127%, surface_deviation_max_mm 0.653, topo_event_z 1.28e-5mm, face_count_max 44,
+  gmsh min_quality 0.265 vs gate 0.1). M1/M2/M3 all still `pass:true, progress:1.0`.
+  `pytest tests/ --ignore=tests/test_selftest.py` → 15 passed (the ignored test has the
+  same pre-existing argparse/conftest issue as every prior iteration, not a regression).
+- M4 required a genuinely new pipeline path: a *mixed* bore — a plain circular bore fore of
+  `fin_z_start`, fused with a prismatic fin-slot cutter aft of it, joined at a
+  bisection-localized topology-event z. See iter 19 log below for the eps_cut-bleed bug this
+  surfaced and its fix, and iter 18's log for the arc+line hybrid M3 needed first (M4 reuses it
+  for the fin-slot cross-section).
+- **Next milestone: M5.** Read `harness/milestones.py::_m5` for its spec/gates and
+  `harness/generators.py` for whether its truth generator exists yet. M5 adds domes on both
+  ends of M4's finocyl geometry — per the `## Do not retry` entry above, its fins stop at the
+  aft dome shoulder (`z=L-dome_h`) rather than running the full length, so check whether the
+  topology-event bisection + mixed-bore fuse from M4 composes cleanly with the dome-pinch
+  logic from M2, or needs a three-way split (circular / fin / dome-pinch).
 - **Iter 15 summary (read this before touching `pipeline/cli.py` or `pipeline/solids.py`
   again):** the 0.138% volume error left by iter 14 was NOT dominated by the pinch-endpoint
   radius itself (that was already snapped to the bore's fitted radius, which is accurate). It
@@ -313,9 +317,84 @@
   enough to throw an inset end-station past the true end entirely. This bit `pipeline/
   stations.py` on the very first run (iter 13). The nudge only needs to break float-exact
   coincidence; `1e-9 * L` is plenty and can never leave the inset band.
+- When fusing two cutter solids at an *internal* topology-event seam (M4/M5's circular/fin-slot
+  junction), never extend either solid past the seam by `tol.eps_cut` (10x chord_tol). That
+  margin is sized for a robust boolean *cut* against the part's true outer ends, where the
+  overlap region only ever contains one solid's own (correct) geometry repeated. At an internal
+  seam between two *different* cross-sections, the overlap band is instead the *union* of both
+  cross-sections — so a 10x-chord_tol bleed of the fin shape (which reaches out to
+  `fin_r_outer`, far past the circular bore radius) punches fin-shaped material out of the
+  plain-circular region on the other side of the seam, and vice versa. Measured on M4: exactly
+  `eps_cut_val` (5.0 mm) of spurious `surface_deviation_max_mm` at the fin-tip radius, gate
+  1.0 mm. Fix: use a much smaller `seam_eps` (`0.5 * chord_tol`) on the seam-facing side of each
+  cutter — just enough for `BRepAlgoAPI_Fuse`'s topological overlap — while keeping the full
+  `eps_cut` margin on the side that still faces a true outer end. See `pipeline/cli.py`'s
+  `_build_prism_bore` (now takes independent `eps_start`/`eps_end_val`) and the `bore_rings and
+  bore_pts` branch of `_run`.
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 19 — M4 — sonnet/medium — 2026-08-29
+- Score before: M4 not attempted yet (`pipeline/cli.py` only handled a single bore, either
+  fully circular or fully non-circular per §5.2's existing paths; M4's bore is circular fore
+  of `fin_z_start` and fin-slotted aft of it — a single topology event mid-part).
+- Change 1 (crash → 0.0714): the station loop now tolerates a per-station hole failing the
+  circle fit, recording it as a raw ring (`bore_rings`) alongside the circular stations
+  (`bore_pts`) instead of erroring. Added `_hole_classification`/`_bisect_topology_event`
+  (bisects the mesh by re-slicing at midpoints to localize the exact z where the hole flips
+  circular <-> non-circular, to `topo_event_z_tolerance_mm`) and a mixed-bore path in `_run`:
+  a circular-revolve cutter fore/aft of `event_z` fused (`booleans.fuse`, new function, same
+  fuzzy-retry pattern as `cut`) with a prismatic fin-slot cutter (`_build_prism_bore`) on the
+  other side. First run crashed inside `build_prism_solid` (`GC_MakeArcOfCircle::Value() - no
+  result`) — the old fixed `0.25*scale` fillet threshold in `detect_arc_runs` misclassified
+  points on M4's ring (which has *two* real curvature scales: ~40mm tip fillet and ~300mm
+  bore arc, both needing exact arcs), producing degenerate 1-point "arc" runs.
+- Change 2 (0.0714 -> 0.5107): replaced the fixed threshold with an auto-threshold "elbow"
+  in `detect_arc_runs` — sort all windowed local-radii, take the largest log-scale ratio gap
+  between consecutive values (only accepted if >= 3x, else no split at all) as the curved/
+  straight boundary. This correctly separates M4's fillet+bore-arc scales from the straight
+  fin sides. Also added a defensive `try/except` around `GC_MakeArcOfCircle(...).Value()` in
+  `build_prism_solid` that falls back to a straight edge (belt-and-suspenders, not load-
+  bearing after the real fix). Result: pipeline succeeds, but `volume_err_pct` = 1.33% (gate
+  0.2%) — diagnosed via a direct OCP volume-comparison script: one stray point at the true
+  arc/straight junction (the mesh has no vertex exactly there) reads as "curved" in its
+  windowed test, turning the bore-arc run's 3-point `GC_MakeArcOfCircle` fit into an off-axis
+  ~204mm-radius garbage circle instead of the true ~300mm one.
+- Tried and reverted: trimming that outlier by fitting a circle to the *whole* run and
+  dropping whichever endpoint disagreed most, iterating. Failed — a whole-run least-squares
+  fit gets dragged toward the outlier itself, so the outlier's own residual reads deceptively
+  small and trimming stopped early (11 points, `max_resid=7.6mm` from a still-wrong
+  `R=191.8` circle).
+- Change 3 (0.5107 -> 0.7286): rewrote the trim (`_trim_run_to_circle` in `pipeline/
+  fitting.py`) to fit the reference circle from the run's *interior* points only, then test
+  only the two endpoints against that unbiased reference, dropping whichever disagrees most
+  and repeating. Converges to the clean 15-point run (all near R=300). `volume_err_pct` ->
+  0.0087%. But `surface_deviation_max_mm` = 5.000mm (gate 1.0mm) at z=5995.0, xyz radius
+  ≈700mm (= `fin_r_outer`) — exactly `eps_cut_val` (10x chord_tol) below `event_z` (6000).
+- Change 4 (0.7286 -> 1.0, PASS): root cause was extending the mixed bore's two cutters past
+  the *internal* `event_z` seam by the full `eps_cut_val` margin (meant for robust cuts
+  against true outer ends). At that internal seam the overlap band becomes the *union* of
+  both cross-sections, so the fin-shaped cutter (reaching to `fin_r_outer`=700) bled 5mm into
+  the plain-circular region on the other side, and vice versa. Fixed by giving
+  `_build_prism_bore` independent `eps_start`/`eps_end_val` and using a much smaller
+  `seam_eps = 0.5 * chord_tol` on the seam-facing side of each cutter (just enough for
+  `BRepAlgoAPI_Fuse`'s topological overlap), keeping full `eps_cut_val` only on the side
+  still facing a true outer end. Result: M4 `pass:true, progress:1.0`, all 13 checks green
+  (surface_deviation_max_mm now 0.653mm vs 1.0mm gate). M1/M2/M3 re-verified still
+  `pass:true, progress:1.0`. `pytest tests/ --ignore=tests/test_selftest.py` -> 15 passed.
+- Learned: (1) a fixed-fraction curvature threshold breaks the moment a ring has more than
+  one real curvature scale — always auto-detect from the data's own radius distribution: an
+  elbow in sorted log-scale ratios. (2) never trim an outlier-corrupted run with a whole-run
+  least-squares fit; fit the reference from the interior only and test endpoints against it.
+  (3) `eps_cut`-style boolean-cut margins are only safe past a part's true outer ends; at an
+  internal seam between two *different* cross-sections the same margin bleeds the wrong
+  shape into the wrong region — use a much smaller seam-only overlap there instead. See the
+  new `## Do not retry` entries for all three.
+- Next: M5 (dome + finocyl). Read `harness/milestones.py::_m5` and the M5 entries already in
+  `## Do not retry` (fins stop at the aft dome shoulder, not full length) before starting.
+  Check whether M4's topology-event bisection + mixed-bore fuse composes with M2's dome-pinch
+  logic directly, or needs a three-way (circular / fin / dome-pinch) split in `_run`.
 
 ### iter 18 — M3 — sonnet/medium — 2026-08-29
 - Score before: M3 not attempted yet (`pipeline/cli.py` only handled circular

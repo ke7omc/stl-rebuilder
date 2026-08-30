@@ -201,8 +201,8 @@ def _bisect_topology_event(mesh, z_a: float, z_b: float, chord_tol: float, circ_
     return 0.5 * (z_a + z_b)
 
 
-def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_cut_val: float,
-                       chord_tol: float):
+def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
+                       eps_end_val: float, chord_tol: float):
     """Build the cutter solid for a non-circular but axially-constant bore (e.g. M3's star):
     take the station closest to mid-length as the representative cross-section (least likely to
     be distorted by any inset/end effects) and hand its raw ring points straight to
@@ -210,11 +210,13 @@ def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_cut_val: float
     an exact arc+line hybrid wire (see that function's docstring for why raw points, not a
     Douglas-Peucker-simplified ring, are wanted here: simplification would erase the very
     curvature signal `detect_arc_runs` needs, and straight-run collapsing already keeps the face
-    count low without it). Extrudes past both true ends by `eps_cut_val` for a robust boolean
-    cut."""
+    count low without it). Extrudes past `z_min` by `eps_start` and past `z_max` by `eps_end_val`
+    (independent, since a topology-event seam (M4/M5) wants only a small fuse-robustness overlap
+    on that side, not the full `eps_cut` margin a true outer end needs for a robust boolean cut
+    against the envelope)."""
     mid = bore_rings[len(bore_rings) // 2][1]
     pts = list(mid.coords)
-    return solids.build_prism_solid(pts, z_min - eps_cut_val, z_max + eps_cut_val)
+    return solids.build_prism_solid(pts, z_min - eps_start, z_max + eps_end_val)
 
 
 def _run(args) -> int:
@@ -349,21 +351,30 @@ def _run(args) -> int:
     outer_solid = solids.build_revolve_solid(outer_full, chord_tol, curve_windows=curve_windows)
 
     if bore_rings and bore_pts:
-        # Two bore cutters, one per side of the topology event, extended past it by eps_cut so
-        # their fuse has a robust overlap (same margin `_build_prism_bore`/the pure-revolve path
-        # already use past the part's true ends).
+        # Two bore cutters, one per side of the topology event, fused into one before the single
+        # cut against the envelope. Past the part's true ends (z_min/z_max) each cutter still
+        # needs the full `eps_cut` margin for a robust boolean cut against the envelope, same as
+        # every other cutter. But at the internal event_z seam, extending by that same 10x margin
+        # bled a full off-axis cross-section (the fin shape reaches out to `fin_r_outer`, far past
+        # the circular bore radius) `eps_cut_val` mm into the *other* solid's true region — the
+        # union at event_z +/- eps_cut_val is the union of BOTH cross-sections, not either one
+        # alone, so the fin-shaped cutter also cut fin-shaped material out of the plain-circular
+        # region (measured: exactly `eps_cut_val` = 5.0 mm surface deviation at the fin-tip radius
+        # just inside the circular zone, gate 1.0 mm). Use a much smaller `seam_eps` there instead
+        # — just enough for `BRepAlgoAPI_Fuse`'s topological overlap, not a boolean-cut margin.
+        seam_eps = 0.5 * chord_tol
         if circ_before:
             circ_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
-                + [(event_z + eps_cut_val, bore_pts[-1][1])]
-            fin_solid = _build_prism_bore(bore_rings, event_z, z_max, eps_cut_val, chord_tol)
+                + [(event_z + seam_eps, bore_pts[-1][1])]
+            fin_solid = _build_prism_bore(bore_rings, event_z, z_max, seam_eps, eps_cut_val, chord_tol)
         else:
-            circ_full = [(event_z - eps_cut_val, bore_pts[0][1])] + bore_pts \
+            circ_full = [(event_z - seam_eps, bore_pts[0][1])] + bore_pts \
                 + [(z_max + eps_cut_val, bore_pts[-1][1])]
-            fin_solid = _build_prism_bore(bore_rings, z_min, event_z, eps_cut_val, chord_tol)
+            fin_solid = _build_prism_bore(bore_rings, z_min, event_z, eps_cut_val, seam_eps, chord_tol)
         circ_solid = solids.build_revolve_solid(circ_full, chord_tol)
         bore_solid = booleans.fuse(circ_solid, fin_solid, tol.fuzzy(chord_tol))
     elif bore_rings:
-        bore_solid = _build_prism_bore(bore_rings, z_min, z_max, eps_cut_val, chord_tol)
+        bore_solid = _build_prism_bore(bore_rings, z_min, z_max, eps_cut_val, eps_cut_val, chord_tol)
     else:
         bore_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
             + [(z_max + eps_cut_val, bore_pts[-1][1])]
