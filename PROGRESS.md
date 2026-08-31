@@ -40,28 +40,29 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
-- **iter 59 (M5) — READ THIS FIRST. `gmsh_tet` is SOLVED and the milestone is one localized
-  3 %-over-gate number away. `pipeline/` is reverted to `3eb061d` (progress 0.9899), but the fix
-  is commit `45bb45d`, waiting to be cherry-picked.**
-  1. M5's `gmsh_tet` 0.08173 is a **Round-2 regression**, not an unsolved Round-1 problem. Round 1
-     shipped M5 at **53 faces / gmsh min SICN 0.234** (`HANDOFF.md` M5 row, commit `1b4ff91`) on
-     the three-cutter *fuse*; iter 51 replaced that with cavity decomposition to fix **M8** and
-     made it unconditional, so M5 inherited 8 free-standing lobe prisms (205 faces) whose chorded
-     R=40 tip fillets are the needle slivers iters 57/58 measured. Iters 55–58 spent four
-     iterations trying to make the decomposed lobes mesh as well as the fused tool already did;
-     best gain was 0.08173 → 0.08277. **Do not resume that line.**
-  2. Restoring fuse-first (`45bb45d`, chosen by `BRepCheck_Analyzer` on the fused tool, not by
-     milestone) gives **min SICN 0.291** — 2.9× the gate. M8 is unaffected: it takes the
-     `_build_slot_wedges` rung (`out/M8.report.json`: `slots: wedge`) and never reaches this code;
-     M4 is a different branch.
-  3. **The clearance trap:** the same fused tool built with `bore_seam_clearance = 4*seam_eps`
-     (the Round-2 value, added for M8) gives **0.0062**, not 0.291. Test the fuse at clearance 0.
-  4. Remaining blocker on that path: `surface_deviation_p99_mm` 0.4127 vs 0.4, entirely from the
-     **fin flanks** (r 577.7–662.4, both flanks of all 8 fins, all z) — `build_prism_solid`
-     collapses each straight run to ONE chord between truncated `detect_arc_runs` endpoints, so
-     the flank chord cuts into the real tip fillet. Fix with `fitting.fit_fillet_ring` (iter 44's
-     full-fillet reconstruction, already proven on M6). Details + verification recipe in the
-     iter-59 RESULT log block.
+- **iter 60 (M5) — M5 PASSES. progress 1.0, every check green, and M1–M4 re-scored 1.0 too.**
+  Two changes landed together and both were needed:
+  1. Iter 59's `45bb45d` re-applied: the M5/M8 sandwich bore prefers the **three-cutter fuse**
+     (clearance 0 first, `4*seam_eps` only to rescue an invalid fuse, decomposition only if both
+     fail), chosen by `BRepCheck_Analyzer` on the fused tool rather than by milestone. This is
+     what returns `face_count` 205 → **54** and `gmsh_tet` 0.08173 → **0.31704**.
+  2. **`fitting._grow_runs_to_circle`** (new, called at the end of `detect_arc_runs`): the mirror
+     of `_trim_run_to_circle`. `detect_arc_runs`' `+-window=2` local fit is contaminated either
+     side of a curve/line junction, so the tangency point and the next point or two get labelled
+     "straight" and left out of the arc run. Since a straight run collapses to ONE chord between
+     the neighbouring runs' endpoints, a truncated arc run **tilts the whole straight edge** —
+     on M5 each fin flank's chord ended 0.4464 mm inside the true flank, giving `fin_zone` p99
+     0.4294 against a 0.4 gate. Growing a run over neighbours within `4 x` its interior-fit rms
+     fixed it: `fin_zone` p99 **0.4294 → 0.1119**. Margins are huge (fillet rms 2.0e-4, absorbed
+     points 1.8–2.3e-4, first true straight point 324 mm off) — there is no tuning band here.
+  Final M5 numbers: volume err 0.00024 %, dev max 0.4302 / p99 0.1892, gmsh min SICN 0.3170,
+  54 faces, 3.9 s. Next milestone is **M6** (per-window loft).
+- **Watch item for M6+:** `_grow_runs_to_circle` is inside `detect_arc_runs`, so it also feeds
+  `_arc_line_wire` / `build_ruled_loft_solid` / `build_fillet_loft_solid`. It cannot change the
+  number of runs or edges (it only moves the boundary between an arc run and the unclassified
+  points beside it), so the loft path's "identical edge count on both sections" invariant holds.
+  Its tolerance is deliberately per-run; do **not** swap it for `detect_arc_runs`' `resid_tol`
+  (`0.01*r_thresh` = 5–50 mm on M5's ring), which would let a run swallow a straight side.
 - **iter 58 (M5) — no net functional change (reverted to byte-identical `bc78877`); CONFIRMED
   iter 57's fillet-defect hypothesis with the actual 3D tet geometry (needle slivers, not just a
   region), then tried two point-thinning fixes derived from that diagnosis — both measured,
@@ -2054,6 +2055,12 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **Do not "improve" a straight run by fitting a line through its own points.** A straight run
+  does not become edges through its points at all — `build_prism_solid` collapses it to one chord
+  between the *neighbouring arc runs'* endpoints, and those endpoints are routinely one or two
+  points inside the arc (`detect_arc_runs`' window contamination at a junction). The defect is
+  always at the run boundary, never in the middle of the straight run. `_grow_runs_to_circle`
+  (iter 60) is the fix; a straight-run line fit would be fitting the wrong thing.
 - **Do not try to fix M5's `gmsh_tet` by improving the DECOMPOSED lobe outlines (arcs, point
   dedup, run decimation, seam rolls). Four iterations (55–58) did; best result 0.08173 → 0.08277
   against a 0.1 gate.** The decomposition is itself the defect: M5 belongs on the three-cutter
@@ -2380,6 +2387,64 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 60 — M5 — opus/escalated — 2026-08-31T00:05
+- Score before: progress 0.9899, first failure `gmsh_tet` 0.08173 (gate 0.1).
+- Change: **(a)** re-applied iter 59's `45bb45d` (fuse-first sandwich bore, clearance-0 rung),
+  **(b)** the actual new work — `fitting._grow_runs_to_circle`, called at the end of
+  `detect_arc_runs` right after `_trim_run_to_circle`. It extends each arc run over adjacent
+  *unclassified* points whose residual against the run's own interior-fit circle is within
+  `4 x` that fit's rms (floored at `1e-9*R`, capped at `0.02*R`), never taking a point another
+  run owns and never more than doubling a run's length.
+- Score after (my local full runs): **M5 `pass: true`, progress 1.0** — every check green.
+  `gmsh_tet` **0.31704** (gate 0.1), `surface_deviation_p99_mm` **0.18916** (gate 0.4),
+  `surface_deviation_max_mm` 0.43017 (gate 0.6), `volume_err_pct` **0.00024** (was 0.00206),
+  `face_count_max` **54** (was 205 — back to Round 1's 53), runtime 3.9 s.
+  **Regression sweep: M1, M2, M3, M4 all `pass: true`, progress 1.0.**
+- **Root cause, and it is the mirror image of a bug the code already knew about.**
+  `_trim_run_to_circle` exists because `detect_arc_runs`' windowed local fit *over*-claims points
+  at a curve/line junction. It also *under*-claims them, for the same reason: the `+-window=2`
+  fit is contaminated for the two points either side of a junction, so the point AT the tangency
+  and the next one or two genuinely on the arc get labelled "straight". Nothing corrected that
+  direction.
+  Why under-claiming is worse than it sounds: a straight run does **not** become edges through
+  its own points — `build_prism_solid` collapses it to ONE chord from the previous run's last
+  point to the next run's first point. So a truncated arc run does not merely lose an arc point,
+  it moves the *straight* edge's endpoint off the straight line and tilts the entire edge.
+- **The measurement, on M5's merged bore+fin ring** (479 points, 16 runs = 8 bore arcs +
+  8 tip fillets; dumped with `/tmp/dbg_flank.py`, not committed). One fin, centreline at 45°,
+  flank at perpendicular offset exactly 40 mm:
+  - `P[15]` offset 40.0000 (on the flank), `P[16]` offset 40.0000 (the fillet tangent point),
+    `P[17]` offset **39.5540**, `P[18]` offset **39.5536** (both already on the R=40 fillet).
+  - The fillet run was `[18..56]`, so points 16 and 17 were "straight" and the flank chord ran
+    `P[15] -> P[18]` — **0.4464 mm inside the true flank at its outer end**, zero at its inner
+    end. That is a tilt, not a corner cut, which is exactly what the deviation profile showed:
+    mean deviation ramping 0.1396 (r=375) → 0.4136 (r=625–650) → ~0 beyond r=675
+    (`/tmp/dev_prof.py`). Both flanks of all 8 fins, all z — `fin_zone` p99 0.4294 vs a 0.4 gate.
+- **Why `4 x rms` is a safe test, with the numbers.** A tangent line leaves a circle
+  quadratically, so the separation between "on the arc" and "on the line" is enormous at a
+  junction. On the fillet runs: interior-fit rms **2.01e-4 mm**; the two absorbed neighbours sit
+  at **1.8e-4 and 2.3e-4**; the first genuinely-straight point beyond them is **324 mm** off. On
+  the same ring's 300 mm bore-arc runs: rms 2.3e-2, every neighbour **361 mm** off, so they do
+  not grow at all. There is no tuning band to get wrong here. Result: fillet runs became
+  `[16..58]`, the flank chord became `P[15] -> P[16]` (both exactly on the flank), and
+  `fin_zone` p99 went **0.4294 → 0.1119**, max 0.4403 → 0.1768.
+- **This is why the fuse and the mesh quality both came back.** Face count 205 → 54 and
+  `gmsh_tet` 0.08173 → 0.31704 are the *decomposition* going away (iter 59's finding), not the
+  grow fix; the grow fix is what made the fuse path's deviation legal so it could be kept. The
+  two had to land together — which is why iter 59 correctly measured `45bb45d` as a regression
+  (0.7761) and reverted it rather than shipping it alone.
+- **Ruled in for M6+:** `_grow_runs_to_circle` is generic and sits in `detect_arc_runs`, so it
+  also feeds `_arc_line_wire` / `build_ruled_loft_solid` / `build_fillet_loft_solid`. It cannot
+  change the *number* of runs or edges (it only moves boundaries between an arc run and the
+  unclassified points next to it), so it cannot break the loft path's "identical edge count on
+  both sections" invariant. M6/M7/M8 were scored separately — see the next log block if that run
+  landed after this one was written.
+- **Next:** M5 is done; the driver should advance to M6. If `_grow_runs_to_circle` shows up in a
+  later failure, note that the tolerance is deliberately derived per-run (`4 x` interior rms) —
+  do not replace it with a shared absolute tolerance, and do not reuse `detect_arc_runs`'
+  `resid_tol` (`0.01*r_thresh`), which is 5–50 mm on this ring and would let a run swallow a
+  straight side whole.
 
 ### iter 59 — M5 — opus/escalated — 2026-08-30T23:55 — RESULT
 - Score before: progress 0.9899, first failure `gmsh_tet` 0.08173 (gate 0.1).
