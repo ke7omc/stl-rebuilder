@@ -547,7 +547,11 @@ def _prism_from_ring(coords, z_lo: float, z_hi: float, area: float, arc_radius: 
         # is tempting because chording every lobe is what costs `gmsh_tet` — M5 min SICN 0.0816
         # against a 0.1 gate) was measured and is much worse: M5 0.9898 -> 0.6722, because an arc
         # fit can be within 0.81 % on volume and still 6.06 mm out of place. Volume alone does
-        # not validate an arc; it only detects a grossly wrong one.
+        # not validate an arc; it only detects a grossly wrong one. Re-measured after the
+        # `fitting.detect_arc_runs` `min_side`-elbow fix (this iteration): still true, 5% still
+        # gives 6.065 mm at z=7412.9 — a better-conditioned elbow does not make volume-only
+        # acceptance safe. See PROGRESS.md for the arc-corrected-target idea that should replace
+        # this raw-polygon-area comparison instead.
         if err <= 1.0e-3:
             return solid
         if best is None or err < best[0]:

@@ -40,6 +40,72 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 55 (M5, regression demotion) — no net functional change; deep-dived M5's `gmsh_tet`
+  (min SICN 0.08173 vs gate 0.1) and found the real root cause, but the fix needs a different
+  acceptance test than volume-matching, which is more than fits in one iteration. M8 still
+  passes at HEAD (verified again), M1-M4/M6/M7 all still pass — this iteration's one kept
+  change (`fitting.py`'s elbow fix, below) is a genuine no-op on every milestone's *output*
+  (bit-identical `gmsh_tet` value on M5, full regression sweep all green) so nothing regressed
+  further and nothing was gained either; the loop is exactly where iter 54 left it.**
+  1. **Confirmed root cause, with numbers.** `_build_slot_lobes`'s per-lobe ring (from
+     `_prism_from_ring`, called once per fin lobe) has TWO genuine circular features:
+     a tip-fillet run (auto-fit `R=40.000`, residual 0.0002 mm — exactly the spec's tip radius
+     40) and the `_build_slot_lobes` disc-cut boundary run (`R=301.8`, residual 0.002 mm,
+     matching `bore_radius + 4*chord_tol` = 302 by construction). Both are real, both are
+     precisely locatable. **`fitting.detect_arc_runs`'s auto-elbow was never finding them**: a
+     1-2 point curvature-noise spike (local radius ~5.4 mm, from a sharp corner artifact of the
+     `_build_slot_lobes` translate-and-union step) sat right next to the real ~25-40 mm cluster,
+     so the single-largest-ratio elbow picked a threshold of ~12 mm instead of the correct
+     ~500-580 mm split, and every genuine curve got classified "straight."
+  2. **Fixed that specific bug** in `pipeline/fitting.py::detect_arc_runs`: the auto-elbow now
+     requires the candidate split to leave at least `window + 1` points on the small side, so a
+     1-2 point outlier can't set the boundary alone. Verified directly on the captured M5 lobe
+     ring: elbow now lands at r_thresh~579, recovering both real runs (`R=40.000` and `R=301.8`
+     above) instead of two degenerate 1-point runs. This is a genuine improvement to a function
+     shared by M3/M4/M6/M8 too, and the full regression sweep (M1/M2/M3/M4/M6/M7/M8, this
+     iteration) confirms it changes nothing for any of them — kept.
+  3. **But it doesn't change M5's built geometry at all**, because `_prism_from_ring`'s
+     acceptance test (`err = abs(built_volume - target)/target <= 1e-3`, `target = shapely
+     polygon area * height`) still rejects every roll of every lobe (measured errors 0.49%-3.7%
+     across the 8 lobes) even with the now-correct arc classification, so every lobe still falls
+     through to the straight-polyline fallback — bit-identical `gmsh_tet` result proves this.
+  4. **Why the acceptance test rejects a demonstrably-correct arc fit: the target itself is
+     biased.** `target` is the RAW shapely polygon area of the mesh-derived ring — a piecewise-
+     linear (chorded) approximation of the true curved boundary. A polygon chord always cuts
+     inside a convex arc and outside a concave one, so `target` is systematically off from the
+     true smooth-boundary area by an amount of the same order as the observed 0.5-3.7% mismatch.
+     Matching a *correct* arc-based solid's volume against this biased target can never clear a
+     1e-3 relative tolerance — the acceptance test's ground truth is wrong, not the arc. Direct
+     evidence: a prototype "arc-corrected target" (shoelace area of the *raw* polygon, plus each
+     detected run's own circular-segment correction `0.5*R^2*(theta - sin(theta))`) computed a
+     ~6% area delta on one lobe's disc-cut run alone — same order of magnitude as the mismatch —
+     though the SIGN convention (does this particular run's arc bulge into or out of the polygon
+     interior, which depends on traversal orientation) wasn't nailed down this iteration; that's
+     the next concrete step, not a rebuild of the whole approach. See `/tmp/dbg_area.py`'s
+     pattern (not committed) for the segment-area computation to start from.
+  5. **What was tried and reverted (do not retry blindly):**
+     - Relaxing `_prism_from_ring`'s `err <= 1.0e-3` to `5e-2` (hoping the improved elbow made
+       volume-only acceptance safe): still picks a mis-registered arc on at least one lobe —
+       `surface_deviation_max_mm` 6.065 mm at z=7412.9 (fin_zone), same failure mode the
+       existing code comment already warned about pre-fix. **Volume-only acceptance is unsafe
+       regardless of classifier quality; any threshold relaxation needs a position/residual
+       check alongside it, not instead of the arc-corrected target in point 4.**
+     - Decimating the polyline-fallback ring by minimum edge length (removes a genuine 0.005 mm
+       -to-360 mm edge-length disparity within the same ring, a 67000x range, from the
+       `_build_slot_lobes` disc's 128-segment sampling meeting the coarse flank sampling) at
+       0.1/1/2/5 mm thresholds: `gmsh_tet` moved within noise (0.0817 baseline -> 0.0807/0.0764/
+       0.0764/0.0839) and never cleared 0.1 at any threshold tried. The edge-length disparity is
+       real but is not the dominant driver of the sliver — reverted, not worth the added
+       complexity for no measured gain.
+  6. **Next iteration should implement point 4's fix properly**: for each run `detect_arc_runs`
+     finds, decide bulge sign from whether the run's fitted center lies inside or outside the
+     ring's own polygon (or equivalently, cross-product sign of consecutive chord vectors vs the
+     ring's overall winding), compute the corrected target, and re-test `_prism_from_ring`'s
+     acceptance against it instead of the raw polygon area. If that gets even one lobe's `err`
+     under a tight tolerance with a *verified-correct* position (cross-check against
+     `surface_deviation_max_mm`/`p99`, not just volume), the other 7 congruent lobes should
+     follow via the "reuse a congruent sibling" fallback already in `_build_slot_lobes` — this
+     could resolve M5 in one more focused pass rather than needing all 8 independently.
 - **iter 54 (M8, ESCALATED) — M8 PASSES. progress 0.828 -> 1.0, all 20 checks green.**
   Local `harness/score.py --milestone M8`: volume 0.0322 % (gate 0.2), deviation max 0.2724
   (gate 1.0), p99 0.2351 (gate 0.4), worst region 0.2415 (gate 0.4), 80 stations (cap 80),

@@ -131,7 +131,21 @@ def detect_arc_runs(pts, r_thresh: float = None, window: int = 2, resid_tol: flo
         if len(srt) < 2 or srt[0] <= 0.0:
             return []
         ratios = srt[1:] / np.maximum(srt[:-1], 1e-12)
-        gap = int(np.argmax(ratios))
+        # Picking the single largest ratio anywhere in the sorted array is fooled by a tiny
+        # (1-2 point) cluster of spuriously small local radii — e.g. a genuinely sharp corner
+        # introduced by a boolean/union step (M5's `_build_slot_lobes` translate-and-union seam)
+        # makes a window straddling it fit a near-zero-radius circle. That pair's own ratio to
+        # its *next* neighbor can beat the true elbow between the real curved cluster (fillets,
+        # a disc-cut arc) and the straight runs, picking a threshold far too small and reading
+        # every genuine curve as "straight" (measured on M5: threshold ~12mm instead of ~500mm,
+        # turning all 8 fin-tip fillets + disc arcs into polyline chords -> gmsh_tet sliver,
+        # min SICN 0.0817 vs gate 0.1). Require the candidate split to leave at least
+        # `window + 1` points on the small side, so a 1-2 point outlier spike can't set the
+        # boundary by itself; it still ends up classified (usually folded into the real arc
+        # cluster, occasionally trimmed away by `_trim_run_to_circle`).
+        min_side = window + 1
+        candidates = [g for g in range(len(ratios)) if g + 1 >= min_side]
+        gap = max(candidates, key=lambda g: ratios[g]) if candidates else int(np.argmax(ratios))
         if ratios[gap] < 3.0:
             return []
         r_thresh = math.sqrt(srt[gap] * srt[gap + 1])
