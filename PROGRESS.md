@@ -56,6 +56,8 @@
      M2 and M5 also carry (they pass on looser gates), NOT anything to do with the cavity.
   4. Unevaluated beyond that: `face_count_max` (<=300; the wedges cost ~80 faces),
      `step_roundtrip`, `gmsh_tet`.
+  5. **Regression sweep on this commit: M1/M2/M3/M4/M6/M7 all exit 0, M5 = 0.9898.** Every
+     lower milestone is green.
 
 ### Earlier state (kept for context)
 - **iter 52 (M8, ESCALATED) — `topo_events` PASSES. M8 0.6526 -> 0.7012; M5 unchanged at
@@ -2079,7 +2081,9 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   in **`fore_dome`** (gate 0.4) — a pre-existing, unrelated defect (iter 52 already measured
   fore_dome max 0.859 / p99 0.713 while everything else was inside gate). **M5 re-scored:
   0.9898, unchanged**, and its report now says `slots: prism`, i.e. it correctly does NOT take
-  the new path.
+  the new path. **Full regression sweep after the commit: M1/M2/M3/M4/M6/M7 all exit 0 (pass)**
+  — with M5 at 0.9898 that is every lower milestone still green, so the M8 gain is real and not
+  bought by a demotion elsewhere.
 - **Diagnosis — iter 52's measured lobe-growth table was wrong, and the model it ruled out was
   the right one.** Re-measured directly off `harness/truth/M8.stl` (`out/dbg/wedge_probe.py`,
   8 lobes at every z in the zone):
