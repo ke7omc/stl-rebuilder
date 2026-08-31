@@ -40,6 +40,70 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 75 (M13, escalated) — DIAGNOSIS FIRST, then two dimensional-bias fixes. The residual
+  0.9993% is now fully attributed, per-region, with numbers. Iter 74's split ("0.27% input,
+  0.73% profile RDP") was half right: the input bias is real and confirmed, but the RDP term is
+  only 0.30% and the DOMINANT term (0.47%) is somewhere iter 74 never looked — the slot wedge
+  sizing.**
+  1. **The input mesh's radial scale is confirmed, independently.** Measured straight off
+     `harness/truth/M13.stl` (5,306,756 facets, read as raw float32, ×25.4, barrel band
+     x∈[3500,7500] in the truth frame, axis +x through y=−700/z=1300): outer surface mean radius
+     **998.686** (σ 0.99, truth 1000), bore mean **549.276** (σ 0.90, truth 550). The ratios are
+     0.998686 and 0.998684 — identical, so it is a pure **radial scale 0.998685** about the axis,
+     not an SDF offset (which would move the bore the other way) and not the σ=0.8 mm noise
+     (zero-mean). It comes from the harness voxelising a truth *tessellation* (ct/2 deflection),
+     whose inscribed facets sit inside the analytic surface by ≈ R·α²/3. **A perfect
+     reconstruction of the input therefore scores −0.263% volume against the analytic truth, so
+     the real reconstruction budget for the 0.5% gate is ≈0.24%, not 0.5%.**
+  2. **Where our own 0.74% lives — measured, not guessed** (`out/dbg/sect.py`: tessellate
+     `out/M13.step` and `harness/truth/M13.step` at 0.2 mm, section both every 100 mm along the
+     axis, compare areas after scaling truth by 0.998685²):
+     - barrel, x∈[3000, 8200]: **−0.245%** per section, dead flat → ≈29e6 mm³
+     - slot zone, x∈[8300, 11900]: **−3.26%** per section (742,035 vs 767,025 mm², −24,990 mm²
+       every section) → ≈92e6 mm³, i.e. **60% of the whole 153.6e6 mm³ deficit**
+     - integrated dV = −123.9e6 (the rest is the two dome ends, not sampled at 100 mm)
+  3. **Slot-zone root cause: `_sector_of_ring` estimates the slot wedge with EXTREME-VALUE
+     statistics** — `r_hi = r.max()` over the ring points and `theta_half = 0.5·(max−min)` of the
+     angular spread. On a clean tessellation those are exact; on M13's noisy mesh (σ≈0.9 mm at
+     the ring, hundreds of points per lobe) the max of n samples sits ≈2.5σ outside the true
+     surface, and taking a *median over stations* of a per-ring max does nothing to remove it —
+     every station carries the same positive bias. Measured on the built STEP vs truth at x=9000
+     (`out/dbg/ang.py`, ray-scan at 0.02° over r=575…940):
+     - slot half-angle built **17.080°** vs truth **16.960°** (truth is constant with radius, so
+       the wedge *model* is right — these really are annular sectors, not obrounds)
+     - slot outer wall built **R=950.886** (exact, read off the STEP's cylindrical faces) vs
+       input-implied 948.75 → **2.14 mm too deep**
+     Both ≈2 mm outward, both in the direction that removes material. Area cost per section:
+     0.12° × 8 slots × (950²−549²) = 10,061 mm²; 2.14 mm × 8 slot arcs = 9,635 mm². Together
+     19,696 of the 24,990 mm² (79%) → **0.474% of V_truth**.
+  4. **Barrel root cause: iter 74's RDP hypothesis is right, but for a subtler reason than
+     "RDP cuts convex corners".** RDP only retains *original* points, so it cannot invent a
+     smaller radius — yet the built STEP's outer face is a single cylinder at **R=997.881**
+     spanning 8971 mm (area 56.25e6), 0.805 mm inside the station circle fits (998.66–998.73,
+     which are unbiased: `fit_circle_robust` trims only the reported residual, never R). The
+     mechanism is the *anchoring* in `build_revolve_solid`: a non-window run is anchored to the
+     neighbouring dome window's boundary point, which lies just inside the dome's curvature at a
+     smaller radius; with `eps = 0.5·chord_tol = 4 mm` at ct=8, every barrel point is within 4 mm
+     of the anchor-to-anchor chord, so RDP collapses the entire 8.9 m barrel onto the *shoulder*
+     radius. Confirmed by the face being a cylinder (not a cone) 68 mm longer than the barrel at
+     each end. → **0.295%** (0.19% barrel + 0.105% where the same outer face bounds the slot zone).
+  5. **Ruled out this iteration**: the scorer does NOT tessellate the result to measure volume
+     (`result_step_volume` is `BRepGProp` on the STEP), so tessellation deflection is not in the
+     error budget; `fit_circle` is not biased; the wedge *model* (annular sector) is correct for
+     M12/M13 truth — do not replace it with an obround.
+  6. **The two changes made** (both are "stop adding a systematic dimensional bias that scales
+     with `chord_tol`"), predicted 0.9993% → ≈0.23%:
+     (a) `_sector_of_ring_moments` in `cli.py` — derive (θ_c, θ_h, r_in, r_out) from the lobe
+     polygon's **area and second moments about the axis** instead of its extremes. Closed form
+     for an annular sector: θ_c = atan2 of the centroid; Ivv/Iuu = (2θ_h − sin2θ_h)/(2θ_h +
+     sin2θ_h) solved by bisection; r_out² , r_in² = M_rr/A ± A/(2θ_h). Integrals average
+     zero-mean boundary noise (bias ∼σ²/R², ~1000× smaller than the 2.5σ/R of a max), and are
+     exact on a clean sector. **The extreme-based values are kept and still drive the wedge
+     acceptance test unchanged**, so M5's cartesian-width fins are rejected exactly as before.
+     (b) `tol.rdp_profile_eps(chord_tol, r_ref) = min(0.5·chord_tol, 2e-4·r_ref)` for the
+     meridian RDP. Scale-relative (MISSION §2.7): volume error from a radial bias is 2·ΔR/R, so
+     the epsilon must be a fraction of the radius; `chord_tol` describes the input's fidelity and
+     is not a licence to add that much error again.
 - **iter 74 (M13, escalated) — root cause #1/#3 were both SYMPTOMS. The real bug was branch
   selection, and fixing it took `volume_err_pct` from 96.3156% to 0.9993% (progress 0.3046 →
   0.3261). M13 still fails (gate 0.5%), but the frontier is now a measured 2-part dimensional
