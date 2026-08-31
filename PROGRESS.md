@@ -2043,8 +2043,11 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   `topo_events=38.197` (gate 2.0): expected [5850, 9650], reported [5888.197, 9621.417].
 - **Score after: M8 0.6526 -> 0.7012** (`topo_events` now passes with an error of
   **2.1e-5 mm**; first failure moves to `surface_deviation_max_mm=42.748` at z=9621.4).
-  M5 re-scored: **0.9898, unchanged**, `topo_event_z` still passes (3.2e-5 mm). No other
-  milestone can reach this code (sandwich branch only).
+  M5 re-scored: **0.9898, unchanged**, `topo_event_z` still passes (3.2e-5 mm).
+  **Full regression sweep after the commit: M1/M2/M3/M4/M6/M7 all exit 0 (pass).** The change
+  is confined to the `if pts_before and pts_after` sandwich branch, which only M5 and M8 reach:
+  M4 takes the single-`event_z` branch and M7 has `event_fore is None`, so both report exactly
+  what they reported before.
 - **Diagnosis — the reported events were a different event than the one being gated.** Sliced
   `harness/truth/M8.stl` directly (`/tmp/diag_m8.py`) and the cavity has THREE regimes, not two:
   | z | section |
