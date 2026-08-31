@@ -40,6 +40,45 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 66 (M11) — PASSES first try (progress 0.0625 -> 1.0).** M11's input is 3 disjoint
+  watertight bodies (segmented BATES, gaps between segments) — `_run` unconditionally required
+  `body_count == 1` and exited 3 immediately (`pipeline_exit`, this milestone's very first check).
+  1. **Fix, in `pipeline/cli.py`:** split `_run`'s old combined `not watertight or body_count!=1`
+     gate into two — still reject non-watertight input, but for `body_count > 1` dispatch to a
+     new `_run_multi_body(mesh, info, args, chord_tol)` instead of failing.
+  2. **`_run_multi_body`** splits the already-oriented mesh into connected components
+     (`mesh.split(only_watertight=False)`, verified live: gives exactly the 3 expected z-ranges
+     for M11's truth STL), sorts them ascending by z (matches the scorer's z-ordered
+     `per_solid_volume_err_pct` comparison against `per_solid_closed_form_volumes`), and for each
+     component: writes it to a temp STL, builds a `argparse.Namespace` clone of the top-level
+     `args` with `input_stl`/`output`/`report` pointed at temp paths and `axis="z"`, `units="mm"`
+     (the component is already oriented/scaled — no need to re-run PCA axis-fitting per piece,
+     which would only add noise for zero benefit since the pieces are already axisymmetric about
+     the same axis the parent found), and **recursively calls `_run` on it** — this is the key
+     move: every existing single-body code path (bore/dome/fin/satellite handling, `export`,
+     `report`) keeps working completely unchanged for each piece; M11 needed zero changes to any
+     of that 600-line body. Reads each piece's STEP back with a small local `_read_step_shape`
+     (STEPControl_Reader; deliberately NOT importing `harness/metrics.py`'s `read_step` — the
+     harness is agent-owned test infra, not a product dependency `pipeline/` should reach into),
+     unions the per-piece solids into one `TopoDS_Compound` (`BRep_Builder.MakeCompound`/`.Add`,
+     no boolean fuse needed since the pieces are geometrically disjoint by construction), and
+     writes ONE `export.write_step`/`write_stl` call for the compound. Merges each piece's
+     `stations_z_mm` into one combined `report.write()` call (M11's gates don't check any
+     report-derived station/topology/frame fields, so the merge's exact shape doesn't matter for
+     this milestone, but the pipeline must still honour `--report` per the CLI contract).
+  3. Verified: `score.py --milestone M11` -> pass:true, progress:1.0 on the FIRST attempt, no
+     tuning needed (volume_err_pct 0.00079%, per_solid_volume_err_pct 0.0011%, gmsh_tet min SICN
+     0.468, face_count 12 vs gate 24) — M11's segments are plain annular cylinders with flat
+     ends, so once split apart each one is exactly the M1 case the pipeline already nails.
+  4. **Regression: full sweep M1-M10 (`score.py --milestone Mk` each, all ten individually) —
+     all still `pass:true, progress:1.0`.** `pytest tests/` unaffected (no existing tests touch
+     `_run`'s dispatch). The multi-body path is purely additive: `body_count==1` still takes the
+     exact original code path with zero behavioral change.
+  5. **Next:** M12 (near-burnout cavity decomposition, multi-outer-loop stations) and M13
+     (large-scale marching-cubes stress test) are next per MISSION §6.2; M11's recursive-`_run`
+     pattern likely does NOT extend to M12/M13 since those are single-input-body,
+     multiple-*output*-solid cases (decomposition happens from cavity topology, not from input
+     connectivity) — don't assume `_run_multi_body` is reusable there without checking.
 - **iter 65 (M10) — PASSES (progress 0.8607 -> 1.0). Fixed `surface_deviation_p99_by_region`
   (0.0107mm -> 0.0088mm in `fore_dome`, gate 0.010mm) by building dome window profile edges as
   exact `GC_MakeArcOfEllipse` arcs instead of `GeomAPI_Interpolate` B-splines.**

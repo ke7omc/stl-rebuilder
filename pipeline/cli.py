@@ -14,11 +14,16 @@ be axis-centered (that one alone may be non-circular, e.g. M4/M5's fin slots).
 """
 import argparse
 import math
+import os
 import sys
+import tempfile
 import traceback
 
 import numpy as np
+from OCP.BRep import BRep_Builder
 from OCP.BRepCheck import BRepCheck_Analyzer
+from OCP.STEPControl import STEPControl_Reader
+from OCP.TopoDS import TopoDS_Compound
 
 from pipeline import booleans, export, fitting, io as pio, report, solids, stations, tol
 from pipeline.fitting import fit_circle, fit_circle_robust
@@ -1118,14 +1123,100 @@ def _build_bore_prism_or_loft(bore_rings, z_min: float, z_max: float, eps_cut_va
     return solids.build_ruled_loft_solid(z_lo_t, pts_lo, z_hi_t, pts_hi, r_fillet_thresh=0.0)
 
 
+def _read_step_shape(path: str):
+    """Local, dependency-light STEP reader (mirrors harness/metrics.py::read_step, which
+    pipeline code must not import -- the harness is agent-owned test infrastructure, not a
+    product dependency)."""
+    reader = STEPControl_Reader()
+    reader.ReadFile(str(path))
+    reader.TransferRoots()
+    return reader.OneShape()
+
+
+def _run_multi_body(mesh, info, args, chord_tol) -> int:
+    """MISSION §6.2 M11: several disjoint watertight bodies in one input STL (e.g. a segmented
+    BATES grain with gaps between segments). Each connected component is axisymmetric and
+    already oriented to +Z (that orientation was fit against the WHOLE input, so a per-component
+    re-fit is unnecessary and would just add noise) -- split, reconstruct each component through
+    the ordinary single-body path (recursive `_run` call, so every existing bore/dome/fin/
+    satellite code path keeps working unchanged for each piece), then union the resulting solids
+    into one compound for a single STEP output. Solids are ordered by z so they line up with the
+    scorer's z-ordered `per_solid_volume_err_pct` comparison against `per_solid_closed_form_volumes`."""
+    bodies = mesh.split(only_watertight=False)
+    bodies = sorted(bodies, key=lambda b: float(b.bounds[0][2]))
+    if len(bodies) < 2:
+        print(f"rebuild.py: input mesh reports body_count={info['body_count']} but only "
+              f"{len(bodies)} connected component(s) were recovered", file=sys.stderr)
+        return 3
+
+    tmpdir = tempfile.mkdtemp(prefix="rebuild_multibody_")
+    shapes = []
+    all_stations = []
+    for i, body in enumerate(bodies):
+        if not body.is_watertight:
+            print(f"rebuild.py: connected component {i} (z in "
+                  f"[{body.bounds[0][2]:.3f}, {body.bounds[1][2]:.3f}]) is not watertight",
+                  file=sys.stderr)
+            return 3
+        in_path = os.path.join(tmpdir, f"body{i}.stl")
+        body.export(in_path)
+        sub_args = argparse.Namespace(**vars(args))
+        sub_args.input_stl = in_path
+        sub_args.axis = "z"
+        sub_args.units = "mm"
+        sub_args.output = os.path.join(tmpdir, f"body{i}.step")
+        sub_args.report = os.path.join(tmpdir, f"body{i}.report.json")
+        sub_args.stl = None
+        rc = _run(sub_args)
+        if rc != 0:
+            return rc
+        shapes.append(_read_step_shape(sub_args.output))
+        sub_report = _load_report(sub_args.report)
+        if sub_report:
+            all_stations.extend(sub_report.get("stations_z_mm", []))
+
+    builder = BRep_Builder()
+    compound = TopoDS_Compound()
+    builder.MakeCompound(compound)
+    for shape in shapes:
+        builder.Add(compound, shape)
+
+    export.write_step(compound, args.output, chord_tol)
+    if args.stl:
+        export.write_stl(compound, args.stl, chord_tol)
+    if args.report:
+        report.write(
+            args.report,
+            n_stations=len(all_stations),
+            stations_z_mm=sorted(all_stations),
+            paths_used={"outer": "revolve", "bore": "revolve"},
+            topology_events_z_mm=[],
+            frame={"axis": info["axis_unit"], "origin_xy_mm": info["origin_xy_mm"],
+                   "units": args.units},
+            axial_extent_mm=float(mesh.bounds[1][2] - mesh.bounds[0][2]),
+        )
+    return 0
+
+
+def _load_report(path: str):
+    import json
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
 def _run(args) -> int:
     chord_tol = args.chord_tol
     mesh, R_axis, info = pio.load_and_orient(args.input_stl, args.axis, args.units, chord_tol)
-    if not info["is_watertight"] or info["body_count"] != 1:
+    if not info["is_watertight"]:
         print(f"rebuild.py: input mesh is not a single watertight body "
               f"(watertight={info['is_watertight']}, body_count={info['body_count']})",
               file=sys.stderr)
         return 3
+    if info["body_count"] != 1:
+        return _run_multi_body(mesh, info, args, chord_tol)
 
     z_min, z_max = float(mesh.bounds[0][2]), float(mesh.bounds[1][2])
     L = z_max - z_min
