@@ -85,6 +85,66 @@ def _trim_run_to_circle(arr, run, resid_tol: float):
     return run
 
 
+def _grow_runs_to_circle(arr, runs):
+    """Extend each arc run over adjacent *unclassified* points that provably lie on the circle
+    the run itself defines. The mirror image of `_trim_run_to_circle`, and it fixes the opposite
+    failure of the same cause: the classifier's `+-window` local fit is contaminated for the
+    `window` points either side of a curve/line junction, so the point AT the tangency (which
+    belongs to both) and the first point or two genuinely on the arc read as "straight" and are
+    left out of the run.
+
+    That matters because a straight run does not become edges through its own points — it
+    collapses to ONE chord from the previous run's last point to the next run's first point. So
+    a truncated arc run does not just lose an arc point; it moves the *straight* edge's endpoint
+    off the straight line and tilts the whole edge. Measured on M5 (`build_prism_solid` on the
+    merged bore+fin ring): the fin-tip R=40 fillet run started 2 points late, so each fin flank's
+    single chord ran from the bore corner to a point 0.446 mm inside the true flank, deviating
+    linearly along the whole 360 mm flank — `surface_deviation_p99_mm` 0.4127 against a 0.4 gate,
+    with every other region unchanged.
+
+    The test is the run's own fit quality, not a shared tolerance: fit the circle on the run's
+    interior points and absorb a neighbour only when its residual is within `4 x` the interior
+    rms (floored so an exactly-fitted run can still grow, capped at 2 % of R so a noisy run
+    cannot swallow a straight side). The margin is enormous in practice because a tangent line
+    leaves the circle quadratically — on M5's fillets the interior rms is 2.0e-4 mm, the two
+    absorbed points sit at 1.8-2.3e-4 mm, and the first genuinely-straight point beyond them is
+    324 mm off; on the same ring's 300 mm bore-arc runs every neighbour is 361 mm off, so they do
+    not grow at all. Points already owned by another run are never taken, and a run can at most
+    double in length, so growth cannot cascade around the ring."""
+    if not runs:
+        return runs
+    n = len(arr)
+    owned = set()
+    for run in runs:
+        owned.update(run)
+    out = []
+    for run in runs:
+        run = list(run)
+        if len(run) < 3 or len(run) >= n - 1:
+            out.append(run)
+            continue
+        core = run[1:-1] if len(run) >= 5 else run
+        cx, cy, R, _max, rms = fit_circle(arr[core])
+        tol = min(max(4.0 * rms, 1e-9 * max(R, 1.0)), 0.02 * R)
+        budget = len(run)
+        for step in (-1, 1):
+            grown = 0
+            while grown < budget and len(run) < n - 1:
+                j = ((run[0] if step < 0 else run[-1]) + step) % n
+                if j in owned:
+                    break
+                if abs(math.hypot(arr[j, 0] - cx, arr[j, 1] - cy) - R) > tol:
+                    break
+                if step < 0:
+                    run.insert(0, j)
+                else:
+                    run.append(j)
+                owned.add(j)
+                grown += 1
+        out.append(run)
+    return out
+
+
 def detect_arc_runs(pts, r_thresh: float = None, window: int = 2, resid_tol: float = None):
     """Classify a closed ring of (x, y) points into contiguous "arc" runs (small/finite local
     radius, e.g. a fillet or a genuinely curved wall) vs "straight" runs (large/ill-conditioned
@@ -172,7 +232,8 @@ def detect_arc_runs(pts, r_thresh: float = None, window: int = 2, resid_tol: flo
         tl, rl = segs.pop()
         segs[0] = (t0, rl + r0)
     runs = [run for is_arc_run, run in segs if is_arc_run]
-    return [_trim_run_to_circle(arr, run, resid_tol) if len(run) >= 3 else run for run in runs]
+    runs = [_trim_run_to_circle(arr, run, resid_tol) if len(run) >= 3 else run for run in runs]
+    return _grow_runs_to_circle(arr, runs)
 
 
 def _fit_line_tls(pts):
