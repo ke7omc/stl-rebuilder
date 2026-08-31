@@ -1098,7 +1098,10 @@ def _run(args) -> int:
     # inset). eps_end alone (~1 mm here) is nowhere near enough of a floor for that; widen the
     # station-placement inset specifically, without touching eps_end's other uses (cutter
     # extension etc.) or M1's placement (its profile has no steep-slope region to avoid).
-    station_eps = max(eps_end_val, 200.0 * chord_tol)
+    # `200*chord_tol` alone breaks at M9's coarser chord_tol=5 (a 1000 mm inset on L~10000 mm
+    # swallows the entire aft dome/slot-exit region past z=8945, per MISSION.md §5.2 step 2's
+    # own note that this hard-coded inset needs a cap at 0.02*L).
+    station_eps = min(max(eps_end_val, 200.0 * chord_tol), 0.02 * L)
     if args.adaptive:
         zs = stations.adaptive_stations(mesh, z_min, z_max, args.sections, station_eps,
                                          vertex_zs=mesh.vertices[:, 2])

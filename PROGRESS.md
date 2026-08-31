@@ -40,6 +40,67 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 61 (M9) — first real M9 attempt: progress 0.05 -> 0.397, volume_err_pct 51.1% -> 0.5315%
+  (gate 0.5%), two generalisable slicing/station bugs fixed, one more (small) suspect identified
+  but NOT fixed (out of time budget).**
+  1. **`slice_station` never filtered slivers, despite MISSION §5.2 step 3 / `tol.a_min` already
+     specifying it.** M9's Gaussian-noise (sigma 0.5mm) marching-cubes surface throws off a
+     handful of disjoint sub-mm² loops per station wherever the noise happens to poke a facet
+     through the cutting plane in isolation from the true cross-section. Confirmed directly at
+     the failing station z=5854.415: 1 true polygon (area 2.02e6 mm², 9 correctly-nested
+     interiors) plus 8 spurious noise loops (area 0.09-19.4 mm²) that `cli.py`'s `len(polys)!=1`
+     check rightly rejected as "unsupported topology" (pipeline_exit=4, the exact prior blocker).
+     Fix: `slice_station` now drops any loop (exterior OR interior) with `area < tol.a_min(ct)`
+     or bbox thickness `< 3*chord_tol`, exactly the existing-but-unused `tol.a_min` formula
+     (`pi*(5*chord_tol)^2` = 1963 mm² at ct=5) -- >100x every observed noise loop and
+     >15x smaller than the smallest real feature in the whole milestone table (M7's r=100
+     satellite, ~31400 mm²), so it cannot mask a genuine feature at any milestone's chord_tol.
+     This alone got the pipeline running end to end (pipeline_exit 4 -> 0) but volume was still
+     wildly wrong (51.1%) because of bug 2.
+  2. **`station_eps = max(eps_end_val, 200.0*chord_tol)` in `cli.py::_run` is an unbounded
+     absolute-multiple-of-chord_tol inset** (the exact anti-pattern MISSION.md's own rules-of-
+     engagement section warns about: "Round 1 left ... 200*chord_tol ... in cli.py; they broke
+     [things]" -- and separately, §5.2 step 2 already says this hard-coded inset needs "a cap at
+     0.02*L", not yet implemented). It was tuned at M1-M8's chord_tol=0.5 (100mm inset on
+     L~10000mm, fine); M9 uses chord_tol=5, making it 1000mm PER END -- confirmed this
+     completely excluded the aft dome/slot-exit region: `adaptive_stations` placed its highest
+     station at z=8861.6 and NEVER sampled past it, even though the mesh extends to z=9945 and
+     the slot's aft edge (topology event) is at z=9650. Missing that entire ~1000mm band (10% of
+     the part) is what actually produced the 51% volume error, not the adaptive weighting logic
+     itself (verified `_scan_area_and_loops`'s coarse 320-sample scan DOES correctly detect
+     loop-count changes at both z~5850 AND z~9650 when given the right [lo,hi] bounds -- it's the
+     bounds that were wrong, not the scan). Fix: `station_eps = min(max(eps_end_val,
+     200.0*chord_tol), 0.02*L)`. At ct=0.5 the cap never binds (100 < 200 = 0.02*10000), so
+     M1-M8's placement is provably unaffected. At ct=5 it now caps at 200mm, and
+     `topology_events_z_mm` in the report correctly reads `[5849.66, 9650.30]` against truth
+     `[5850, 9650]` post-fix.
+  - **Remaining gap, next iteration's starting point:** volume_err_pct is now 0.5315% against a
+    0.5% gate -- close, not passing. Isolated by dumping per-station outer/bore radii
+    (temporarily, not committed): the barrel outer radius fits ~999.9mm (0.01% low) and the bore
+    fits ~449.9mm (0.02% low) throughout, both consistent with ordinary noise-fit variance, not a
+    meaningful bias. The dome ends use `_refine_dome_model_from_vertices` (fits R^2-vs-z directly
+    on mesh VERTICES within a z-band, independent of station placement), so they should be robust
+    to the reduced station coverage near the tips too, though this was not directly verified this
+    iteration. That leaves the 8-slot wedge reconstruction (`_build_slot_wedges`,
+    `paths_used.slots == "wedge"` fired, i.e. its own `0.03*area` acceptance test passed) as the
+    prime remaining suspect: it fits `r_out`/`r_in`/two end-fillet radii from noisy station
+    samples via medians and one-parameter fits, any of which could carry a small systematic bias
+    under M9's noise that a clean M8 input wouldn't expose. **Next step: instrument
+    `_build_slot_wedges` (r_out, inner_clean median, f_lo/f_hi, theta_half) the same way
+    outer/bore were probed here, and compare each to M8's known-exact values (R=850 slot_outer_r,
+    R_bore+dilation... etc., see `_m8()`/`_m9()` params) to localise the ~0.03pp of remaining
+    volume bias.** Do not re-relax `tol.a_min` or `station_eps`'s cap as a first guess -- both
+    are now independently verified correct (sliver filter confirmed against exact noise-loop
+    areas; station_eps cap confirmed to recover the correct topology_events_z_mm and to leave
+    M1-M8 untouched).
+  - Verified: `pytest tests/` all pass (an initial `2 failed, 4 errors` run was a false alarm --
+    caused by a stray `.truth_hidden_91623/` directory left over from an earlier iteration where
+    a background `score.py` was killed mid-run while `_truth_hidden()` (score.py) had
+    `harness/truth/` renamed aside; SIGTERM doesn't run its `finally` cleanup, so the rename
+    never got undone, and `harness/truth` was silently regenerated fresh underneath it. Not a
+    code regression -- removed the stray directory and reran clean, 18-20+ passed). Lesson: if a
+    background `score.py`/`selftest.py` run must be killed, check for a `harness/.truth_hidden_*`
+    leftover afterward.
 - **iter 60 (M5) — M5 PASSES. progress 1.0, every check green, and M1–M4 re-scored 1.0 too.**
   Two changes landed together and both were needed:
   1. Iter 59's `45bb45d` re-applied: the M5/M8 sandwich bore prefers the **three-cutter fuse**
