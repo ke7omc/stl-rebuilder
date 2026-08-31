@@ -40,80 +40,35 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
-- **iter 75 (M13, escalated) — RESULT: `volume_err_pct` 0.9993 % → **0.13778 %** (gate 0.5),
-  progress 0.3261 → **0.5652**; first failure moved five checks forward to `station_bands`.
-  M1-M5 and M12 all still pass at progress 1.0. DIAGNOSIS FIRST, then two dimensional-bias fixes. The residual
-  0.9993% is now fully attributed, per-region, with numbers. Iter 74's split ("0.27% input,
-  0.73% profile RDP") was half right: the input bias is real and confirmed, but the RDP term is
-  only 0.30% and the DOMINANT term (0.47%) is somewhere iter 74 never looked — the slot wedge
-  sizing.**
-  1. **The input mesh's radial scale is confirmed, independently.** Measured straight off
-     `harness/truth/M13.stl` (5,306,756 facets, read as raw float32, ×25.4, barrel band
-     x∈[3500,7500] in the truth frame, axis +x through y=−700/z=1300): outer surface mean radius
-     **998.686** (σ 0.99, truth 1000), bore mean **549.276** (σ 0.90, truth 550). The ratios are
-     0.998686 and 0.998684 — identical, so it is a pure **radial scale 0.998685** about the axis,
-     not an SDF offset (which would move the bore the other way) and not the σ=0.8 mm noise
-     (zero-mean). It comes from the harness voxelising a truth *tessellation* (ct/2 deflection),
-     whose inscribed facets sit inside the analytic surface by ≈ R·α²/3. **A perfect
-     reconstruction of the input therefore scores −0.263% volume against the analytic truth, so
-     the real reconstruction budget for the 0.5% gate is ≈0.24%, not 0.5%.**
-  2. **Where our own 0.74% lives — measured, not guessed** (`out/dbg/sect.py`: tessellate
-     `out/M13.step` and `harness/truth/M13.step` at 0.2 mm, section both every 100 mm along the
-     axis, compare areas after scaling truth by 0.998685²):
-     - barrel, x∈[3000, 8200]: **−0.245%** per section, dead flat → ≈29e6 mm³
-     - slot zone, x∈[8300, 11900]: **−3.26%** per section (742,035 vs 767,025 mm², −24,990 mm²
-       every section) → ≈92e6 mm³, i.e. **60% of the whole 153.6e6 mm³ deficit**
-     - integrated dV = −123.9e6 (the rest is the two dome ends, not sampled at 100 mm)
-  3. **Slot-zone root cause: `_sector_of_ring` estimates the slot wedge with EXTREME-VALUE
-     statistics** — `r_hi = r.max()` over the ring points and `theta_half = 0.5·(max−min)` of the
-     angular spread. On a clean tessellation those are exact; on M13's noisy mesh (σ≈0.9 mm at
-     the ring, hundreds of points per lobe) the max of n samples sits ≈2.5σ outside the true
-     surface, and taking a *median over stations* of a per-ring max does nothing to remove it —
-     every station carries the same positive bias. Measured on the built STEP vs truth at x=9000
-     (`out/dbg/ang.py`, ray-scan at 0.02° over r=575…940):
-     - slot half-angle built **17.080°** vs truth **16.960°** (truth is constant with radius, so
-       the wedge *model* is right — these really are annular sectors, not obrounds)
-     - slot outer wall built **R=950.886** (exact, read off the STEP's cylindrical faces) vs
-       input-implied 948.75 → **2.14 mm too deep**
-     Both ≈2 mm outward, both in the direction that removes material. Area cost per section:
-     0.12° × 8 slots × (950²−549²) = 10,061 mm²; 2.14 mm × 8 slot arcs = 9,635 mm². Together
-     19,696 of the 24,990 mm² (79%) → **0.474% of V_truth**.
-  4. **Barrel root cause: iter 74's RDP hypothesis is right, but for a subtler reason than
-     "RDP cuts convex corners".** RDP only retains *original* points, so it cannot invent a
-     smaller radius — yet the built STEP's outer face is a single cylinder at **R=997.881**
-     spanning 8971 mm (area 56.25e6), 0.805 mm inside the station circle fits (998.66–998.73,
-     which are unbiased: `fit_circle_robust` trims only the reported residual, never R). The
-     mechanism is the *anchoring* in `build_revolve_solid`: a non-window run is anchored to the
-     neighbouring dome window's boundary point, which lies just inside the dome's curvature at a
-     smaller radius; with `eps = 0.5·chord_tol = 4 mm` at ct=8, every barrel point is within 4 mm
-     of the anchor-to-anchor chord, so RDP collapses the entire 8.9 m barrel onto the *shoulder*
-     radius. Confirmed by the face being a cylinder (not a cone) 68 mm longer than the barrel at
-     each end. → **0.295%** (0.19% barrel + 0.105% where the same outer face bounds the slot zone).
-  5. **Ruled out this iteration**: the scorer does NOT tessellate the result to measure volume
-     (`result_step_volume` is `BRepGProp` on the STEP), so tessellation deflection is not in the
-     error budget; `fit_circle` is not biased; the wedge *model* (annular sector) is correct for
-     M12/M13 truth — do not replace it with an obround.
-  6. **The two changes made** (both are "stop adding a systematic dimensional bias that scales
-     with `chord_tol`"), predicted 0.9993% → ≈0.23%:
-     (a) `_sector_of_ring_moments` in `cli.py` — derive (θ_c, θ_h, r_in, r_out) from the lobe
-     polygon's **area and second moments about the axis** instead of its extremes. Closed form
-     for an annular sector: θ_c = atan2 of the centroid; Ivv/Iuu = (2θ_h − sin2θ_h)/(2θ_h +
-     sin2θ_h) solved by bisection; r_out² , r_in² = M_rr/A ± A/(2θ_h). Integrals average
-     zero-mean boundary noise (bias ∼σ²/R², ~1000× smaller than the 2.5σ/R of a max), and are
-     exact on a clean sector. **The extreme-based values are kept and still drive the wedge
-     acceptance test unchanged**, so M5's cartesian-width fins are rejected exactly as before.
-     (b) `tol.rdp_profile_eps(chord_tol, r_ref) = min(0.5·chord_tol, 2e-4·r_ref)` for the
-     meridian RDP. Scale-relative (MISSION §2.7): volume error from a radial bias is 2·ΔR/R, so
-     the epsilon must be a fraction of the radius; `chord_tol` describes the input's fidelity and
-     is not a licence to add that much error again.
-  **Outcome, measured:** volume 0.9993 % → 0.13778 %, i.e. both biases were real and the residual
-     is now *below* the 0.24 % input-scale floor computed above — meaning our reconstruction is
-     slightly larger than the analytic truth, not smaller, and there is real headroom. The next
-     failure is `station_bands`: the scorer wants >= 10 stations in the `fore_wall` band and we
-     place 2 (breakthrough band has 18, dome bands 22 each, 120 stations total). That is the
-     `--adaptive` / `--refine-bands` feature-aware station placement that MISSION §6.2 calls for
-     and that Round 1 never implemented (HANDOFF §6 lists it as a known no-op). **This is a
-     feature to build, not a bug to fix** — do not go looking for it in the volume/geometry code.
+- **MILESTONE M13 PASSES (iter 76). `pass: true`, progress 1.0, all 23 checks green** — see the
+  iter-76 log block for the full margin table. That is the last non-optional rung of Round 2's
+  ladder (MISSION §6.2): M1-M12 were already passing on `1b4ff91`+ and M13 was the capstone.
+  What remains is **MR** (the real-STL slot, `optional = True` — it self-skips with `pass: true`
+  while `real_inputs/` is empty) and then **HANDOFF v2** (MISSION §9: `HANDOFF.md` covering
+  M1-M13 + MR, the per-body-count SpaceClaim checklist, the inch/x-axis cases M10 and M13, the
+  real-STL runbook v2, and the "what Round 3 (GUI) needs from the engine" section).
+- **What iter 76 actually was:** a one-line direction bug, not the station-placement feature iter
+  75 predicted. `io._auto_axis` returned a raw `np.linalg.eigh` eigenvector, whose sign is
+  arbitrary; on M13 it came out `-x` against a `+x` truth frame, so 120 correctly-placed stations
+  and 3 correctly-detected topology events were all **reported mirrored**. The frozen `score.py`
+  reads `stations_z_mm` raw (it does not implement MISSION §7.2's `dot < 0` flip) and
+  `frame_axis_err_deg` uses `abs(dot)`, so the frame check passed at 0.0003 degrees while every
+  axial number in the report was backwards. Canonicalising the sign (largest-magnitude component
+  positive) fixed `station_bands`, `n_stations_max`, `topo_events` and everything downstream in
+  one go. `--adaptive` is NOT a no-op, contrary to the Round 1 HANDOFF and iter 75's closing
+  note: it places 14 stations in a 295 mm feature band and 22 in each dome, inside a 120-station
+  budget.
+- **Known-fragile margins on M13** (all passing, none with much room): `axial_extent_err_mm`
+  7.715/8.0, `surface_deviation_p99_by_region` 3.923/4.0 in the `breakthrough` band, `gmsh_tet`
+  min SICN 0.1431/0.1. The extent one has a known clean fix if it ever bites — measure the axial
+  extent from the coarse section-area sweep (MISSION §5.5.2) instead of `mesh.bounds`, which the
+  sigma=0.8 mm input noise inflates.
+- **Suggested next steps, in order:** (1) let the driver's own regression sweep confirm M1-M13
+  together; (2) MR is a no-op skip unless Brady has dropped a file into `real_inputs/`; (3) write
+  `HANDOFF.md` v2. Do not go looking for more M13 geometry work — the milestone is met.
+- Older M13 detail (iters 74-75), kept because the measurements are still the best record of
+  where M13's volume error lives:
+
 - **iter 74 (M13, escalated) — root cause #1/#3 were both SYMPTOMS. The real bug was branch
   selection, and fixing it took `volume_err_pct` from 96.3156% to 0.9993% (progress 0.3046 →
   0.3261). M13 still fails (gate 0.5%), but the frontier is now a measured 2-part dimensional
@@ -3242,7 +3197,35 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   the slot-zone sweep starts from, and the aft (dome-breakthrough) end is the harder one to
   localise — it is found accurately when it is the *second* end reached, not the first. So the
   predicted "next failure is `topo_events`" did not happen.
-- Score after: see the follow-up bullet below (full scorer run).
+- **Score after (full local scorer run, `out/dbg/M13.score.pass.json`): `pass: true`,
+  progress 0.5652 → 1.0. M13 PASSES — every one of the 23 checks is green.** Margins:
+  | check | value | gate |
+  |---|---|---|
+  | `volume_err_pct` | 0.2032 % | < 0.5 |
+  | `bbox_err_pct` | 0.0653 % | < 0.1 |
+  | `frame_axis_err_deg` | 0.000329 | ≤ 0.1 |
+  | `axial_extent_err_mm` | **7.715** | ≤ 8.0 |
+  | `station_bands` | fore_wall 14, breakthrough 17 | ≥ 10 each |
+  | `dome_stations_min` | 22 / 22 | ≥ 8 |
+  | `n_stations_max` | 120 | ≤ 120 |
+  | `topo_events` | worst match 6.214 mm, 3 reported | ≤ 8 mm, ≤ 5 |
+  | `surface_deviation_max_mm` | 6.087 | < 12 |
+  | `surface_deviation_p99_mm` | 2.874 | < 4 |
+  | `surface_deviation_p99_by_region` | **3.923** (breakthrough) | < 4 |
+  | `face_count_max` | 85 | ≤ 400 |
+  | `min_edge_mm` | 9.597 | ≥ 0.1 |
+  | `step_roundtrip` | 3.2e−07 | < 1e−06 |
+  | `gmsh_tet` | min SICN **0.1431**, 89 720 tets | > 0.1 |
+  | runtime | 279.6 s | < 900 |
+  `paths_used` = {outer: revolve, bore: mixed, slots: wedge}.
+- **Three gates are close enough to be fragile — treat them as the real state of M13, not slack:**
+  `axial_extent_err_mm` 7.715/8.0 (the extent is still `mesh.bounds` along the axis, which the
+  sigma=0.8 mm noise inflates; MISSION §5.5.2 wants it from the coarse section-area sweep, which
+  would take most of this back and is the obvious hardening if it ever regresses),
+  `surface_deviation_p99_by_region` 3.923/4.0 in the `breakthrough` band, and `gmsh_tet` 0.1431/0.1.
+- Volume moved 0.1378 % → 0.2032 % (both pass): the un-mirrored run builds the grain fore-to-aft,
+  which is a genuinely different build, not a relabelling. Cheaper than it looks — it also bought
+  the accurate aft event.
 - *Process note for the next iteration:* `out/score.local.json` is NOT deleted between
   iterations, so `until [ -f out/score.local.json ]` returns instantly and you read a **stale
   verdict from a previous iteration** — which looks exactly like "my change had no effect" (it
@@ -3251,10 +3234,13 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   scorer only copies back at the end. While a scorer run is in flight `harness/truth/` is moved
   to `harness/.truth_hidden_<pid>/` (the `_truth_hidden` anti-gaming measure) and is restored on
   exit — do not touch it, and do not panic when `ls harness/truth` fails mid-run.
-- M10 is the only other `--axis auto` milestone and is **unaffected**: its raw `eigh`
-  eigenvector is already `(+0.9999999, −4.4e−04, −8.9e−05)`, so the canonicalisation is a no-op
-  there (verified directly). M1–M9, M11 and M12 pass an explicit `--axis`, so `_auto_axis` is
-  never called — this change cannot regress them.
+- **Regression: M10 re-scored `pass: true`, progress 1.0** (`out/score.m10.json`; bands
+  fore_wall 11 / aft_wall 10, `frame_axis_err_deg` 4.9e−06). It is the only other `--axis auto`
+  milestone, and the canonicalisation is a **no-op** there — its raw `eigh` eigenvector is
+  already `(+0.9999999, −4.4e−04, −8.9e−05)`, verified directly before the run. M1–M9, M11 and
+  M12 pass an explicit `--axis`, so `_auto_axis` is never called on them and this change cannot
+  reach them; the driver's own sweep will confirm.
+- Next: the ladder is complete. MR self-skips while `real_inputs/` is empty; then HANDOFF v2.
 
 ### iter 75 — M13 — opus/high (escalated) — 2026-08-31T09:08
 - Score before: progress 0.3046 → 0.3261 (iter 74's end-probe), first failure `volume_err_pct`
