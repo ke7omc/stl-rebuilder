@@ -1798,6 +1798,29 @@ def _run(args) -> int:
             + [(z_max + eps_cut_val, bore_pts[-1][1])]
         bore_solid = solids.build_revolve_solid(bore_full, chord_tol)
 
+    import os as _os
+    if _os.environ.get("REBUILD_DEBUG_M13"):
+        from OCP.BRepGProp import BRepGProp
+        from OCP.GProp import GProp_GProps
+        _op, _bp = GProp_GProps(), GProp_GProps()
+        BRepGProp.VolumeProperties_s(outer_solid, _op)
+        BRepGProp.VolumeProperties_s(bore_solid, _bp)
+        print(f"DEBUG_M13: len(bore_pts)={len(bore_pts)} len(bore_rings)={len(bore_rings)} "
+              f"len(sat_rings)={len(sat_rings)} len(sat_samples)={len(sat_samples)} "
+              f"len(lobe_cutters)={len(lobe_cutters)} paths_slot={paths_slot!r}",
+              file=sys.stderr)
+        if bore_rings:
+            print(f"DEBUG_M13: bore_rings z range "
+                  f"[{bore_rings[0][0]:.2f}, {bore_rings[-1][0]:.2f}]", file=sys.stderr)
+        if bore_pts:
+            print(f"DEBUG_M13: bore_pts z range [{bore_pts[0][0]:.2f}, {bore_pts[-1][0]:.2f}]",
+                  file=sys.stderr)
+        print(f"DEBUG_M13: z_min={z_min:.2f} z_max={z_max:.2f} "
+              f"zone_fore={zone_fore} zone_aft={zone_aft} event_z={event_z}",
+              file=sys.stderr)
+        print(f"DEBUG_M13: outer_solid volume={_op.Mass():.1f} bore_solid volume={_bp.Mass():.1f}",
+              file=sys.stderr)
+
     shape = booleans.cut(outer_solid, bore_solid, tol.fuzzy(chord_tol))
     # Slot lobes of a decomposed merged bore+slot cavity: each overlaps the already-cut bore
     # deeply and transversally, so independent sequential cuts are robust (same argument as the

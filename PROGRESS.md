@@ -40,6 +40,31 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 71 (M13) — IN PROGRESS: diagnosing `volume_err_pct=96.3%`.** Direct volume comparison
+  (`out/M13.step` from iter 70's scorer run vs `harness/truth/M13.step`) shows pipeline volume
+  30174275755 mm^3 vs truth 15370275932 mm^3 (ratio 1.963x, matches the reported 96.3158% error
+  exactly) while the two bboxes match to within a few mm — so the outer envelope is right but the
+  bore/slot cavity is barely being cut at all: an analytic envelope-only volume (cylinder + 2
+  ellipsoidal dome caps, no cavity) for the M12/M13 params (L=10000,R_o=1000,dome_h=500) computes
+  to ~3.037e10 mm^3, matching the pipeline's 3.017e10 almost exactly. Added a temporary
+  `REBUILD_DEBUG_M13` env-gated debug block in `pipeline/cli.py` right before the `booleans.cut`
+  call (prints bore_pts/bore_rings/sat_rings counts+z-ranges, zone_fore/zone_aft, outer_solid and
+  bore_solid volumes) and kicked off a direct `python -m pipeline.cli` run on
+  `harness/truth/M13.stl` with M13's exact `rebuild_args` (`--axis auto --units in --sections 120
+  --adaptive --chord-tol 8`), logging to `out/dbg13/run.log` (PID in this session; ~800s expected
+  based on iter 69's 783s run). Expect the debug line to show `bore_solid volume` far smaller than
+  the true cavity volume (~1.5e10 mm^3 = envelope 3.037e10 minus truth 1.537e10) — if so, the next
+  step is `len(bore_rings)`/`z range` vs the expected slot zone z=[5750,9750]: prior analysis of
+  the (wrong) reported `topology_events_z_mm` (357/4241 in the pipe's own frame) roughly
+  mirror-matches the true zone bounds once you flip the axis direction (axial_extent - z gives
+  ~9486/5601 vs expected 9750/5750), consistent with the merged-ring/circular-bore classification
+  picking up the slot zone in roughly the right relative position but the `zone_fore`/`zone_aft`
+  bisection landing badly (150-260mm off) or `bore_rings` covering far too few of the 120
+  stations, so the sandwich-fuse cutter (`paths_used.bore="mixed"`, no `paths_slot` in the
+  report — meaning the fused-sandwich branch, not wedge/prism decomposition) ends up cutting a
+  cavity that's much smaller than the real slot zone. Do NOT trust this hypothesis until the
+  debug run's numbers are read — revert the debug block once done (or keep only if it becomes the
+  real fix's diagnostic).
 - **iter 70 (M13) — fixed `pipeline_exit=5` (final solid failed `BRepCheck_Analyzer`), frontier
   moves to `volume_err_pct` (96.3% off, gate 0.5%); progress 0.0435 -> 0.3046, verified with a
   fresh full scorer run (`harness/score.py --milestone M13`).**
