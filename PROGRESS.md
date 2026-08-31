@@ -40,6 +40,77 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 48 (M8) — STILL NOT PASSING, progress unchanged at 0.3528. Root-caused the iter-47
+  volume_err_pct regression (it is NOT the edge-drop band-aid); ran the overdue M1-M7 regression
+  sweep and found a real, separate M5 regression that must be fixed first.**
+  1. **M1-M7 regression sweep (finally run, 2 iterations overdue)**: M1, M2, M3, M4, M6, M7 all
+     still PASS (progress 1.0 each, verified sequentially — running them in parallel produces
+     false failures from a `harness/truth/Mk.stl` write race across processes, not a real bug;
+     always score milestones sequentially, or into separate `--out` files is not enough, the
+     truth-generation step itself races). **M5 now FAILS: `face_count_max` 800 vs gate <=400**
+     (was passing before iter 46/47's changes — confirmed by re-running M5 at the current HEAD
+     commit `ae204bd`, i.e. this is a pre-existing regression from iter 46 or 47's work, NOT
+     introduced by anything in this iteration). Nobody has looked at why yet — top priority next
+     iteration, since a milestone pass requires ALL earlier milestones to still pass and this one
+     silently broke two iterations ago.
+  2. **Root-caused the M8 `volume_err_pct` 3.5152% regression** (bit-for-bit identical value
+     across iter 47 and this iteration, confirmed via direct `harness.metrics.read_step` calls on
+     both output STEPs). It is NOT the `p0.Distance(p1) <= 1e-9` edge-drop band-aid in
+     `pipeline/solids.py::build_prism_solid` — added a real fix for that (dedupe near-duplicate
+     CONSECUTIVE points in the ring's raw point list before `detect_arc_runs` ever sees them,
+     rather than only catching the symptom at edge-construction time) and it changed the M8 output
+     by exactly one point (287 -> 286) with **zero** effect on volume_err_pct. Kept this fix
+     anyway (it's a real, if minor, robustness improvement per the "never let representative
+     points collapse to near-duplicates" note below) but it is NOT the M8 fix.
+  3. **Actual root cause, found via instrumentation** (temporarily added debug prints to
+     `build_prism_solid`, removed before commit): `_build_prism_bore` (`pipeline/cli.py`) always
+     uses `bore_rings[len(bore_rings)//2]` — the raw mesh section at the mid-length station — as
+     the representative cross-section for the whole constant-cross-section prism bore segment.
+     For M8 (8 obround slots, 16 end fillets on the merged bore+slots ring), that ONE station's
+     raw point sampling happens to hit exactly 1 raw point in the "curved" radius band at ALL 16
+     fillet corners simultaneously (`fitting.detect_arc_runs` returns 16 length-1 runs). A
+     length-1 run has no curvature information at all (p0==pm==p1, same point 3x) — `GC_MakeArcOfCircle`
+     correctly throws, and the existing edge-drop fallback correctly adds no edge for it (there is
+     nothing to draw for a single via-point, it's still connected by the straight bridge edges on
+     both sides) — so the drop itself is NOT a bug. The bug is that all 16 real 150 mm fillets get
+     silently reduced to sharp corners in the built solid because the chosen representative
+     station's raw points never captured any of them with more than one sample — a systematic,
+     not random, undersampling that plausibly accounts for the whole 3.5% volume deficit (removing
+     material at 16 fillet corners along the full bore length shrinks volume vs. the true rounded
+     truth).
+  4. **Attempted fix, reverted — do not retry this exact approach without also fixing seam
+     consistency**: changed `_build_prism_bore` to search a +-4 station window around mid-length
+     and pick whichever candidate ring maximizes its worst (shortest) `detect_arc_runs` run length
+     (i.e., the best-resolved sampling of every fillet, not an arbitrary one). This DID find
+     better-sampled candidates, but broke the final solid's `BRepCheck_Analyzer` validity (exit 5,
+     "final solid failed... validity check") — almost certainly because `_build_prism_bore` is
+     called multiple times for different z-segments (event boundaries, per `pipeline/cli.py`
+     lines ~788/810/819) and picking a DIFFERENT representative station per segment introduces a
+     small rotational/phase mismatch between adjacent constant-cross-section prism pieces at their
+     shared seam (each station's raw ring has its own independent noise realization even though
+     the true geometry is constant along z) — something the old "always mid" choice at least kept
+     internally consistent by accident within a single call, though apparently NOT across
+     different calls either (this needs verification, not assumed). Reverted cleanly; `_build_prism_bore`
+     is back to the original blind mid-station pick.
+  - **Next iteration, in order**: (a) fix the M5 `face_count_max` regression FIRST (found this
+    iteration, not yet investigated — check what iter 46/47 changed that could add ~2x extra
+    faces to M5's finocyl+dome case; likely candidate given the timing is the generic
+    STEP-roundtrip self-heal in `export.write_step` (iter 47 bug 3) re-running
+    `ShapeFix_FixSmallFace`/`ShapeFix_Shape` and splitting faces that were previously fine, or the
+    adaptive station density change interacting with M5's loft path); (b) once M5 is back to
+    passing, return to M8's real fix: the representative-station-picking idea from point 4 above
+    is probably still directionally right but needs the SAME candidate-picking logic applied
+    consistently to every `_build_prism_bore` call for a given bore run (e.g. always shift the
+    window by the same relative offset, or explicitly re-align/re-phase each picked ring's point
+    ordering to a shared reference angle before building the wire) so adjacent segments' seams
+    stay geometrically consistent; alternatively, investigate whether locally densifying just the
+    short/degenerate run's neighborhood (e.g. borrowing points from 1-2 adjacent stations only for
+    the specific angular range where a run came back length<3, then re-running `detect_arc_runs`
+    on the augmented point set) avoids the cross-segment consistency problem entirely by not
+    changing anything about which station "owns" the rest of the ring.
+  - Do NOT re-attempt "just pick a different single station" without ALSO handling the
+    cross-segment seam consistency it introduces — that's what broke `BRepCheck_Analyzer` here.
+
 - **iter 47 (M8) — NOT PASSING, progress currently 0.3528 (regressed from iter 46's 0.55; see
   below), M1-M7 NOT re-verified this iteration (ran out of budget before the regression sweep —
   do this first next iteration).** Implemented real `--adaptive` station placement

@@ -199,6 +199,25 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
     pts = [p for p in xy_pts]
     if len(pts) > 1 and math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-9:
         pts = pts[:-1]
+    # Dedupe near-duplicate CONSECUTIVE points before run-classification (not just at
+    # construction time): denser/differently-distributed adaptive stations can make two
+    # resampled ring points collapse to (near-)coincident, which otherwise reaches
+    # `detect_arc_runs` as a degenerate 1-2-point run and forces the arc/edge-construction
+    # fallback below to silently DROP a wire edge (open/malformed-wire risk) instead of never
+    # seeing a degenerate run in the first place. This was the root cause of a volume_err_pct
+    # regression (PROGRESS.md M8 iter 47): band-aiding at edge-construction time avoided the
+    # crash but left the dropped-edge geometry defect; deduping the point list up front means
+    # `detect_arc_runs` never gets handed a run that can only degenerate to p0==p1.
+    if len(pts) > 3:
+        deduped = [pts[0]]
+        for p in pts[1:]:
+            if math.hypot(p[0] - deduped[-1][0], p[1] - deduped[-1][1]) > 1e-6:
+                deduped.append(p)
+        if len(deduped) > 1 and math.hypot(deduped[0][0] - deduped[-1][0],
+                                            deduped[0][1] - deduped[-1][1]) <= 1e-6:
+            deduped.pop()
+        if len(deduped) >= 3:
+            pts = deduped
     if len(pts) < 3:
         raise ValueError("prism cross-section needs at least 3 distinct points")
 
