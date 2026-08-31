@@ -40,6 +40,50 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 62 (M9) — localised and fixed the ~0.03pp `_build_slot_wedges` bias iter 61 flagged:
+  progress 0.397 -> 0.4277, volume_err_pct 0.5315% -> 0.334% (now PASSES the 0.5% gate). The
+  frontier moved to `bbox_err_pct` (new first_failure, 0.180% vs 0.1% gate) -- it was always
+  failing, just never reached before because volume_err_pct failed first.**
+  1. **Root cause: `_fillet_vertex_samples`'s premise ("mesh vertices sit exactly on the true
+     surface, so re-fitting the slot end-fillet radius on them removes the section fit's bias")
+     is FALSE on M9's noisy/coarse marching-cubes input.** It was built for M8's clean, fine
+     mesh, where re-fitting genuinely tightens the residual (measured this iteration: M8 vertex
+     fit residual 0.0007mm vs the section fit's own 0.2-0.5mm -- 300x better, confirming the
+     comment's claim there). On M9 it's the opposite: the vertex fit's residual against its OWN
+     assumed circular-arc law is 3.7-3.8mm, *worse* than the section fit's 1.4-2.4mm -- so
+     accepting it made `f_lo`/`f_hi` (the slot end-fillet radius, true 150mm) drift to
+     ~153.1-153.2mm (+2.1%), and that positive bias (more material cut) was most of the
+     remaining volume error, along with smaller positive biases in `r_out` (+0.094%, from
+     `_sector_of_ring`'s per-station max(r) -- an extreme-value statistic, upward-biased under
+     noise) and `theta_half` (+0.67%, same mechanism via max(angle)-min(angle)).
+  2. **Fix: only accept the vertex re-fit when it is at least as self-consistent as the section
+     fit it would replace** (`fit[1] > res_seed` now rejects it, alongside the existing
+     `abs(fit[0]-f_seed) > 0.25*f_seed` distance guard) -- `pipeline/cli.py::_build_slot_wedges`.
+     This is a data-driven test (residual-vs-residual), not a milestone/chord_tol branch, so it
+     should generalise to any future noisy input without knowing its noise characteristics in
+     advance. Verified this alone (mesh=None, i.e. always reject) gets M9 to 0.334%; the
+     `r_out`/`theta_half` extreme-value bias is a separate, smaller, NOT-yet-fixed contributor
+     (~0.05-0.1pp) that a percentile-trim experiment in `_sector_of_ring` could reduce but
+     produced non-monotonic, seed-fragile results across the 1-5% trim range tested (e.g. 2.0%
+     trim -> 0.089% error, but 1.8% and 2.2% -> ~0.47-0.76% -- almost certainly interacting with
+     the wedge-acceptance/vertex-refit threshold checks flipping branches, not a real smooth
+     optimum) -- reverted that experiment rather than ship an overfit magic constant. Do not
+     retry a bare min/max -> percentile swap in `_sector_of_ring` without first understanding
+     *why* it's non-monotonic (likely: `_fit_end_fillet`'s `6.0*chord_tol` residual-rejection
+     gate or the wedge acceptance test's `0.03*area_` tolerance flipping which code path runs).
+  3. Verified no regression: M1-M8 all still `pass:true, progress:1.0` individually rescored.
+  - **Next step, in order of likely impact:** `bbox_err_pct` is now the M9 blocker (0.180% vs
+    0.1% gate, at the fore dome tip: built z_min=71.34 vs truth z_min=53.49, a 17.85mm
+    undershoot of where the dome pinches out against the R=450 bore -- the aft end wasn't
+    checked but is the same mechanism candidate). This is a *different* code path from the
+    wedge fit: the dome's pinch-point z (where `_extrapolate_end`/`_fit_r2_quadratic`'s R^2-vs-z
+    model crosses R=bore_radius) is presumably biased by the same kind of station-level noise
+    M9 introduces, though not yet measured directly -- instrument `_dome_model`/
+    `_extrapolate_end`'s fitted `(z0, coef)` and the resolved pinch z against the M9/M8 truth
+    params (`dome_semi_axial=500`, `R_o=1000`, `R_bore=450`) the same way this iteration
+    instrumented the wedge fit, before changing any code. `surface_deviation_*` checks are still
+    fully unexercised on M9 (skipped behind `bbox_err_pct`) -- expect them to be the next
+    frontier after bbox is fixed, and they may share the same root cause once found.
 - **iter 61 (M9) — first real M9 attempt: progress 0.05 -> 0.397, volume_err_pct 51.1% -> 0.5315%
   (gate 0.5%), two generalisable slicing/station bugs fixed, one more (small) suspect identified
   but NOT fixed (out of time budget).**
@@ -2461,6 +2505,44 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 62 — M9 — sonnet/medium — 2026-08-30T23:38
+- Score before: progress 0.397, first failure `volume_err_pct` 0.5315% (gate 0.5%).
+- Change: instrumented `_build_slot_wedges`'s fitted `r_out`/`r_in`/`f_lo`/`f_hi`/`theta_half`
+  against M8/M9's known truth params (`slot_outer_r=850`, `slot_fillet=150`,
+  `theta_half=atan(190/850)=0.219914`) via temporary debug env-var prints (all removed before
+  commit; see `git diff` for the one real change). Found all four volume-relevant fitted values
+  biased HIGH: `r_out` +0.094%, `theta_half` +0.67%, `f_lo`/`f_hi` +2.1%. Isolated each
+  contributor by overriding to the true value one at a time and re-running the pipeline +
+  volume check: `theta_half` alone -> 0.4154%, `r_out` alone -> 0.4862%, fillet alone ->
+  0.5151%, all three -> 0.2975% (would already pass). Then found the *real*, non-hardcoded fix:
+  disabling `_fillet_vertex_samples`'s re-fit entirely (mesh=None) got M9 to 0.334% on its own
+  -- meaning that re-fit, not the section-level sampling, was the dominant bias source. Compared
+  its residual against the section fit's own residual directly (see PROGRESS `## Current state`
+  for numbers) and confirmed the vertex re-fit fits its own model *worse* than the section fit
+  on M9 (3.7-3.8mm vs 1.4-2.4mm) while being dramatically *better* on M8 (0.0007mm vs 0.2-0.5mm)
+  -- so gated acceptance on `fit[1] > res_seed` in `pipeline/cli.py::_build_slot_wedges` (one
+  line, plus the existing distance guard). Also tried an unrelated percentile-trim fix in
+  `_sector_of_ring` (targeting the `r_out`/`theta_half` extreme-value bias) but it produced
+  non-monotonic, seed-fragile results across nearby trim percentages -- reverted rather than
+  ship a magic constant tuned to this one input realization.
+- Score after (local): `harness/score.py --milestone M9` -> progress 0.4277 (was 0.397),
+  `volume_err_pct` 0.334% **PASSES** (gate 0.5%) -- no longer the first_failure. New
+  first_failure: `bbox_err_pct` 0.180% (gate 0.1%), which was always failing but never reached
+  because volume failed first. `--milestone M1` through `M8` individually rescored: all still
+  `pass:true, progress:1.0` (M8 uses the same `_build_slot_wedges` path and is unaffected, as
+  predicted by the residual-comparison design). `pytest tests/` not rerun this iteration (no
+  test file covers `_build_slot_wedges` internals; existing suite is orthogonal to this change).
+- Learned: an "improvement" measured only by overriding fitted values to known ground truth
+  (which the real pipeline can never know) is a diagnostic, not a fix -- the actual fix has to
+  come from a data-driven signal available at runtime. Here that signal was "which of two
+  competing fits is more self-consistent with the model it assumes," which is generalisable and
+  cheap (both fits already compute their own residual). Contrast with the percentile-trim
+  attempt, which had no such signal and turned out to be riding a coincidental cancellation.
+- Next: `bbox_err_pct` (0.180% vs 0.1% gate) — built fore-dome pinch z=71.34 vs truth z=53.49
+  (17.85mm undershoot). Instrument `_dome_model`/`_extrapolate_end`'s fitted `(z0, coef)` and
+  resolved pinch-z against M9's known dome params the same way this iteration instrumented the
+  wedge fit, before changing any dome code. Full detail in `## Current state` above.
 
 ### iter 60 — M5 — opus/escalated — 2026-08-31T00:05
 - Score before: progress 0.9899, first failure `gmsh_tet` 0.08173 (gate 0.1).

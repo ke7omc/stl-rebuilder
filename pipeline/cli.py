@@ -911,15 +911,26 @@ def _build_slot_wedges(bore_rings, sat_rings, z_lo: float, z_hi: float, bore_rad
     # plane, so allow a few chord_tol before rejecting the model.
     if max(res_lo, res_hi) > 6.0 * chord_tol:
         return []
-    # Re-fit each radius on mesh vertices, which carry no section bias (`_fillet_vertex_samples`).
-    # Only accepted when it stays near the section fit -- a large move means the vertex band
-    # selected the wrong surface, and the section fit is then the safer answer.
+    # Re-fit each radius on mesh vertices, which carry no section bias when the mesh is a clean,
+    # fine tessellation (`_fillet_vertex_samples`) -- but on a noisy/coarse marching-cubes input
+    # (M9: anisotropic 10x10x40mm grid, sigma=0.5mm noise) the vertices themselves are off the
+    # true surface by more than the section-derived samples are, and re-fitting on them makes
+    # the radius *worse*, not better (measured on M9: section fit residual 1.4-2.4mm vs the
+    # vertex re-fit's own residual 3.7-3.8mm against the SAME circular-arc model -- the vertex
+    # fit is a worse fit to its own assumed law, not a cleaner one). Rather than branch on
+    # milestone/chord_tol (not available here, and wouldn't generalise to a future noisy input
+    # with a different grid), accept the vertex re-fit only when it is at least as self-
+    # consistent as the section fit it would replace -- measured on M8 the vertex fit residual
+    # is 0.0007mm vs the section fit's 0.2-0.5mm (300x tighter), so this keeps M8's fix intact
+    # while rejecting the M9 case that regressed it (0.5315% -> 0.334% volume_err_pct just from
+    # this rejection, chord_tol=5 M9 case).
     if mesh is not None:
-        for z_edge, sign, f_seed, set_lo in ((z_lo, +1.0, f_lo, True), (z_hi, -1.0, f_hi, False)):
+        for z_edge, sign, f_seed, res_seed, set_lo in (
+                (z_lo, +1.0, f_lo, res_lo, True), (z_hi, -1.0, f_hi, res_hi, False)):
             vs = _fillet_vertex_samples(mesh, z_edge, sign, r_out, f_seed, thetas, theta_half,
                                         chord_tol)
             fit = _fit_end_fillet(vs, z_edge, sign, r_out, True, span) if vs else None
-            if fit is None or abs(fit[0] - f_seed) > 0.25 * f_seed:
+            if fit is None or fit[1] > res_seed or abs(fit[0] - f_seed) > 0.25 * f_seed:
                 continue
             if set_lo:
                 f_lo = fit[0]
