@@ -40,6 +40,74 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 49 (M5, per iter-48's priority order) — fixed the `face_count_max` regression
+  root-caused last iteration (`_build_prism_bore`'s blind `bore_rings[len//2]` mid-index pick),
+  M5 now 0.3528 -> 0.7761 (M1-M4/M6/M7 all still PASS, verified sequentially); one gate short:
+  `surface_deviation_p99_mm` 0.413 vs gate 0.4, left for next iteration.**
+  1. **Root cause confirmed exactly as iter 48 predicted**, but the mechanism is broader than
+     "16 length-1 fillet arc-runs" (that was M8-specific): for M5, adaptive placement's chosen
+     mid-index station had `detect_arc_runs` completely misclassify the ring in one of two ways
+     depending on WHICH station lands at the index — either (a) find NO curvature at all
+     (`n_runs=0`), falling back to a raw straight-edge-per-point polygon (~480 edges from 480
+     points, `face_count_max` blowout), or (b) fragment into many tiny/degenerate runs. Which
+     failure mode you hit is just luck of which station adaptive placement happens to put at
+     `len(bore_rings)//2` — there is nothing that makes the middle INDEX of the list the
+     best-conditioned SAMPLE once the list itself isn't uniformly spaced.
+  2. **Fix, in `pipeline/cli.py::_build_prism_bore`**: score every candidate ring in the
+     `bore_rings` list actually passed to this call (via `fitting.detect_arc_runs`) and pick the
+     best one, instead of trusting index `len//2`. Two intermediate scoring attempts regressed
+     OTHER milestones before landing on the final 3-tier version (see the function's own
+     docstring for the full reasoning) — **do not retry either of these two**:
+     - *Attempt 1: minimize `2*n_runs` (total wire edges) alone.* Fixed M5's face count (25
+       faces) but regressed `volume_err_pct` to 4.78%: picked a candidate that had ONE FEWER run
+       than the best one purely because one of its runs degenerated to length 1 (a real fillet's
+       material silently dropped, same mechanism iter 48 diagnosed for M8) — fewest-edges
+       rewards exactly the degenerate case that loses geometry.
+     - *Attempt 2: tier on "has any run < 3 points" only, else minimize edges.* Fixed M5's volume
+       (0.0034%) but regressed **M3**: `volume_err_pct` 0.1627% vs gate 0.1% (previously passing,
+       confirmed at HEAD before this iteration). Root cause: several M3 candidates near the
+       part's aft pinch end had `detect_arc_runs` collapse the ENTIRE 300-point ring into ONE
+       giant "run" (`n_runs=1`, `min_run=281`) — not a *short* degenerate run, so it passed the
+       tier-0 bar, and its `2*n_runs=2` "edge count" looks artificially best of the whole
+       candidate pool, so it always won the tie-break despite being a total misclassification
+       (only 1 of 12 real fillets represented).
+     - **Final version**: tier 0 requires BOTH `n_runs >= 2` AND `min_run >= 3` (rejects both the
+       fragmented-degenerate case AND the collapsed-to-one-run case); tier 1 = real runs found but
+       with a short (<3pt) one; tier 2 = `n_runs` is 0 or 1 (misclassified/collapsed). Within a
+       tier: fewest edges, then closest station to the z-window's own midpoint (restores the
+       original "least distorted by inset/end effects" reasoning as the final tiebreak). Verified
+       against ALL of M1/M2/M3/M4/M5/M6/M7 sequentially after landing on this version — only M5
+       still fails (the near-miss above), nothing else regressed.
+  3. **`bore_rings` is the same list object at every `_build_prism_bore` call site regardless of
+     z-window** (confirmed by reading cli.py, not just assumed) — so this scoring is
+     deterministic per list and every call for a given part picks the identical winning ring.
+     This should be a STRONGER cross-segment consistency guarantee than the blind `len//2` rule
+     ever was, and structurally cannot reintroduce the per-window-independent-pick problem that
+     broke `BRepCheck_Analyzer` in iter 48's reverted M8 attempt (that attempt searched a
+     window AROUND each call's own z-range independently; this one scores the one shared list).
+  4. **M8 itself got WORSE with this change (0.3528 -> 0.05, now fails at `pipeline_exit`:
+     `BRepCheck_Analyzer` invalid), not better** — checked this is not a hidden regression of a
+     PASSING milestone (M8 was not passing before either, so the gate rule is not violated), but
+     flagging it clearly: the better-conditioned candidate this scoring now picks for M8's own
+     event window (verified via instrumentation: `n_runs=16` candidates at both ends of the
+     window, picked the one closest to window-center) produces an INVALID final cut solid, where
+     the OLD blind pick (which happened to land on an `n_runs=0` straight-polygon candidate for
+     M8's specific station list) did not. This suggests the M8 boolean-cut path (fusing/cutting
+     against the satellite slot cutters) has a separate sensitivity to arc-vs-straight edges at
+     the bore/slot boundary that hasn't been investigated yet — **next iteration, when resuming
+     M8, start here**: dump the invalid solid's `BRepCheck_Analyzer` failure detail (which
+     sub-shape, which check) rather than assuming it's the same "seam consistency" class of bug
+     as iter 48's reverted attempt (it structurally cannot be, per point 3 above — this is a new,
+     different failure mode worth its own diagnosis).
+  - **Next iteration**: (a) M5's `surface_deviation_p99_mm` near-miss (0.413 vs 0.4) — the
+    winning tier-0 candidate for M5's window is right at the edge of its z-window (`z=9496.86`
+    inside a `[6000, 9500]` window), which is likely exactly the "inset/end effects" distortion
+    the tiebreak-by-center-distance was meant to avoid, but it's the ONLY tier-0 candidate
+    available among M5's 6 adaptive-placed stations in that window — the other 5 are all tier-2
+    misclassifications. Consider whether `adaptive_stations` should place more candidates in
+    this specific window (more raw material to choose a well-centered winner from) rather than
+    tuning the picker further; (b) then return to M8 per point 4 above.
+
 - **iter 48 (M8) — STILL NOT PASSING, progress unchanged at 0.3528. Root-caused the iter-47
   volume_err_pct regression (it is NOT the edge-drop band-aid); ran the overdue M1-M7 regression
   sweep and found a real, separate M5 regression that must be fixed first.**

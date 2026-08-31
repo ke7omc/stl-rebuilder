@@ -277,10 +277,69 @@ def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
     on that side, not the full `eps_cut` margin a true outer end needs for a robust boolean cut
     against the envelope). `bore_radius`, if given, is forwarded to `build_prism_solid` to snap
     this ring's own main-bore arc onto the same accurately-fitted radius the circular cutter on
-    the other side of the seam uses (see that function's docstring for why)."""
-    mid = bore_rings[len(bore_rings) // 2][1]
-    pts = list(mid.coords)
-    return solids.build_prism_solid(pts, z_min - eps_start, z_max + eps_end_val,
+    the other side of the seam uses (see that function's docstring for why).
+
+    The representative station used to be a blind `bore_rings[len(bore_rings) // 2]` (literal
+    mid-index of whatever list was passed). With adaptive station placement that index can land
+    on a poorly-conditioned raw sample: `detect_arc_runs`'s local circle fit occasionally reads
+    noise around the WHOLE ring as alternating tiny curved/straight runs (M5 iter-49 regression:
+    a 480-point mid station built 481 faces vs. 34 for a different station with the SAME point
+    count, because that particular sampling fragmented into many near-degenerate short runs
+    instead of the true handful of long ones) -- `face_count_max` then fails on pure mesh-
+    conditioning noise, not a real shape difference. Fix: score every candidate ring in
+    `bore_rings` by `detect_arc_runs`'s own output (fewer/longer runs = fewer final wire edges =
+    better-conditioned) and pick the best one, rather than trusting whichever index happens to be
+    the middle of the list. `bore_rings` is the SAME list object at every call site regardless of
+    which z-window is being built (M4/M5's fore/aft seams, M8's per-event bands all pass the
+    identical full-part list) and this scoring is deterministic, so every call picks the SAME
+    winning ring -- this is actually a stronger consistency guarantee than the old "always index
+    len//2" rule (which already implicitly assumed one shared representative station), and
+    unlike the per-call best-of-window search tried and reverted for M8 (PROGRESS.md iter 48), it
+    cannot introduce a different pick for two adjacent segments of the same constant-cross-
+    section bore, so it does not reintroduce the cross-segment seam/phase mismatch that broke
+    `BRepCheck_Analyzer` there.
+
+    Scoring is 3-tiered, not a plain "fewest edges" minimum: a first attempt (minimize
+    `2*n_runs` alone) picked a station whose classifier DID fragment into a spurious length-1
+    run (min run length 1) purely because it had one fewer run overall than the genuinely clean
+    candidate (30 edges vs. 32) -- "fewest edges" rewards exactly the kind of degenerate run
+    `build_prism_solid`'s own GC_MakeArcOfCircle-failure fallback silently drops geometry for,
+    which regressed `volume_err_pct` to 4.78% even though `face_count_max` was fixed. A second
+    attempt (tiering only on "has any degenerate run") still regressed M3 (0.1627% vs gate 0.1%):
+    a handful of near-pinch-end stations classified almost the ENTIRE 300-point ring as ONE giant
+    arc (n_runs=1, min_run=281) -- technically no *short* degenerate run, but just as wrong a
+    read as the zero-run case, and its `2*n_runs=2` "edge count" looks artificially best of all.
+    Final tiering: 0 (>=2 runs found, none degenerate, i.e. min run length >= 3) beats 1 (>=2 runs
+    found but at least one 1-2-point degenerate span) beats 2 (`detect_arc_runs` found NO
+    curvature, or collapsed the whole ring into a single run -- both are a total
+    misclassification for a shape with real fillets, not a legitimate simplification). Within a
+    tier, prefer fewer wire edges, then break remaining ties by distance to the middle of this
+    call's own z-window (least likely to be distorted by inset/end effects, same reasoning the
+    old blind mid-index pick relied on)."""
+    z_center = 0.5 * (z_min + z_max)
+
+    def _score(z, pts) -> tuple:
+        pts = list(pts)
+        if len(pts) > 1 and math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-9:
+            pts = pts[:-1]
+        if len(pts) < 3:
+            return (3, 10 ** 9, abs(z - z_center))
+        runs = fitting.detect_arc_runs(pts, None)
+        if not runs or len(runs) < 2:
+            return (2, len(pts), abs(z - z_center))
+        min_run = min(len(r) for r in runs)
+        tier = 0 if min_run >= 3 else 1
+        return (tier, 2 * len(runs), abs(z - z_center))
+
+    best_pts, best_score = None, None
+    for z, ring in bore_rings:
+        pts = list(ring.coords)
+        s = _score(z, pts)
+        if best_score is None or s < best_score:
+            best_score, best_pts = s, pts
+    if best_pts is None:
+        best_pts = list(bore_rings[len(bore_rings) // 2][1].coords)
+    return solids.build_prism_solid(best_pts, z_min - eps_start, z_max + eps_end_val,
                                      bore_radius=bore_radius)
 
 
