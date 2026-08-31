@@ -18,7 +18,6 @@ import sys
 import traceback
 
 import numpy as np
-from OCP.BRepCheck import BRepCheck_Analyzer
 
 from pipeline import booleans, export, fitting, io as pio, report, solids, stations, tol
 from pipeline.fitting import fit_circle, fit_circle_robust
@@ -671,39 +670,6 @@ def _build_slot_lobes(bore_rings, z_lo: float, z_hi: float, bore_radius: float,
         trsf.SetRotation(axis, theta)
         out.append(BRepBuilderAPI_Transform(solid, trsf, True).Shape())
     return out
-
-
-def _fuse_sandwich_bore(bore_rings, pts_before, pts_after, z_min: float, z_max: float,
-                         event_fore: float, event_aft: float, circ_overlap: float,
-                         fin_overlap: float, seam_eps: float, eps_cut_val: float,
-                         seam_bore_radius: float, chord_tol: float,
-                         bore_seam_clearance: float):
-    """Round 1's three-cutter tool for the M5/M8 sandwich bore: circular revolve fore of
-    `event_fore`, the merged bore+slot ring as one prism through the slot zone, circular revolve
-    aft of `event_aft`, fused into a single cutter.
-
-    `bore_seam_clearance` drops the circular cutters' radius at the overlap end (a taper from the
-    last real point, never a step — a step puts a real feature at the seam plane that the prism
-    does not mask). It costs no geometry: the band it applies to lies inside the prism's own span,
-    where the prism already removes strictly more material than the circle could. It is not free
-    either: the taper perturbs `build_revolve_solid`'s RDP simplification of the whole meridian,
-    and it separates the two near-coincident bore surfaces enough that BOPAlgo leaves a knife-edge
-    sliver at the seam instead of imprinting cleanly — measured on M5, clearance `4*seam_eps`
-    gives gmsh min SICN 0.0062 against a 0.1 gate where clearance 0 gives 0.291. So the caller
-    tries 0 first and only pays the clearance when the fuse is otherwise invalid.
-
-    The caller must check the result with `BRepCheck_Analyzer` — see the call site.
-    """
-    circ_fore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before \
-        + [(event_fore + circ_overlap, pts_before[-1][1] - bore_seam_clearance)]
-    circ_aft_full = [(event_aft - circ_overlap, pts_after[0][1] - bore_seam_clearance)] \
-        + pts_after + [(z_max + eps_cut_val, pts_after[-1][1])]
-    fin_solid = _build_prism_bore(bore_rings, event_fore, event_aft, fin_overlap, fin_overlap,
-                                   chord_tol, bore_radius=seam_bore_radius)
-    circ_fore_solid = solids.build_revolve_solid(circ_fore_full, chord_tol)
-    circ_aft_solid = solids.build_revolve_solid(circ_aft_full, chord_tol)
-    fused = booleans.fuse(circ_fore_solid, fin_solid, seam_eps)
-    return booleans.fuse(fused, circ_aft_solid, seam_eps)
 
 
 def _sector_of_ring(xy):
@@ -1513,55 +1479,41 @@ def _run(args) -> int:
             # real 2 mm feature at the seam plane that the prism does not fully mask, pushing
             # M5's `surface_deviation_max_mm` to 1.073 (gate 0.6) versus 0.681 for the taper.
             seam_bore_radius = 0.5 * (pts_before[-1][1] + pts_after[0][1])
-            # Top rung: filleted angular wedges over the WHOLE zone [zone_fore, zone_aft], the
-            # only path that models the tapering fillet window at each slot end — the entire M8
-            # deviation failure. Falls through when the sections do not fit the annular-sector
-            # model (M5's fins are constant-Cartesian-width, so they never do).
+            # Preferred path: cavity decomposition (`_build_slot_lobes`) — one uninterrupted
+            # circular bore revolve over the WHOLE length plus one independent prism per slot,
+            # so no two cutter surfaces are ever near-coincident and no fuse is needed at all.
+            # Preferred rung: filleted angular wedges over the WHOLE zone [zone_fore, zone_aft],
+            # which is the only path that models the tapering fillet window at each slot end —
+            # the entire M8 deviation failure. Falls back to the constant-section prism when the
+            # sections do not fit the annular-sector model.
             lobe_cutters = _build_slot_wedges(bore_rings, sat_rings, zone_fore, zone_aft,
                                                seam_bore_radius, chord_tol, mesh=mesh)
-            bore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before + pts_after \
-                + [(z_max + eps_cut_val, pts_after[-1][1])]
             if lobe_cutters:
                 paths_slot = "wedge"
+            else:
+                paths_slot = "prism"
+                lobe_cutters = _build_slot_lobes(bore_rings, event_fore, event_aft,
+                                                  seam_bore_radius, chord_tol)
+            if lobe_cutters:
+                bore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before + pts_after \
+                    + [(z_max + eps_cut_val, pts_after[-1][1])]
                 bore_solid = solids.build_revolve_solid(bore_full, chord_tol)
             else:
-                # Next rung: the three-cutter fuse (one merged bore+slot ring prism between the
-                # two circular cutters => ONE tool, one wire per station). Where it validates it
-                # is strictly the better tool: the fillets live on the merged ring's own boundary
-                # instead of becoming free-standing ribbon faces, so it meshes far better than
-                # the decomposition (measured on M5: 53 faces / gmsh min SICN 0.234 fused, versus
-                # 205 faces / 0.0817 decomposed against a 0.1 gate). Round 1 shipped M5 on this
-                # path; iter 51 replaced it unconditionally to fix M8 and silently regressed M5.
-                # But the fuse is NOT always available — on M8 the merged ring's own bore arc and
-                # the circular cutter's cylinder are two distinct surfaces closer together than
-                # the boolean's fuzzy value, which BOPAlgo cannot imprint, and both fuses come
-                # back invalid (`_build_slot_lobes` docstring, PROGRESS `## Do not retry`). So
-                # decide by measurement rather than by shape class: build the fused tool, check
-                # it, and decompose only when it really is invalid. Clearance 0 first — it is
-                # what Round 1 shipped and it meshes far better (0.291 vs 0.0062 min SICN); the
-                # clearance rung exists only to make an otherwise-invalid fuse valid.
-                fused = last_fused = None
-                for clearance in (0.0, 4.0 * seam_eps):
-                    last_fused = _fuse_sandwich_bore(
-                        bore_rings, pts_before, pts_after, z_min, z_max, event_fore, event_aft,
-                        circ_overlap, fin_overlap, seam_eps, eps_cut_val, seam_bore_radius,
-                        chord_tol, clearance)
-                    if BRepCheck_Analyzer(last_fused).IsValid():
-                        fused = last_fused
-                        break
-                if fused is not None:
-                    bore_solid = fused
-                else:
-                    # Cavity decomposition: one uninterrupted circular bore revolve over the whole
-                    # length plus one independent prism per slot, so no two cutter surfaces are
-                    # ever near-coincident and no fuse is needed at all.
-                    lobe_cutters = _build_slot_lobes(bore_rings, event_fore, event_aft,
-                                                      seam_bore_radius, chord_tol)
-                    if lobe_cutters:
-                        paths_slot = "prism"
-                        bore_solid = solids.build_revolve_solid(bore_full, chord_tol)
-                    else:
-                        bore_solid = last_fused
+                # Fallback: the Round 1 three-cutter fuse. See `_build_slot_lobes` for why the
+                # circular cutters need a clearance taper here and why it is not repairable.
+                bore_seam_clearance = 4.0 * seam_eps
+                circ_fore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before \
+                    + [(event_fore + circ_overlap, pts_before[-1][1] - bore_seam_clearance)]
+                circ_aft_full = [(event_aft - circ_overlap,
+                                  pts_after[0][1] - bore_seam_clearance)] \
+                    + pts_after + [(z_max + eps_cut_val, pts_after[-1][1])]
+                fin_solid = _build_prism_bore(bore_rings, event_fore, event_aft, fin_overlap,
+                                               fin_overlap, chord_tol,
+                                               bore_radius=seam_bore_radius)
+                circ_fore_solid = solids.build_revolve_solid(circ_fore_full, chord_tol)
+                circ_aft_solid = solids.build_revolve_solid(circ_aft_full, chord_tol)
+                bore_solid = booleans.fuse(circ_fore_solid, fin_solid, seam_eps)
+                bore_solid = booleans.fuse(bore_solid, circ_aft_solid, seam_eps)
         elif circ_before:
             # Same asymmetric-overlap fix as the M5 sandwich path above (`circ_overlap`/
             # `fin_overlap`), applied to M4's single-event seam: the bore_radius snap makes

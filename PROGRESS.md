@@ -40,6 +40,28 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 59 (M5) — READ THIS FIRST. `gmsh_tet` is SOLVED and the milestone is one localized
+  3 %-over-gate number away. `pipeline/` is reverted to `3eb061d` (progress 0.9899), but the fix
+  is commit `45bb45d`, waiting to be cherry-picked.**
+  1. M5's `gmsh_tet` 0.08173 is a **Round-2 regression**, not an unsolved Round-1 problem. Round 1
+     shipped M5 at **53 faces / gmsh min SICN 0.234** (`HANDOFF.md` M5 row, commit `1b4ff91`) on
+     the three-cutter *fuse*; iter 51 replaced that with cavity decomposition to fix **M8** and
+     made it unconditional, so M5 inherited 8 free-standing lobe prisms (205 faces) whose chorded
+     R=40 tip fillets are the needle slivers iters 57/58 measured. Iters 55–58 spent four
+     iterations trying to make the decomposed lobes mesh as well as the fused tool already did;
+     best gain was 0.08173 → 0.08277. **Do not resume that line.**
+  2. Restoring fuse-first (`45bb45d`, chosen by `BRepCheck_Analyzer` on the fused tool, not by
+     milestone) gives **min SICN 0.291** — 2.9× the gate. M8 is unaffected: it takes the
+     `_build_slot_wedges` rung (`out/M8.report.json`: `slots: wedge`) and never reaches this code;
+     M4 is a different branch.
+  3. **The clearance trap:** the same fused tool built with `bore_seam_clearance = 4*seam_eps`
+     (the Round-2 value, added for M8) gives **0.0062**, not 0.291. Test the fuse at clearance 0.
+  4. Remaining blocker on that path: `surface_deviation_p99_mm` 0.4127 vs 0.4, entirely from the
+     **fin flanks** (r 577.7–662.4, both flanks of all 8 fins, all z) — `build_prism_solid`
+     collapses each straight run to ONE chord between truncated `detect_arc_runs` endpoints, so
+     the flank chord cuts into the real tip fillet. Fix with `fitting.fit_fillet_ring` (iter 44's
+     full-fillet reconstruction, already proven on M6). Details + verification recipe in the
+     iter-59 RESULT log block.
 - **iter 58 (M5) — no net functional change (reverted to byte-identical `bc78877`); CONFIRMED
   iter 57's fillet-defect hypothesis with the actual 3D tet geometry (needle slivers, not just a
   region), then tried two point-thinning fixes derived from that diagnosis — both measured,
@@ -2032,6 +2054,18 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **Do not try to fix M5's `gmsh_tet` by improving the DECOMPOSED lobe outlines (arcs, point
+  dedup, run decimation, seam rolls). Four iterations (55–58) did; best result 0.08173 → 0.08277
+  against a 0.1 gate.** The decomposition is itself the defect: M5 belongs on the three-cutter
+  fuse, which gives 0.291 (iter 59). Fix the path, not the polygon.
+- **Do not evaluate the M5/M8 sandwich fuse with `bore_seam_clearance = 4*seam_eps`.** That value
+  exists to rescue M8's invalid fuse; on M5 it drops gmsh min SICN from 0.291 to **0.0062** by
+  leaving a knife-edge sliver at the seam. Always try clearance 0 first and only fall back.
+- **Do not treat a Round-1-passing milestone's failure as a new problem before diffing against
+  Round 1 (the generalisable lesson of iter 59).** `HANDOFF.md`'s per-milestone table and
+  `logs/M{k}-final-report.json` record the exact numbers and `paths_used` of the last known-good
+  build; comparing `paths_used` took two minutes and overturned four iterations of work. Do this
+  check first whenever a milestone that once passed now fails.
 - **Do not "add stations" to fix a `surface_deviation_*_by_region` failure on M8 (iter 54 —
   this was the driver's own hint and it was wrong).** M8 already emits exactly 80 stations
   against an `n_stations_max` of 80 and 10 dome stations against a `dome_stations_min` of 8:
@@ -2346,6 +2380,62 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 59 — M5 — opus/escalated — 2026-08-30T23:55 — RESULT
+- Score before: progress 0.9899, first failure `gmsh_tet` 0.08173 (gate 0.1).
+- Change (implemented, measured, then reverted from `pipeline/` — **kept as commit `45bb45d`,
+  cherry-pick it next iteration**): in `_run`'s M5/M8 sandwich branch, prefer the Round-1
+  three-cutter fuse over cavity decomposition, choosing by measurement (`BRepCheck_Analyzer` on
+  the fused tool) rather than by shape class, with a two-rung clearance ladder. New helper
+  `_fuse_sandwich_bore(..., bore_seam_clearance)` in `cli.py`.
+- Score after (my local full run, `out/score.M5.iter59.json`): progress **0.7761**, first failure
+  `surface_deviation_p99_mm` **0.4127** (gate 0.4). **`gmsh_tet` is no longer the blocker** —
+  measured directly on the built STEP with `harness.meshcheck.check_meshability(..., hmax=100)`:
+  **min SICN 0.291** (gate 0.1) at 128 346 tets, versus 0.08173 on the decomposed baseline.
+  `volume_err_pct` 0.0169, `bbox` and `topo_event_z` unchanged, runtime 3.8 s.
+- **THE HEADLINE: `gmsh_tet` on M5 is SOLVED, and iters 55–58 were chasing a phantom.** The
+  0.0817 was never an intrinsic property of the fin-tip fillet; it is a Round-2 regression from
+  iter 51 making cavity decomposition unconditional. See the diagnosis block below for the
+  evidence (`HANDOFF.md`'s M5 row: 53 faces, SICN 0.234, on the fuse path).
+- **Second finding, and it is what the clearance ladder is for:** the Round-2
+  `bore_seam_clearance = 4*seam_eps` taper — added for M8, and present in the fallback fuse code
+  the whole time — is itself catastrophic for gmsh on M5. Same fused tool, clearance
+  `4*seam_eps` → **min SICN 0.0062**; clearance `0` → **0.291**. It separates the two
+  near-coincident bore surfaces just enough that BOPAlgo leaves a knife-edge sliver at the seam
+  instead of imprinting cleanly. Hence the ladder tries 0 first and only pays the clearance to
+  rescue an otherwise-invalid fuse. **Anyone re-testing "does the Round-1 fuse still work" must
+  set clearance 0 — testing it at `4*seam_eps` reads as a total failure (0.0062) and would
+  wrongly bury this whole result.**
+- **What now blocks it — localized, one number over gate.** `surface_deviation_p99_mm` 0.4127 vs
+  0.4 (3 % over). It is entirely in `fin_zone`, whose p99 went 0.0588 → 0.4297 while every other
+  region is unchanged to 4 decimal places. Localized with `/tmp/dev_loc2.py` (both directions,
+  200 k samples, tessellation 0.25 mm): the bad points are the **fin flanks**, r ∈ [577.7, 662.4],
+  θ mod 45° ∈ [3.42, 3.96] on both flanks of all 8 fins, spread over the whole z range — a
+  systematic band, not a local defect. The tip fillet starts at r = 660 (R=40 centred at 660) and
+  the band runs 82 mm inward from it.
+- **Mechanism (high confidence, from `build_prism_solid`'s own docstring):** "each straight run
+  collapses to a single straight edge between consecutive arc endpoints." The flank is a straight
+  run bridging the main-bore arc and the tip-fillet arc, so it becomes ONE chord — and
+  `detect_arc_runs`' runs are known to be TRUNCATED at their ends by ~28–33° (the iter-44
+  `## Do not retry` entry, measured on M6), so that chord starts partway *into* the real fillet
+  and cuts the corner. That is exactly a 0.44 mm band ending at the fillet tangent point.
+- **Ruled out this iteration:** iter 55's `detect_arc_runs` auto-elbow `min_side` fix is NOT the
+  cause. Reverted `pipeline/fitting.py` to `bc78877^` and re-ran: fin-zone max/p99 came back
+  **bit-identical** (0.4403 / 0.4294). Restored.
+- **Next iteration, concretely:** `git cherry-pick 45bb45d` (or re-apply it — it is a clean,
+  self-contained edit to the sandwich branch plus one new helper), then fix the flank chord in
+  the merged-ring prism. The tool for it already exists and is proven: `fitting.fit_fillet_ring`
+  (iter 44) reconstructs the FULL fillet from the flank lines → corner intersection → inscribed
+  tangent circle, precisely because raw `detect_arc_runs` spans are truncated; that is what made
+  M6's 24-edge arc/line wire pass every gate. Apply the same reconstruction to the ring
+  `_build_prism_bore` hands to `build_prism_solid`, so each flank chord runs to the true fillet
+  tangent point instead of into the fillet. Budget: 3 % of one gate. Verify the narrow thing
+  first with `/tmp/dev_loc2.py` (≈90 s: rebuild + measure fin-zone p99) before spending a full
+  scorer run, and re-check `gmsh_tet` with `meshcheck.check_meshability` — the fillet is where
+  the mesh quality comes from, so both numbers must be read together.
+- **Reverted `pipeline/` to `3eb061d`'s tree** (verified: `git diff 3eb061d -- pipeline/` empty)
+  because 0.7761 < 0.9899 by the scorer's own measure and the rules require it. Nothing is lost:
+  the code is commit `45bb45d` and the recipe is above.
 
 ### iter 59 — M5 — opus/escalated — 2026-08-30T22:45 — DIAGNOSIS (written before the change)
 - **The last four iterations (55–58) all assumed M5's `gmsh_tet` = 0.0817 is an intrinsic
