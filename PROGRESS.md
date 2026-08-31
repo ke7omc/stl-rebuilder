@@ -40,6 +40,64 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 56 (M5) — implemented iter 55's point-4 fix (arc-corrected target area), it DID fix the
+  bias it targeted, but volume-matching (even bias-corrected) is provably insufficient on its
+  own, and a position-gated version of it made `gmsh_tet` WORSE (0.0817 -> 0.0711). Reverted
+  both attempts back to `bc78877`'s exact byte-identical state (verified: `git diff bc78877 --
+  pipeline/cli.py pipeline/fitting.py` empty); M5 confirmed back at progress 0.9899 / gmsh_tet
+  0.08173. No functional change kept — see below for what's now ruled out and why.**
+  1. **Implemented `fitting.arc_corrected_ring_area`**: walks the exact same edge sequence
+     `solids.build_prism_solid` builds (each `detect_arc_runs` run -> one exact 3-point
+     `GC_MakeArcOfCircle` via a closed-form Green's-theorem circular-segment area, everything
+     else -> a single straight bridging chord between runs) instead of patching the raw shapely
+     polygon area. Validated the Green's-theorem arc-area formula standalone against a synthetic
+     square-with-a-semicircular-bulge case (both directions, `/tmp/test_corrected_area.py`, not
+     committed) before wiring it in — exact match to `0.5*R^2*(theta-sin(theta))`.
+  2. **First surprise: correcting only the arc bias wasn't enough.** Debug-instrumented
+     `_prism_from_ring` on the real M5 lobe and found the "corrected" target still differed from
+     `area*height` by only ~0.008%, while the actual built-vs-raw-target error was 0.36% — a
+     45x gap. Root cause: `build_prism_solid` ALSO collapses the entire STRAIGHT gap between the
+     end of one arc run and the start of the next into ONE bridging edge, silently dropping every
+     intermediate mesh sample point on that flank. A real mesh flank is only approximately
+     collinear, so this collapse has its own area delta ~40x bigger than the arc-fit bias being
+     corrected — and it was the dominant, previously-unmeasured term. Rewrote
+     `arc_corrected_ring_area` to walk the FULL actual wire (arcs + collapsed straight bridges),
+     not "raw area + arc correction only" — after that fix, all 8 M5 lobes matched their
+     corrected target to machine precision (err ~1e-14 to ~1e-16) on the FIRST roll tried, and
+     the previously roll-sensitive congruent-sibling fallback wasn't needed at all.
+  2. **Second surprise, worse: exact-to-machine-precision volume match still built a
+     mis-positioned arc.** Ran the full M5 scorer with `err<=1e-3` gated on the corrected target:
+     `gmsh_tet` never even got scored — `surface_deviation_max_mm` regressed to 6.065 mm at
+     z=7412.9 (fin_zone), reproducing verbatim the EXACT prior "relax to 5%" experiment iter 55
+     had already tried and rejected (down to the same z location and the same magnitude). This is
+     the sharpest evidence yet for that comment's claim: a 3-point `GC_MakeArcOfCircle` fit
+     through only `p0`/`pm`/`p1` of a 23-point run can be off-target on those 3 specific
+     (tessellation-noisy) points by several mm while still enclosing almost exactly the same
+     AREA as the true boundary (area conservation is a much weaker constraint than position
+     agreement — this holds even when the "target" area itself is bias-corrected to be exact).
+  3. **Tried adding a position gate alongside the volume gate**: `fitting.arc_wire_max_dev`
+     (same edge-walk as `arc_corrected_ring_area`, but returns the max distance from every raw
+     ring point to the actual built arc/chord wire instead of an area) required to be
+     `<= 4*chord_tol` in addition to `err<=1e-3` before accepting a roll.
+     `surface_deviation_max_mm` did drop back to a passing 0.440 mm this way — but `gmsh_tet`
+     came out WORSE, not better: 0.0711 vs the baseline's 0.0817 (both well under the 0.1 gate,
+     driver progress 0.984 vs the recorded-best 0.9899/0.990). `surface_deviation` was **already
+     passing at baseline** (the straight-polyline fallback's chords are well inside the 0.6 mm
+     gate at this scale), so this path traded a metric that wasn't broken for a worse value on
+     the one metric that actually blocks the milestone. Not a correctness bug in the new checks
+     — a real result: on this specific merged bore+slot topology, a straight-polyline lobe
+     (uniform, well-conditioned quad-ish faces) tets better than a lobe with real arcs meeting
+     collapsed-straight bridges at sharp, poorly-conditioned transitions.
+  4. **Conclusion — ruled out, don't retry:** "recover real arcs for the slot lobes, gated on
+     volume (bias-corrected or not) plus a position check" is NOT the path to `gmsh_tet` >= 0.1
+     on M5's current topology. The straight-polyline fallback's uniform chording is, empirically,
+     the BETTER-conditioned mesh input of the two, even though it's the geometrically cruder
+     approximation. The next idea should attack `gmsh_tet` directly instead: e.g. inspect which
+     specific tet(s) have the worst SICN (`meshcheck.py`'s gmsh session can dump per-element
+     quality, not just the min) and see whether it's at a lobe/bore-cylinder seam, a
+     lobe-to-lobe corner, or the disc-cut boundary — a targeted local remesh-size hint
+     (`Mesh.MeshSizeMax` near that one region) or a small explicit fillet/chamfer at that one
+     seam may be cheaper than continuing to rebuild the lobe's boundary representation.
 - **iter 55 (M5, regression demotion) — no net functional change; deep-dived M5's `gmsh_tet`
   (min SICN 0.08173 vs gate 0.1) and found the real root cause, but the fix needs a different
   acceptance test than volume-matching, which is more than fits in one iteration. M8 still
@@ -2183,6 +2241,32 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 
+### iter 56 — M5 — sonnet/medium — 2026-08-30T21:59
+- Score before: `progress=0.9899`, stage `validate`, first failure `gmsh_tet=0.08173` (gate 0.1).
+- Change: implemented iter 55's suggested fix (arc-corrected target area for
+  `_prism_from_ring`'s acceptance test) in `pipeline/fitting.py`
+  (`arc_corrected_ring_area`/`arc_wire_max_dev`, new `_circle_3pt`/`_arc_green_contribution`
+  helpers) and `pipeline/cli.py::_prism_from_ring`. Two rounds: (1) area-only correction via
+  Green's theorem, which needed a second fix once measurement showed `build_prism_solid` ALSO
+  collapses each straight inter-arc gap to one bridging edge, not just the arc runs themselves;
+  (2) adding a position gate (`arc_wire_max_dev <= 4*chord_tol`) after the area-only version let
+  through a volume-exact but mis-positioned arc (reproduced the exact iter-55 5%-tolerance
+  regression: 6.065 mm at z=7412.9).
+- Score after (local): area-only version — `surface_deviation_max_mm` regressed to 6.065 mm
+  (gate 0.6), progress 0.6722. Position-gated version — `surface_deviation` fixed (0.440 mm) but
+  `gmsh_tet` got WORSE (0.0711 vs baseline 0.0817), progress 0.984. **Both worse than the
+  0.9899 baseline — reverted.** `git diff bc78877 -- pipeline/cli.py pipeline/fitting.py` is
+  empty; re-ran `harness/score.py --milestone M5` on the reverted tree and confirmed it's back
+  to bit-identical 0.9899 / gmsh_tet 0.08173.
+- Learned: see `## Current state` above (full writeup) — the short version is that
+  volume-matching an arc fit, even with an exactly bias-corrected target, does not imply
+  positional correctness, and empirically the straight-polyline lobe fallback tets BETTER than
+  a real-arc lobe on this specific merged bore+slot topology. This whole "recover real arcs for
+  the slot lobes" direction is now ruled out for raising `gmsh_tet`; the next attempt should
+  target the mesh quality metric directly (per-element SICN inspection to localize the sliver,
+  then a local remesh-size hint or a small explicit fillet at that one seam) rather than
+  continuing to rebuild the lobe boundary representation.
+
 ### iter 54 — M8 — opus/high (escalated) — 2026-08-30T21:10
 - Score before: `progress=0.828`, stage `validate`, first failure
   `surface_deviation_p99_by_region=0.7140` (gate 0.4) in `fore_dome`, global p99 0.3795.
@@ -3708,4 +3792,3 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   returns exact volume for boolean-cut cylinders (no floating-point error at all).
 - Next: build `harness/metrics.py` (volume/CoM/inertia from trimesh; symmetric deviation;
   STEP round-trip) and `harness/meshcheck.py` (gmsh subprocess check).
-Testing: arc-corrected target for _prism_from_ring, expect M5 gmsh_tet SICN to improve above 0.1
