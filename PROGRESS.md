@@ -40,6 +40,57 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 74 (M13, escalated) — root cause #1/#3 were both SYMPTOMS. The real bug was branch
+  selection, and fixing it took `volume_err_pct` from 96.3156% to 0.9993% (progress 0.3046 →
+  0.3261). M13 still fails (gate 0.5%), but the frontier is now a measured 2-part dimensional
+  bias, not a broken boolean.**
+  1. **The bug**: `_run()` only takes the M5/M8/M12 sandwich (wedge) branch when `pts_before` AND
+     `pts_after` are both non-empty — i.e. only when a *station* happened to land on a circular
+     bore on each side of the slot zone. M13's fore circular-bore window is only ~168 mm wide, but
+     `station_eps = min(max(eps_end, 200*chord_tol), 0.02*L)` = **197 mm** at `chord_tol=8` (the
+     `200*ct`=1600 mm term saturates, so the `0.02*L` cap binds), so **no station could ever see
+     it**. `pts_before` was empty → the degenerate single-seam fuse path → a geometrically
+     meaningless cutter → envelope-only output. M12 is the control: same truth solid, `ct=0.5` →
+     `station_eps`=100 mm → stations at 9769/9789/9808 → sandwich → wedge → 0.0052% volume error.
+     This is why iters 70-73 kept finding new boolean pathologies: they were all downstream of
+     feeding the boolean layer a nonsense cutter.
+  2. **The fix** (`pipeline/cli.py`, just before `event_z = None`): when `bore_rings` and
+     `bore_pts` both exist but one END of the ring span has no `bore_pts` beyond it, probe up to 5
+     extra **sections** (0.9/0.75/0.6/0.45/0.3 of the way from the part end to the first station)
+     looking for a single outer loop with exactly one axis-centred circular interior; accept it
+     into `bore_pts`. Probes are sections, NOT stations — not appended to `all_zz`, not reported —
+     so they cost nothing against `--sections`, `station_bands` or `n_stations_max`, and they all
+     lie strictly outside the ring span so the circular/non-circular contiguity check can't trip.
+     On M13: 1 rejected (still in the slot zone), 4 accepted at R=549.3-549.5 (true 550).
+  3. **Result**: `paths_used` now `{'outer':'revolve','bore':'mixed','slots':'wedge'}` (there was
+     no `slots` key at all), 8 lobe cutters, `cut(outer,bore)`=20.84e9 valid (was a no-op removing
+     ~47000 mm^3), STEP 6383 entities / **76 faces — the same face count as M12's winning STEP**.
+     So the topology is now right; only dimensions are off.
+  4. **Regression**: M4 re-scored `pass:true, progress:1.0` (M4 is the one other milestone whose
+     branch the probe can reach — its fins genuinely run to the part end, so the probe finds a
+     non-circular hole and rejects, changing nothing). M5 and M12 also re-scored — see the iter 74
+     log block for the final numbers.
+  5. **The remaining 1%, measured and split** (full derivation in the iter 74 log block):
+     - **~0.27% is in the input mesh and cannot be reconstructed away.** The M13 marching-cubes
+       input is radially scaled ~0.99866 about the axis vs the analytic truth: mean outer radius
+       **998.68** (truth 1000.0), mean bore radius **549.24** (truth 550.0) — the same *ratio*,
+       so it is a scale, not an SDF offset (an offset would move the bore the other way).
+       Do NOT judge this from the mesh bbox; the bbox reads oversized because it picks the
+       sigma=0.8mm noise maximum, not the surface position.
+     - **~0.73% is ours: the profile RDP epsilon.** `pipeline/solids.py:187` uses
+       `rdp(pts_for_rdp, 0.5 * chord_tol)`, which is **4 mm** at `chord_tol=8`, and RDP on a
+       convex profile always cuts the corner inward. Fitted station radii are 998.66-998.73
+       (faithful), but the built STEP's outer radius is **998.02** — 0.67 mm lost to
+       simplification alone. `chord_tol` describes the *input's* fidelity, not the reconstruction
+       error we are allowed to add; the volume gate is 0.5% and for R=1000 a systematic inward
+       shift costs ~0.2% per mm.
+  6. **Next iteration's single change**: decouple the profile RDP epsilon from `chord_tol` —
+     e.g. `min(0.5*chord_tol, <absolute cap ~0.5mm>)` at `pipeline/solids.py:187` (and check
+     whether `_build_slot_wedges` / `simplify_closed_ring` need the same cap, since ~92e6 of the
+     153.6e6 mm^3 deficit is in the slot/dome zones). Expected to recover most of the 0.73% and
+     land near ~0.3-0.4%, inside the 0.5% gate. **Regression risk is global** (every milestone's
+     profile gets more points), so re-check `face_count_max` and the deviation gates on M1-M12,
+     not just M13 — budget for that, it is the whole reason this was not done in iter 74.
 - **iter 72 (M13) — fixed root cause #1 (degenerate fuse) via a validity+degeneracy-floor retry;
   discovered a NEW, deeper root cause #3 that still blocks `volume_err_pct`. Progress unchanged
   numerically (still ~0.3046, not re-verified with the full scorer — see below) but real forward
@@ -2678,6 +2729,21 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **Do not chase M13's `volume_err_pct` in the boolean layer** (`pipeline/booleans.py`,
+  `_fuse_seam_bore`, `_fuse_ok`, fuzzy values, seam clearances, sequential-vs-fused cuts). Iters
+  70-73 spent four iterations there. The cutter *shape* was wrong, not the boolean: `_run()` was
+  taking the degenerate single-seam branch because no station sampled M13's ~168 mm fore circular
+  bore window (iter 74). Root causes #1 and #3 in the iter 70-73 logs are symptoms of that and are
+  now moot. Fixed in iter 74; 96.3156% → 0.9993%.
+- **Do not judge whether a noisy marching-cubes input is dimensionally faithful from its bbox.**
+  M13's mesh bbox reads *oversized* (y -1701.26..301.38 vs truth -1700..300) while its actual mean
+  outer radius is 998.68 vs truth 1000.0 — the bbox is picking the sigma=0.8mm noise maximum. Use
+  the mean radius of vertices in an axial slab (or a robust fit), never the extremes.
+- **Do not assume a residual volume error is all reconstructable.** M13's input is radially scaled
+  ~0.99866 about the axis relative to the analytic truth (outer 998.68/1000, bore 549.24/550 — the
+  same ratio, so it is a scale, not an SDF offset). That is a hard ~0.27% volume floor for any
+  honest fit at M13's `chord_tol=8`; the gate is 0.5%, so the reconstruction's own error budget is
+  only ~0.2%, not 0.5%.
 - **Do not "improve" a straight run by fitting a line through its own points.** A straight run
   does not become edges through its points at all — `build_prism_solid` collapses it to one chord
   between the *neighbouring arc runs'* endpoints, and those endpoints are routinely one or two
@@ -3054,7 +3120,46 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   Blast radius: M1/M2/M6/M7 never reach the branch (`bore_rings` or `bore_pts` empty); M5/M8/M9/
   M12 already have both sides so the probe does not run; M4's fins genuinely reach the part end so
   the probe runs, finds a non-circular hole, and changes nothing but 5 extra sections.
-- Score after (my local run): see the follow-up note appended below.
+- Score after (local, authoritative `harness/score.py --milestone M13`): **progress 0.3046 →
+  0.3261**, `volume_err_pct` **96.3156% → 0.9993%** (gate 0.5). Still `pass:false`, frontier still
+  `volume_err_pct`, but a 96x reduction. The wedge path now fires exactly as on M12:
+  `paths_used = {'outer':'revolve','bore':'mixed','slots':'wedge'}` (was no `slots` key at all),
+  8 lobe cutters, `cut(outer,bore)` 20.84e9 valid (was a near-no-op removing ~47000 mm^3), STEP
+  6383 entities (was 253; M12's winning STEP is 6072) and **76 faces — identical to M12's winning
+  STEP**. 4 end-probes accepted at R=549.3-549.5 (true bore R=550), 1 rejected (still in the slot
+  zone).
+- Regression (all re-scored on this commit, all `pass:true, progress:1.0`): **M4** `volume_err_pct`
+  0.00297% — M4 is the one other milestone whose branch the probe can reach, and it behaves exactly
+  as predicted (its fins genuinely run to the part end, so the probe finds a non-circular hole,
+  rejects, and changes nothing but 5 throwaway sections); **M5** 0.000367%; **M12** 0.00521%
+  (unchanged from its Round-1 number — M12 already has `bore_pts` on both sides, so the probe never
+  runs). M1/M2/M6/M7 cannot reach the branch at all (`bore_rings` or `bore_pts` is empty);
+  M8/M9/M10/M11 already have both sides.
+- Root cause #2, now measured (this is the whole remaining 1%, and it is TWO separate deficits).
+  My STEP V=15.2167e9 vs V_truth=15.3703e9, i.e. 153.6e6 mm^3 short. Decomposition:
+  1. **~0.27% is in the input mesh and is NOT reconstructable.** Measured directly off the M13
+     input vertices (mm, axis at y=-700,z=1300): mean outer radius **998.68** (truth 1000.0) and
+     mean bore radius **549.24** (truth 550.0) at x=3200 and x=7000. Both shrink by the same
+     *ratio* (0.99869 / 0.99862), not by a constant normal offset — a constant SDF offset would
+     move the bore the other way. So the h=8mm marching-cubes input is radially scaled ~0.99866
+     about the axis relative to the analytic truth; a body of revolution scales as s^2, giving an
+     unavoidable ~0.27% volume deficit for any honest fit. (The mesh *bbox* looks oversized,
+     y -1701.26..301.38, but that is the sigma=0.8mm noise maximum, not the surface position —
+     do not use the bbox to judge this.)
+  2. **~0.73% is mine, and it is the profile RDP epsilon.** `pipeline/solids.py:187` simplifies the
+     outer (z,R) profile with `rdp(pts_for_rdp, 0.5 * chord_tol)`. For M13's `chord_tol=8` that is
+     a **4 mm** allowed perpendicular deviation on the profile, and on a convex profile RDP always
+     cuts the corner *inward*. Measured: fitted station radii in the cylindrical run are
+     998.66-998.73 (faithful to the mesh's 998.68), but the built STEP's outer radius is
+     **998.02** — 0.67 mm lost purely to profile simplification. M12 is the control: same truth
+     solid, `chord_tol=0.5` → RDP eps 0.25mm → `volume_err_pct` 0.0052%. The scaling of the RDP
+     epsilon with `chord_tol` is the bug: `chord_tol` describes the *input mesh's* fidelity, not
+     the reconstruction error we are allowed to introduce, and the volume gate is only 0.5%
+     (for R=1000 a systematic inward shift of delta costs ~0.2%/mm).
+  Axial cumulative-volume profile (20 slabs, `out/dbg/axprof.py`) localises it: the plain
+  bore-only zone (slab fractions 0.10-0.55) is 1072.9e6/slab vs 1078.5e6 truth (-0.52%/slab,
+  -61.6e6 total), and the remaining ~92e6 is in the slot/dome zones where the same RDP corner-cut
+  enlarges the wedge voids.
 
 ### iter 63 — M9 — sonnet/medium — 2026-08-31T00:04
 - Score before: progress 0.4277, first failure `bbox_err_pct` 0.180% (gate 0.1%).
