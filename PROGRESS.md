@@ -40,6 +40,44 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 46 (M8) — NOT PASSING yet, progress 0.05 -> 0.55, M1-M7 all still pass (re-verified
+  individually after fixing a regression, see below).** Fixed two bugs and made real progress:
+  1. Outer-loop circularity check now uses new `fit_circle_robust` (`pipeline/fitting.py`,
+     trims up to 1%/cap 5% of worst residual points before taking max) instead of plain
+     `fit_circle`. M8's dome-pole/bore-pinch region throws one polygon vertex ~0.75mm off-circle
+     (chord_tol bounds meridian/surface-normal deviation, not in-plane radius, and that error
+     projects much larger where dR/dz is steep) even though the ring is genuinely circular
+     (99th pctile only 0.37mm). This one call site is the ONLY place `fit_circle_robust` is used
+     — do not spread it to other classification/bisection call sites, see below.
+  2. Added a parallel path for OFF-axis NON-circular holes (M8's 8 obround slots): `sat_rings` /
+     `ring_chains` (mirrors M7's circular `sat_samples`/chains) built as constant-cross-section
+     prism cutters via the existing `solids.build_prism_solid` (M3's star-bore machinery) instead
+     of `build_cylinder_solid`, matched/bisected by a new `_bisect_ring_edge` (matches by raw
+     centroid, not by circle-fit, since the ring isn't circular). Feeds into the *existing*
+     `sat_cutters` list so the downstream cut-loop/event-reporting needed zero changes.
+  3. **Regression caught and fixed by the mandatory M1-M7 re-check**: classifying a non-circular
+     hole as the central bore vs. a satellite by `_axis_centered(cx,cy,R)` alone broke M4/M5 —
+     a non-circular (star/fin) cross-section's own Kasa-fit center estimate can be biased ~0.5mm
+     off-axis (vs a ~0.25mm gate) near a tip/asymmetric region even though it is *unambiguously*
+     the only hole at that station. Fix: a non-circular hole is the central bore if it's axis-
+     centered **OR if it is the only interior ring at that station at all** (`len(rings) == 1`);
+     only route to `sat_rings` when off-axis AND coexisting with other holes. This single change
+     took volume_err_pct from 0.57% (fail, gate 0.2%) to 0.037% (pass) and restored M4/M5 to
+     progress 1.0.
+  - **Current M8 blocker**: `station_bands` — `fore_wall` has only 1 station, needs >=10 (gate).
+    `aft_wall` has 6 (also short of 10 but closer). This is a station-PLACEMENT/adaptive-banding
+    problem, not a classification/geometry problem — the current `--adaptive` logic isn't putting
+    enough stations in the fore_wall feature band (z=5850 transition). Untouched this iteration;
+    next iteration should look at `pipeline/stations.py`'s adaptive/refine-bands logic and how
+    `station_bands` gates are computed by the harness (`harness/score.py`) to see what band
+    definition/density it expects near z=5850 vs 9650 (aft_wall's 6 stations suggest partial
+    credit is already happening there but not enough).
+  - Do NOT re-broaden `fit_circle_robust` to `_hole_classification`, `_bisect_hole_edge`, or the
+    main per-station hole loop's circular-check — tried this, caused the M4/M5/M6 regression
+    above (it wasn't actually `fit_circle_robust` itself that caused it, red herring — see the
+    `len(rings)==1` fix above for the real cause — but there is no known benefit to using the
+    robust fit anywhere but the outer-loop check, so leave it scoped there only).
+
 - **iter 45 (M7) — M7 PASSES, progress 0.0625 -> 1.0 on the first design, and M1-M6 all still
   pass (each re-scored individually, progress 1.0).** `volume_err_pct` 0.0055% (gate 0.1),
   `topo_events` matched within 2.5e-5 mm of the expected 7000 mm (gate 2.0), `gmsh_tet` min SICN

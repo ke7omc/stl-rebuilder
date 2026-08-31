@@ -20,7 +20,7 @@ import traceback
 import numpy as np
 
 from pipeline import booleans, export, fitting, io as pio, report, solids, stations, tol
-from pipeline.fitting import fit_circle
+from pipeline.fitting import fit_circle, fit_circle_robust
 from pipeline.slicing import slice_station
 
 
@@ -235,6 +235,34 @@ def _bisect_hole_edge(mesh, z_present: float, z_absent: float, chord_tol: float,
     return 0.5 * (z_a + z_b)
 
 
+def _bisect_ring_edge(mesh, z_present: float, z_absent: float, chord_tol: float,
+                       cx0: float, cy0: float, match_dist: float, n_iter: int = 50,
+                       min_dz: float = 1e-4) -> float:
+    """Localize the z where one specific satellite SLOT (M8's obround perforations) starts or
+    stops existing — mirrors `_bisect_hole_edge`, but matches ANY interior ring (circular or not)
+    by its raw-point centroid instead of requiring a circle-fit to pass the circularity gate,
+    since the hole being tracked is non-circular by construction."""
+    z_a, z_b = z_present, z_absent
+    for _ in range(n_iter):
+        if abs(z_b - z_a) <= min_dz:
+            break
+        zm = 0.5 * (z_a + z_b)
+        polys, zz = slice_station(mesh, zm, chord_tol)
+        present = False
+        if len(polys) == 1:
+            for ring in polys[0].interiors:
+                pts = np.asarray(ring.coords)
+                cx, cy = float(pts[:, 0].mean()), float(pts[:, 1].mean())
+                if math.hypot(cx - cx0, cy - cy0) < match_dist:
+                    present = True
+                    break
+        if present:
+            z_a = zm
+        else:
+            z_b = zm
+    return 0.5 * (z_a + z_b)
+
+
 def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
                        eps_end_val: float, chord_tol: float, bore_radius: float = None):
     """Build the cutter solid for a non-circular but axially-constant bore (e.g. M3's star):
@@ -406,6 +434,9 @@ def _run(args) -> int:
     bore_pts = []    # (z, R) of the (single) axis-centered interior loop, only while circular
     bore_rings = []  # (z, ndarray of (x,y)) of the axis-centered interior loop, when NOT circular
     sat_samples = []  # (z, cx, cy, R) of every OFF-axis circular hole (M7's satellites), any z
+    sat_rings = []   # (z, cx, cy, R, ndarray of (x,y)) of every OFF-axis NON-circular hole (M8's
+                     # obround slots), any z -- R is the (possibly poor) Kasa-fit radius, kept
+                     # only as a rough size estimate, not used for shape reconstruction
     all_zz = []      # every station z actually sliced, in order (for chain-edge neighbor lookup)
     for z in zs:
         polys, zz = slice_station(mesh, z, chord_tol)
@@ -420,7 +451,7 @@ def _run(args) -> int:
 
         poly = polys[0]
         ext = np.asarray(poly.exterior.coords)
-        cx, cy, Ro, max_resid, _ = fit_circle(ext)
+        cx, cy, Ro, max_resid, _ = fit_circle_robust(ext)
         if max_resid > tol.circle_max_resid(chord_tol) or not _axis_centered(cx, cy, Ro, chord_tol):
             print(f"rebuild.py: outer loop at z={zz:.3f} is not an axis-centered circle "
                   f"(max_resid={max_resid:.4f}, center=({cx:.4f},{cy:.4f})) — "
@@ -446,7 +477,8 @@ def _run(args) -> int:
             hole = np.asarray(ring.coords)
             cxh, cyh, Rh, max_resid2, _ = fit_circle(hole)
             is_circle = max_resid2 <= tol.circle_max_resid(chord_tol)
-            if is_circle and _axis_centered(cxh, cyh, Rh, chord_tol):
+            is_central = _axis_centered(cxh, cyh, Rh, chord_tol)
+            if is_circle and is_central:
                 if central_seen:
                     print(f"rebuild.py: more than one axis-centered hole at z={zz:.3f} — "
                           f"unsupported topology", file=sys.stderr)
@@ -455,12 +487,27 @@ def _run(args) -> int:
                 bore_pts.append((zz, Rh))
             elif is_circle:
                 sat_samples.append((zz, cxh, cyh, Rh))
-            else:
-                if len(rings) != 1:
-                    print(f"rebuild.py: non-circular off-axis hole among {len(rings)} holes at "
-                          f"z={zz:.3f} — unsupported topology", file=sys.stderr)
+            elif is_central or len(rings) == 1:
+                # A non-circular hole is the central bore either when its measured center is
+                # near the axis, OR when it is the only hole at this station at all (M3/M4/M5's
+                # single star/fin bore): a non-circular Kasa fit's own center estimate can be
+                # biased by several tenths of a mm on a strongly asymmetric cross-section near a
+                # tip/end (measured on M4's fin bore near z=9900, ~0.5mm off vs a 0.25mm gate)
+                # even though there is unambiguously only one interior loop to classify.
+                if central_seen:
+                    print(f"rebuild.py: more than one axis-centered hole at z={zz:.3f} — "
+                          f"unsupported topology", file=sys.stderr)
                     return 4
+                central_seen = True
                 bore_rings.append((zz, ring))
+            else:
+                # Off-axis, non-circular hole among *multiple* holes at this station: one
+                # station-sample of an M8 satellite SLOT chain (an obround perforation off the
+                # main axis) -- matched across stations by centroid proximity after this loop,
+                # exactly like M7's circular `sat_samples`, but built as a constant-cross-section
+                # prism (`solids.build_prism_solid`, the same machinery M3's star bore uses)
+                # instead of a cylinder.
+                sat_rings.append((zz, cxh, cyh, Rh, hole))
 
     # Group satellite samples into chains by nearest-center match to the previous station's
     # live chains — satellites are straight (M7), so a true match is ~0 mm apart while distinct
@@ -506,6 +553,66 @@ def _run(args) -> int:
         else:
             z_hi = _bisect_hole_edge(mesh, z_last, all_zz[i_last + 1], chord_tol, cx0, cy0, R0)
         sat_cutters.append((solids.build_cylinder_solid(cx0, cy0, z_lo, z_hi, R0), z_lo, z_hi))
+
+    # Off-axis NON-circular satellite SLOT chains (M8's obround perforations): group by raw-point
+    # centroid proximity, exactly like the circular case above, except the match distance is
+    # measured directly from whatever OTHER slots are seen at the SAME station (a true lower
+    # bound on "how far apart two distinct slots are" there, so no milestone-specific spacing
+    # constant is needed) rather than a multiple of a not-very-meaningful Kasa-fit radius.
+    ring_by_z = {}
+    for z, cxh, cyh, Rh, hole in sat_rings:
+        cxr, cyr = float(hole[:, 0].mean()), float(hole[:, 1].mean())
+        ring_by_z.setdefault(z, []).append((cxr, cyr, hole))
+    ring_chains = []
+    for z in sorted(ring_by_z):
+        entries = ring_by_z[z]
+        if len(entries) > 1:
+            match_dist = 0.5 * min(
+                math.hypot(a[0] - b[0], a[1] - b[1])
+                for i, a in enumerate(entries) for b in entries[i + 1:])
+        else:
+            match_dist = math.inf
+        used = set()
+        for cxr, cyr, hole in entries:
+            best_i, best_d = None, None
+            for i, ch in enumerate(ring_chains):
+                if i in used:
+                    continue
+                _, lcx, lcy, _ = ch[-1]
+                d = math.hypot(cxr - lcx, cyr - lcy)
+                if d < match_dist and (best_d is None or d < best_d):
+                    best_i, best_d = i, d
+            if best_i is None:
+                ring_chains.append([(z, cxr, cyr, hole)])
+                used.add(len(ring_chains) - 1)
+            else:
+                ring_chains[best_i].append((z, cxr, cyr, hole))
+                used.add(best_i)
+
+    # Each slot chain becomes a constant-cross-section prism cutter (`solids.build_prism_solid`,
+    # M3's star-bore machinery): the chain's own mid-z sample is the representative cross-section
+    # (least likely to be distorted by an inset/end effect, same choice `_build_prism_bore`
+    # makes), extended to the part's true axial extent if it spans every station, else bisected to
+    # its own birth/death z (`_bisect_ring_edge`, M8's axial end fillet at z=5850/9650).
+    for ch in ring_chains:
+        cx0 = float(np.mean([c[1] for c in ch]))
+        cy0 = float(np.mean([c[2] for c in ch]))
+        rep_hole = ch[len(ch) // 2][3]
+        r_extent = float(np.max(np.hypot(rep_hole[:, 0] - cx0, rep_hole[:, 1] - cy0)))
+        match_dist = 2.0 * r_extent
+        z_first, z_last = ch[0][0], ch[-1][0]
+        i_first, i_last = all_zz.index(z_first), all_zz.index(z_last)
+        if i_first == 0:
+            z_lo = z_min - eps_cut_val
+        else:
+            z_lo = _bisect_ring_edge(mesh, z_first, all_zz[i_first - 1], chord_tol, cx0, cy0,
+                                      match_dist)
+        if i_last == len(all_zz) - 1:
+            z_hi = z_max + eps_cut_val
+        else:
+            z_hi = _bisect_ring_edge(mesh, z_last, all_zz[i_last + 1], chord_tol, cx0, cy0,
+                                      match_dist)
+        sat_cutters.append((solids.build_prism_solid(rep_hole.tolist(), z_lo, z_hi), z_lo, z_hi))
 
     event_z = None
     circ_before = None

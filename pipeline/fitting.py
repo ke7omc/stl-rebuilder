@@ -18,6 +18,27 @@ def fit_circle(points: np.ndarray):
     return float(cx), float(cy), R, float(np.max(np.abs(resid))), float(np.sqrt(np.mean(resid ** 2)))
 
 
+def fit_circle_robust(points: np.ndarray, trim_pct: float = 1.0, trim_cap_pct: float = 5.0):
+    """Same fit as `fit_circle`, but the returned residual ignores up to `trim_pct`% of the
+    worst-fitting points (capped at `trim_cap_pct`%) before taking the max. On a genuinely
+    circular ring the mesher's chord_tol bounds deviation along the *meridian* (surface-normal),
+    not the in-plane radius; where the local dR/dz slope is steep (e.g. near a dome pole, or M8's
+    bore-pinch region right past z_min) that meridian error projects into a much larger apparent
+    radial residual at a handful of individual polygon vertices, even though the loop is exactly
+    circular (measured on M8's dome, z=168.5, n=396: the single worst point is 0.75mm off while
+    the 99th percentile is 0.37mm). The downstream revolve profile is fit from many stations'
+    (z, R) samples, so a few near-noise-floor vertices should not veto treating a station as
+    circular. A genuinely non-circular loop (a fin slot, a star bore) has a large FRACTION of its
+    points off-circle, not a handful, so trimming does not mask real topology."""
+    cx, cy, R, max_resid, rms_resid = fit_circle(points)
+    n = len(points)
+    n_trim = min(int(np.ceil(n * trim_pct / 100.0)), int(n * trim_cap_pct / 100.0))
+    if n_trim > 0 and n - n_trim >= 20:
+        resid = np.abs(np.sqrt((points[:, 0] - cx) ** 2 + (points[:, 1] - cy) ** 2) - R)
+        max_resid = float(np.sort(resid)[: n - n_trim][-1])
+    return cx, cy, R, max_resid, rms_resid
+
+
 def _perp_dist(p, a, b):
     a = np.asarray(a, dtype=float)
     b = np.asarray(b, dtype=float)
