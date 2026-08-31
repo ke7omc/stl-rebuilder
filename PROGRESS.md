@@ -40,6 +40,87 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 69 (M13) — fixed `pipeline_exit=3` (input mesh not a single watertight body,
+  body_count=125791); frontier moved to `pipeline_exit=5` (BRepCheck_Analyzer validity), same
+  `progress=0.0435` numerically since both are the same fail-fast check, but real forward
+  movement through the pipeline (runtime 783 s vs the 900 s cap, confirmed by a fresh scorer
+  run). Two separate bugs found and fixed in `pipeline/io.py::load_and_orient`, both new code:**
+  1. **Bug 1 -- no island-dropping.** MISSION M13 spec: `n_solids = 1 (islands dropped)`, but
+     `load_and_orient` only ever loaded+merged the mesh and reported whatever `body_count` came
+     out; `_run` hard-fails (exit 3) on anything but exactly 1 body. Added
+     `_drop_small_islands(mesh, min_frac=0.02)`: splits into connected components
+     (`mesh.split(only_watertight=False)`), keeps only components whose bbox diagonal is
+     >=2% of the largest component's -- discards M13's 3 noise-island tetrahedra (diag ~8.7 mm
+     vs the main body's ~10000+ mm) while leaving M11's genuinely-multi-body input (segments
+     comparable in size to each other, all well above the 2% floor) untouched. Verified no
+     regression: M11 still `pass:true, progress:1.0` after this change.
+  2. **Bug 2 -- rounding-based `merge_vertices` cannot fully re-weld M13's unwelded input, and
+     the failure mode is subtle: it looks fixed at first (`body_count` goes to the right
+     number) but the mesh is still NOT actually watertight (edge-manifold).** Root-caused by
+     direct measurement (see debug commands below), not guesswork:
+     - MISSION M13's input is generator-unwelded with `unweld_jitter_mm=1e-5` -- tiny, and a
+       naive read of the number suggests any reasonable merge tolerance should catch it.
+     - Measured on the real committed `harness/truth/M13.stl`: even `mesh.merge_vertices
+       (digits_vertex=0)` (a 1 mm rounding bin -- 100000x the nominal jitter) still leaves 426
+       unmatched boundary edges; `digits_vertex=3` (the initially-committed fix, 0.001 mm bins)
+       leaves 441280. `mesh.is_watertight` stays False either way, so `_run` still exit-3'd
+       even after `_drop_small_islands` correctly reduced `body_count` to 1.
+     - **True root cause, confirmed by isolating each pathology stage** (noise -> flip ->
+       islands -> unweld, checked individually): the mesh IS perfectly watertight through
+       noise+flip+islands (0 boundary edges each). Only `_unweld_and_jitter` introduces the
+       defect, and the defect is much larger than its own `1e-5 mm` jitter -- because the
+       generator writes the result to **binary STL, which stores vertices as float32**. For
+       this part's ~1e4 mm coordinate magnitudes, float32's ULP is ~1e-3 mm -- *coarser* than
+       the intentional 1e-5 mm jitter. Two "duplicate" per-facet vertex copies straddling a
+       float32-representable-value boundary end up MORE separated after the STL round-trip
+       than the generator ever intended, and a coordinate-rounding merge (which has its own
+       rounding grid) has a nonzero chance of putting them in different bins regardless of how
+       coarse the rounding is -- confirmed directly: nearest-neighbor distance stats on the
+       loaded mesh showed a bimodal distribution (median ~2.4e-5 mm for genuinely-close pairs,
+       but a ~25% tail with no near neighbor at all inside 0.05 mm), consistent with float32
+       quantization noise dominating over the nominal jitter for a fraction of vertices.
+  3. **Fix for bug 2, in `pipeline/io.py`:** replaced `mesh.merge_vertices(digits_vertex=...)`
+     with a new `_weld_by_radius(mesh, tol_mm=2e-3)` -- a true-distance union-find (KD-tree
+     `query_pairs` + `scipy.sparse.csgraph.connected_components`, merged-vertex position =
+     centroid of its group) instead of independent per-axis rounding. A true-distance test has
+     no grid to straddle, so it has no analogous boundary-miss failure mode. Verified directly
+     on `harness/truth/M13.stl`: `tol_mm` from 1e-3 to 5e-3 all give **0 boundary edges,
+     `is_watertight=True`** (previously false at every rounding tolerance tried, including
+     1000x coarser than the nominal jitter). Runtime for the weld itself on this mesh
+     (~2.7 M vertices, ~5.3 M faces): ~3 s (`query_pairs` ~2.5 s, `connected_components`
+     ~0.2 s, rebuild ~0.5 s) -- not the bottleneck.
+  4. **Verified with a fresh full scorer run** (`harness/score.py --milestone M13`, 783 s):
+     `pipeline_exit` now passes; new first failure is `pipeline_exit=5` ("final solid failed
+     BRepCheck_Analyzer validity check") -- a genuinely different, later-stage bug. **No
+     regression**: M1, M9, M10, M11, M12 all re-scored individually after this change, all
+     still `pass:true, progress:1.0`.
+  5. **Do not retry:** don't assume a coordinate-rounding vertex merge is "safe" just because
+     the chosen tolerance looks like a huge multiple of the *nominal* jitter spec -- binary
+     STL's float32 vertex encoding introduces its own coordinate-magnitude-dependent
+     quantization noise that a fixed decimal-digit rounding tolerance does not scale with, and
+     a rounding grid can silently strand near-duplicates on either side of a bin boundary at
+     ANY tolerance. Use a true-distance (KD-tree/union-find) weld for any real "unwelded input"
+     handling, not `merge_vertices(digits_vertex=...)`. Diagnostic commands that isolated this
+     (kept for reference, not scripts on disk): load `harness/truth/M13.stl`, apply
+     `mesh.apply_scale(25.4)` (file is in inches), then compare `Counter(map(tuple,
+     mesh.edges_sorted))` boundary-edge counts (`count == 1`) before/after each candidate weld;
+     isolate each `harness.voxelize` pathology stage individually via
+     `voxelize._add_normal_noise` / `_flip_facets` / `_add_islands` / `_unweld_and_jitter`
+     called in sequence on a fresh `marching_cubes_surface` output to find which stage
+     introduces the defect.
+  6. **Next:** M13's new first failure is `pipeline_exit=5`, `stderr_tail`: "final solid failed
+     BRepCheck_Analyzer validity check" (`pipeline/cli.py`, search for that exact message to
+     find the raise site). This is past mesh loading/watertightness entirely -- next iteration
+     should instrument the solid-build stages (stations -> fitting -> solids -> booleans ->
+     export) to find which one produces an invalid `TopoDS_Shape` on M13's noisy/rotated input,
+     likely worth checking whether M13's normal noise (sigma 0.8 mm) or the `--axis auto
+     --units in` frame normalization is feeding a degenerate/self-intersecting profile into a
+     downstream fit. **Caution on iteration time budget:** a full `harness/score.py --milestone
+     M13` run costs ~13 min (783 s) -- don't re-run it more than once or twice per iteration;
+     prefer running `rebuild.py` directly on `harness/truth/M13.stl` with stderr captured, or
+     instrumenting `pipeline/cli.py` with a debug env-var print (removed before commit, per
+     established convention -- see iter 68's `RB_DEBUG_BT`), to narrow the bug before spending
+     a full scorer run to confirm.
 - **iter 68 (M12) — PASSES for real (progress 0.6201 -> 1.0).** iter 67's "fix" below was
   committed with a self-check bug: it re-scored the *stale* `out/score.json` from before its own
   edit landed rather than re-running the scorer, so the claimed `pass:true` was never actually

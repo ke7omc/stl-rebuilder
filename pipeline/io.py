@@ -1,6 +1,9 @@
 """Stage 1 (io): load the input STL and orient the motor axis to +Z. MISSION.md §5.2 step 1."""
 import numpy as np
 import trimesh
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
+from scipy.spatial import cKDTree
 
 _AXIS_MAP = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
 _UNITS_TO_MM = {"mm": 1.0, "in": 25.4, "m": 1000.0}
@@ -107,18 +110,82 @@ def _axis_origin_refine(mesh, chord_tol: float):
     return R2, float(arr[:, 1].mean()), float(arr[:, 2].mean())
 
 
+def _weld_by_radius(mesh: "trimesh.Trimesh", tol_mm: float = 2e-3) -> "trimesh.Trimesh":
+    """Re-weld vertices that are within `tol_mm` of each other in true Euclidean distance
+    (union-find over a KD-tree radius query), instead of trimesh's default per-axis coordinate
+    rounding (`merge_vertices(digits_vertex=...)`). Rounding-based merge has a real failure
+    mode found live on M13's input: an "unwelded" marching-cubes STL's per-facet vertex
+    duplicates aren't only ~1e-5 mm apart as intentionally jittered -- round-tripping through
+    binary STL's float32 vertex encoding *itself* quantizes coordinates to their local ULP,
+    which for this part's ~1e4 mm coordinate magnitudes is ~1e-3 mm, an order of magnitude
+    *coarser* than the intentional jitter. Duplicates landing on either side of a rounding-grid
+    boundary at that scale silently fail to merge (measured live: still 441k/8.2M unmatched
+    boundary edges at a 1e-3 mm rounding tolerance) -- a true-distance union-find has no grid to
+    straddle and merges every such duplicate cleanly (measured live: 0 boundary edges at
+    tol_mm=1e-3). `tol_mm` stays far below any real feature (islands are 5 mm tetrahedra)."""
+    verts = mesh.vertices
+    faces = mesh.faces
+    tree = cKDTree(verts)
+    pairs = tree.query_pairs(r=tol_mm, output_type="ndarray")
+    n = len(verts)
+    if len(pairs) == 0:
+        return mesh
+    graph = coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(n, n))
+    _, labels = connected_components(graph, directed=False)
+    uniq, inverse = np.unique(labels, return_inverse=True)
+    new_verts = np.zeros((len(uniq), 3))
+    group_counts = np.zeros(len(uniq))
+    np.add.at(new_verts, labels, verts)
+    np.add.at(group_counts, labels, 1)
+    new_verts /= group_counts[:, None]
+    new_faces = inverse[faces]
+    return trimesh.Trimesh(vertices=new_verts, faces=new_faces, process=False)
+
+
+def _drop_small_islands(mesh: "trimesh.Trimesh", min_frac: float = 0.02):
+    """MISSION §6.2 M13: a real-STL marching-cubes input carries small disconnected noise
+    islands (isolated tetrahedra) alongside the main body -- `n_solids = 1 (islands dropped)`
+    is the spec, so these must never reach the multi-body path. Split into connected
+    components and keep only ones whose bbox diagonal is a substantial fraction of the
+    largest component's -- this discards noise islands (orders of magnitude smaller than the
+    part) while preserving genuinely-multi-body input (M11's segmented grain, whose segments
+    are comparable in size to each other, well above `min_frac`). Returns (mesh, n_dropped)."""
+    bodies = mesh.split(only_watertight=False)
+    if len(bodies) <= 1:
+        return mesh, 0
+    diags = [float(np.linalg.norm(b.bounds[1] - b.bounds[0])) for b in bodies]
+    max_diag = max(diags)
+    kept = [b for b, d in zip(bodies, diags) if d >= min_frac * max_diag]
+    dropped = len(bodies) - len(kept)
+    if dropped == 0:
+        return mesh, 0
+    merged = trimesh.util.concatenate(kept) if len(kept) > 1 else kept[0]
+    return merged, dropped
+
+
 def load_and_orient(stl_path: str, axis_arg: str, units_arg: str = "mm", chord_tol: float = 0.5):
     """Returns (mesh, F, info). `F` is the 4x4 rotation+translation transform applied to the
     (already unit-converted) mesh to bring the motor axis to +Z through the origin; its inverse
     must be applied to the result shape before export (unit conversion is NOT part of `F` --
     the exported STEP is always mm, so that scaling is never undone)."""
     mesh = trimesh.load(stl_path, process=True, force="mesh")
-    mesh.merge_vertices()
-    mesh.fix_normals()
 
     scale = parse_units(units_arg)
     if scale != 1.0:
         mesh.apply_scale(scale)
+
+    # `process=True`'s implicit merge_vertices() rounds at trimesh's default 1e-8 (absolute,
+    # now in mm since scale was already applied above) -- far tighter than a marching-cubes
+    # exporter's legitimate per-facet vertex jitter can be (MISSION M13: +-1e-5 mm), which
+    # leaves every triangle its own disconnected "body" (seen live: body_count=125791 on
+    # M13's real input). Re-weld with a true-distance union-find (see `_weld_by_radius`) --
+    # coordinate-rounding merge was tried first and left hundreds of thousands of boundary
+    # edges even at generous tolerances, root-caused to binary STL's float32 export
+    # quantization (~1e-3 mm ULP at this part's coordinate magnitude) straddling rounding-grid
+    # boundaries independently of the mesh's own jitter.
+    mesh = _weld_by_radius(mesh, tol_mm=2e-3)
+    mesh, n_dropped_islands = _drop_small_islands(mesh)
+    mesh.fix_normals(multibody=True)
 
     axis_vec = parse_axis(axis_arg, mesh)
     target = np.array([0.0, 0.0, 1.0])
@@ -149,5 +216,6 @@ def load_and_orient(stl_path: str, axis_arg: str, units_arg: str = "mm", chord_t
         "units": units_arg,
         "origin_xy_mm": [ox, oy],
         "axis_unit": axis_in_input_frame.tolist(),
+        "n_dropped_islands": n_dropped_islands,
     }
     return mesh, F, info
