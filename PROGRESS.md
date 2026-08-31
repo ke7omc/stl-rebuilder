@@ -65,7 +65,11 @@
   genuinely unproven rung is **M9** (noisy anisotropic marching-cubes input, `--chord-tol 5`),
   and its truth generation is the slow one (see Brady's 2026-08-30 12:15 note above: M9's checks
   cost ~2–3 min each and the truth cache is the thing to lean on). Budget a full iteration for
-  the first M9 score before changing any code.
+  the first M9 score before changing any code — and note `harness/truth/` currently holds only
+  M1–M8, so **M9's voxel input has never been generated on this machine and will be built cold**
+  (§7.2 budgets 3–8 min for a marching-cubes input, and M9's is the anisotropic 10/10/40 grid).
+  Run `.venv/bin/python -m harness.generators --warm` or the M9 score unbuffered into a log and
+  poll it; do not treat a long silent first M9 run as a hang.
 - **Watch item for M6+:** `_grow_runs_to_circle` is inside `detect_arc_runs`, so it also feeds
   `_arc_line_wire` / `build_ruled_loft_solid` / `build_fillet_loft_solid`. It cannot change the
   number of runs or edges (it only moves the boundary between an arc run and the unclassified
