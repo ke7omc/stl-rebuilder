@@ -100,6 +100,35 @@ def _eval_r2_quadratic(z0: float, coef, z: float) -> float:
     return math.sqrt(max(0.0, r2))
 
 
+def _solve_pinch_z(z0: float, coef, target_r: float, near_z: float):
+    """Solve the quadratic-in-R^2 dome model for the z where R(z) == target_r (the bore
+    radius, i.e. the analytic dome/bore pinch point), returning whichever of the (up to two)
+    roots is nearest `near_z`. None if `coef` isn't quadratic or the model never reaches
+    `target_r` (no real root).
+
+    Why: on a clean input the raw mesh z-bound already sits right at the true pinch, so using
+    it directly (the old approach) works. But on a noisy/coarse marching-cubes input (M9) the
+    mesh's extreme vertex is a grid-quantization + noise artefact, not the true tip — measured
+    on M9's fore dome: mesh z-bound 31.6 mm vs the true tip 53.5 mm (grid pitch 40 mm in z), which
+    fed straight into `bbox_err_pct` as a 0.18% miss (gate 0.1%). The dome's own R(z) model,
+    already fit from many stations, is far less sensitive to that single noisy extreme vertex —
+    solving it for R(z)=bore_radius recovers the tip to within ~1 mm on M9."""
+    coef = np.asarray(coef, dtype=float)
+    if coef.size != 3:
+        return None
+    a, b, c = float(coef[0]), float(coef[1]), float(coef[2])
+    if abs(a) < 1e-12:
+        return None
+    C = c - target_r ** 2
+    disc = b * b - 4.0 * a * C
+    if disc < 0.0:
+        return None
+    sq = math.sqrt(disc)
+    t1, t2 = (-b + sq) / (2.0 * a), (-b - sq) / (2.0 * a)
+    cands = [z0 + t1, z0 + t2]
+    return min(cands, key=lambda z: abs(z - near_z))
+
+
 def _refine_dome_model_from_vertices(mesh, z0: float, coef, z_lo: float, z_hi: float,
                                       chord_tol: float):
     """Refit the quadratic-in-R^2 dome model to the mesh's own outer-surface VERTICES inside
@@ -1405,6 +1434,20 @@ def _run(args) -> int:
         az0, acoef, aft_window_z, aft_shoulder = _dome_model(
             outer_pts, mesh, False, min_dz, resid_tol, chord_tol)
         fore_model, aft_model = (fz0, fcoef), (az0, acoef)
+        # On a noisy/coarse input (M9) the raw mesh z-bound can miss the true dome/bore pinch by
+        # more than a station spacing (grid quantization + noise, not a real geometric point —
+        # see `_solve_pinch_z`). Where a central bore chain exists, solve each dome model for the
+        # z at which it crosses the bore radius and prefer that over the raw bound, guarded by a
+        # sanity cap so an ambiguous/false root (e.g. a shallow dome with no real pinch nearby)
+        # can't silently move the part's axial extent by something implausible.
+        if bore_pts:
+            cap = max(5.0 * station_eps, 50.0)
+            z_fore_pinch = _solve_pinch_z(fz0, fcoef, bore_pts[0][1], z_min)
+            z_aft_pinch = _solve_pinch_z(az0, acoef, bore_pts[-1][1], z_max)
+            if z_fore_pinch is not None and abs(z_fore_pinch - z_min) < cap:
+                z_min = z_fore_pinch
+            if z_aft_pinch is not None and abs(z_aft_pinch - z_max) < cap:
+                z_max = z_aft_pinch
         r_start = _eval_r2_quadratic(fz0, fcoef, z_min)
         r_end = _eval_r2_quadratic(az0, acoef, z_max)
         # The curved window runs all the way to the barrel shoulder when one was located, so the

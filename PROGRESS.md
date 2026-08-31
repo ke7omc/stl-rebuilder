@@ -40,6 +40,54 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 63 (M9) — PASSES (progress 1.0). Fixed `bbox_err_pct` (0.180% -> 0.0075%, gate 0.1%) by
+  solving the dome model analytically for the true pinch z instead of trusting the raw
+  (noise/grid-quantized) mesh z-bound. Bonus: `volume_err_pct` also improved (0.334% -> 0.231%).
+  M1-M8 re-scored individually, all still `pass:true, progress:1.0` -- no regression.**
+  1. **Root cause: on M9's marching-cubes voxel input (grid pitch 40mm in z, noise sigma 0.5mm),
+     the mesh's own extreme z vertex is NOT the true dome tip.** Measured directly: raw
+     `mesh.bounds` z_min = 31.62mm vs the true fore-dome/bore pinch at 53.49mm (a 21.9mm
+     grid-quantization+noise artefact, roughly half the 40mm z-pitch, as expected). `_run`
+     (`pipeline/cli.py:1100`) had always taken `z_min, z_max = mesh.bounds[...]` completely at
+     face value as "the true axial extent" and fed it straight into the fore/aft dome model's
+     extrapolation target. Extrapolating the fitted quadratic-in-R^2 dome model *past* the true
+     pinch (into the region where the mesh only exists due to noise) produced an unphysical
+     R=354mm at z=31.62 -- LESS than the R=450mm bore radius, which also silently defeated the
+     existing `is_pinch_start`/`is_pinch_end` heuristic (`abs(r_start-bore_r)<50`, now 96mm off)
+     so the end was built as a plain (wrong) chord instead of the curved pinch path, landing the
+     built z_min at 71.34mm (even further off than the raw 31.62mm bound -- confirmed by adding
+     temporary `RB_DEBUG` prints around the pinch-detection block, run directly, then reverted).
+  2. **Fix: `_solve_pinch_z(z0, coef, target_r, near_z)` (`pipeline/cli.py`, next to
+     `_eval_r2_quadratic`)** solves the SAME fitted quadratic-in-R^2 dome model for the z at which
+     it crosses the bore radius exactly (a textbook quadratic-formula solve on `a*t^2+b*t+c =
+     target_r^2`), returning whichever of the (up to two) roots is nearest the raw mesh bound.
+     Wired in right after `fore_model`/`aft_model` are built (`_run`, ~line 1436): when a central
+     bore chain exists, solve both ends and, if the solved z is within `max(5*station_eps, 50mm)`
+     of the raw bound (a sanity cap so a spurious/far root on a non-pinch geometry can't move the
+     part's extent by something implausible), REPLACE `z_min`/`z_max` with it before anything
+     downstream uses them (station placement already happened earlier and is unaffected; bore/
+     satellite cutter extents and the envelope's own pinch construction all read the corrected
+     value, which is the intended, more-consistent behaviour, not a special-cased override).
+     Verified on M9: solved fore z = 52.74mm (vs true 53.49mm, 0.74mm off) and aft z = 9947.14mm
+     (vs true 9946.51mm, 0.63mm off) -- both close enough that `is_pinch_start`/`is_pinch_end`'s
+     existing R-closeness check now naturally fires without needing to touch that check itself.
+     On a clean/fine input (M1-M8) this is a near-no-op (the raw bound was already close to the
+     true tip there), confirmed by the full M1-M8 re-score showing zero change in pass/progress.
+  3. Also ran the harness's own unit tests (`test_metrics.py`, `test_meshcheck.py`,
+     `test_score.py`, `test_voxelize.py` -- 23 passed) as a sanity check; skipped
+     `test_selftest.py`/`test_score.py`'s full-suite invocation via `pytest tests/` because it
+     re-runs the ENTIRE selftest (all milestones' full generate+score, ~15+ min per PROGRESS's
+     own 2026-08-30 note on M9 scoring cost) and is orthogonal to this pipeline-only change (it
+     exercises `harness/`'s own generator/scorer self-consistency, not `pipeline/cli.py`); killed
+     a hung invocation after several minutes rather than burn the iteration's time budget on it.
+  - **Next step:** M9 is now fully green (all 19 gate checks pass, including
+    `surface_deviation_max_mm`=4.68mm/gate 30mm, `surface_deviation_p99_mm`=2.20mm/gate 5mm,
+    `gmsh_min_sicn`=0.20/gate 0.1 -- none of these were even reached before `bbox_err_pct` was
+    fixed, worth a quick look at their margins if a future iteration needs headroom). Per the
+    round-2 plan (MISSION §6.2/§7.2), the next unproven rung is **M10** (frame normalisation:
+    M8 truth scaled x1/40, axis rotated to +x, off-origin, STL in inches) -- run
+    `harness/score.py --milestone M10` cold first to see where it currently stands before
+    changing anything; `--axis auto` and `--units in` are new CLI surface M9 never exercised.
 - **iter 62 (M9) — localised and fixed the ~0.03pp `_build_slot_wedges` bias iter 61 flagged:
   progress 0.397 -> 0.4277, volume_err_pct 0.5315% -> 0.334% (now PASSES the 0.5% gate). The
   frontier moved to `bbox_err_pct` (new first_failure, 0.180% vs 0.1% gate) -- it was always
@@ -2505,6 +2553,40 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 63 — M9 — sonnet/medium — 2026-08-31T00:04
+- Score before: progress 0.4277, first failure `bbox_err_pct` 0.180% (gate 0.1%).
+- Change: added `_solve_pinch_z(z0, coef, target_r, near_z)` (`pipeline/cli.py`, next to
+  `_eval_r2_quadratic`) which solves the fitted quadratic-in-R^2 dome model for the z at which
+  it crosses a given target radius (the bore radius), returning the root nearest `near_z`. Wired
+  into `_run` right after `fore_model`/`aft_model` are built: when `bore_pts` exist, solve both
+  ends against `bore_pts[0][1]`/`bore_pts[-1][1]` using the OLD `z_min`/`z_max` as `near_z`, and
+  if the solved z is within `max(5*station_eps, 50mm)` of the raw bound, replace `z_min`/`z_max`
+  with it before anything downstream (pinch detection, dome resample, bore/satellite cutter
+  extents) reads them. Confirmed by instrumenting live (temporary `RB_DEBUG` env-gated prints
+  around the pinch block, reverted before commit) that M9's raw `mesh.bounds` z_min=31.62mm is a
+  grid-quantization+noise artefact of the (10,10,40)mm voxel input, 21.9mm off the true tip
+  (53.49mm) — and that extrapolating the dome model to that WRONG z produced an unphysical
+  R=354mm (less than the R=450mm bore), which defeated the existing R-closeness pinch heuristic
+  and built z_min=71.34mm, even further off. The analytic solve recovers 52.74mm (0.74mm off)
+  and, on the aft end, 9947.14mm vs true 9946.51mm (0.63mm off).
+- Score after (local): `harness/score.py --milestone M9` → **pass:true, progress:1.0**,
+  `bbox_err_pct` 0.0075% (was 0.180%), `volume_err_pct` 0.231% (was 0.334%, a bonus improvement —
+  the corrected axial extent also tightens the dome-band volume integral), all 19 gate checks
+  pass including previously-unreached `surface_deviation_max_mm` 4.68mm/gate 30mm,
+  `surface_deviation_p99_mm` 2.20mm/gate 5mm, `gmsh_min_sicn` 0.20/gate 0.1. Re-scored M1-M8
+  individually: all still `pass:true, progress:1.0`, zero change (the fix is a near-no-op on
+  clean/fine input where the raw mesh bound was already accurate). Harness unit tests
+  (`test_metrics.py`, `test_meshcheck.py`, `test_score.py`, `test_voxelize.py`) 23 passed.
+- Learned: a fitted analytic model (already validated against many stations) generalizes far
+  better than trusting a single extreme raw-mesh vertex, exactly the same lesson iter 54's
+  `_refine_dome_model_from_vertices` and iter 62's vertex-refit-residual-guard both landed on —
+  noisy/coarse input keeps finding new places where "trust the raw mesh literally" was an
+  unstated assumption baked in from M1-M8's clean input. Also: `RB_DEBUG`-gated temporary prints
+  (added, used, then `git checkout --` reverted before the real fix) is a fast, safe way to
+  instrument a live run without leaving debug scaffolding in a commit.
+- Next: M9 is fully green. Move to M10 (frame normalisation — scaled x1/40, +x axis, off-origin,
+  inches) per the round-2 plan; run `harness/score.py --milestone M10` cold first.
 
 ### iter 62 — M9 — sonnet/medium — 2026-08-30T23:38
 - Score before: progress 0.397, first failure `volume_err_pct` 0.5315% (gate 0.5%).
