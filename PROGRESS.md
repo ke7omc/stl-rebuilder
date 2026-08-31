@@ -3208,7 +3208,31 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 - Expected: `station_bands` and `n_stations_max` (120 ≤ 120) pass; first failure moves to
   `topo_events` (expected 9750 vs a reported event at ≈9727, 22.7 mm out against a tol of 8),
   progress 0.5652 → ≈0.67.
-- Score after: SEE THE FOLLOW-UP BULLET BELOW (written after the verification run).
+- Verification, direct `rebuild.py` run on `harness/truth/M13.stl` with the scorer's own args
+  (`out/dbg/M13.flip.report.json`): `frame.axis = (1.0, −4.0e−06, −4.1e−06)`; bands
+  **fore_wall 14** (gate 10), **breakthrough 17** (gate 10), fore_dome 22, aft_dome 22 (gate 8);
+  `n_stations` 120 (gate ≤ 120); 0 stations outside the extent; extent 9842.88 vs truth 9835.16
+  → err 7.72 mm (gate 8.0).
+- **The fix did more than fix the reporting — it fixed event DETECTION too.** Events came back
+  `[5756.1, 9654.0, 9756.2]`: 5750 matched to **6.09 mm** and 9750 to **6.21 mm** (tol 8, count
+  3 ≤ max 5), where merely un-mirroring iter 75's numbers would have left 9750 22.7 mm out and
+  `topo_events` failing. Running the grain fore-to-aft instead of aft-to-fore changes which end
+  the slot-zone sweep starts from, and the aft (dome-breakthrough) end is the harder one to
+  localise — it is found accurately when it is the *second* end reached, not the first. So the
+  predicted "next failure is `topo_events`" did not happen.
+- Score after: see the follow-up bullet below (full scorer run).
+- *Process note for the next iteration:* `out/score.local.json` is NOT deleted between
+  iterations, so `until [ -f out/score.local.json ]` returns instantly and you read a **stale
+  verdict from a previous iteration** — which looks exactly like "my change had no effect" (it
+  cost ~10 min here). Wait on the scorer's **pid** (`until ! kill -0 <pid>`), or check the file's
+  mtime, never on its existence. Same trap for `out/M13.report.json` / `out/M13.step`, which the
+  scorer only copies back at the end. While a scorer run is in flight `harness/truth/` is moved
+  to `harness/.truth_hidden_<pid>/` (the `_truth_hidden` anti-gaming measure) and is restored on
+  exit — do not touch it, and do not panic when `ls harness/truth` fails mid-run.
+- M10 is the only other `--axis auto` milestone and is **unaffected**: its raw `eigh`
+  eigenvector is already `(+0.9999999, −4.4e−04, −8.9e−05)`, so the canonicalisation is a no-op
+  there (verified directly). M1–M9, M11 and M12 pass an explicit `--axis`, so `_auto_axis` is
+  never called — this change cannot regress them.
 
 ### iter 75 — M13 — opus/high (escalated) — 2026-08-31T09:08
 - Score before: progress 0.3046 → 0.3261 (iter 74's end-probe), first failure `volume_err_pct`
