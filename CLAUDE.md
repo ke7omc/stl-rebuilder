@@ -1,16 +1,20 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
-- **2026-08-30 — ROUND 2 STARTED.** Plan approved (`~/.claude/plans/1-is-this-saved-golden-taco.md`
-  on the laptop): engine robustness first (M6–M13 + MR per MISSION §6.2/§7.2 — loft, loop
-  matching, feature-aware stations, marching-cubes inputs with skew/noise, x-axis/off-origin/
-  inches/small scale, multi-body, near-burnout cavity decomposition, real-STL slot), then Round 3
-  = PySide6 desktop GUI (MISSION §12). The loop re-entered M0 to extend the harness
-  (`driver/prompt_m0_round2.md`; harness is NOT restored from its tag while at M0), then the Opus
-  review pass re-freezes it, then the driver fast-forwards through M1–M5 to M6. Drop a real
-  burnback STL into `real_inputs/` (gitignored) whenever work authorises one — MR picks it up.
-  Driver additions: `fast_forward`, `LOOP_STOP_AT=<milestone>`, `SCORE_TIMEOUT_S` 60 min.
-  Expected cost ≈ $200–340, 3–5 days of loop time. **Brady: `git push` (the driver never pushes).**
+- **2026-08-31 10:27 — ROUND 2 COMPLETE.** All 13 milestones + MR(skipped) + HANDOFF green;
+  final regression sweep passed on the last commit; driver exited DONE at iteration 77.
+  Round 2 ran 2026-08-30 04:29 → 08-31 10:27 (~30 h wall incl. Brady's token-limit pause),
+  52 iterations, ≈$330 (project total $435). The engine now does: per-window ruled loft (M6),
+  multi-loop matching with chain birth/death (M7), real feature-aware `--adaptive` stations
+  (M8 — 10 iterations, the hardest fight), marching-cubes input repair with skew p95≈0.96
+  (M9), `--axis auto`/inches/off-origin/1/40-scale frames (M10), multi-body STEP (M11),
+  near-burnout dome breakthrough (M12), and the 5.3 M-triangle dirty capstone in 280 s (M13).
+  `HANDOFF.md` (394 lines) has the full results table, SpaceClaim checklist, real-STL runbook,
+  and three recorded engine gaps for Round 3 (e.g. `paths_used` never reports `loft`).
+  Winning STEPs: `logs/M{1..13}-final-step.step`. The Opus harness review (iter 39) fixed a
+  real gaming hole (station_bands endorsed cosine end-clustering) and left 9 documented
+  non-blocking scorer weaknesses in PROGRESS.md `## Open review findings`.
+  **Brady: `git push` (~85 commits pending; the driver never pushes).**
 - **2026-08-29 20:41 — Round 1 done.** 25 iterations, ≈$103 API-equivalent, one day. All
   five milestones pass on commit `1b4ff91` (verified together by the driver's regression sweep):
   M1 annular cylinder, M2 ellipsoidal domes, M3 6-point star bore, M4 finocyl with a topology
@@ -19,17 +23,18 @@
   has the results table (§2), the SpaceClaim checklist (§4), how to run a real burnback STL
   incl. choosing `--chord-tol` (§5), and honest limitations (§6). Winning STEPs:
   `logs/M{1..5}-final-step.step`.
-- **Next (Brady):** (1) `git push` — the driver never pushes and the Bash guard blocks Claude
-  from pushing too. (2) SpaceClaim checklist on the five STEPs (HANDOFF §4). (3) Run a real
-  burnback STL per HANDOFF §5 and note what SpaceClaim says; that feedback is the spec for the
-  next round. (4) Know the gaps before trusting it on real grains: non-circular bores must be
-  axially constant (no loft path — the biggest gap for mid-burn surfaces), one outer + one bore
-  loop per station, non-axisymmetric outers rejected, and `--adaptive`/`--refine-bands` are
-  no-ops (M5's adaptive-efficiency gate was met by cosine end-clustering — a harness weakness
-  worth fixing if a next round needs real feature-aware station placement).
-- **If continuing the loop:** add M6+ to MISSION.md (tapered star / lofted non-circular bore,
-  multiple perforations, a real-STL-derived case), re-run the harness review (the harness is
-  frozen at `harness-frozen`; re-point it after changes), then `./loop.sh`.
+- **Next (Brady):** (1) `git push`. (2) SpaceClaim checklist on the 13 STEPs (HANDOFF §4) —
+  the Parasolid import is the one test the OCCT harness cannot see. (3) When work authorises
+  it, drop a real burnback STL (+ optional `<name>.json` with units/axis/known volume) into
+  `real_inputs/` and run MR per HANDOFF §5 — everything so far is proven only on synthesised
+  meshes. (4) Decide Round 3 (PySide6 GUI, MISSION §12): extend MISSION with G1–G3, driver-level
+  gates, re-tag `infra-frozen`, `./loop.sh`; also decide the Python 3.12 migration for wheels.
+- **Round 1 gaps now closed in Round 2:** loft path, multi-loop stations, non-axisymmetric
+  handling scope unchanged (outer must still be axisymmetric — a real-STL risk), `--adaptive`
+  is real (M8/M10/M12/M13 gates force it), scale/units/axis handled.
+- **Known CLI quirk:** the `claude` CLI froze mid-iteration 3× (silent, 0 sockets, after a
+  completed step) — the driver's timeout catches it; killing just the `claude -p` pid banks the
+  committed work early. Not a driver bug.
 - Driver hardening done today (all on `infra-frozen`): save-then-stop (`--stop`/`--kill`/Ctrl-C),
   stream-json heartbeats + `--status` + `state/STATUS.md`, memory-guarded scoring (24 GB),
   per-mode timeouts 90/120/180 min, budgets $10/$15/$20, crash guard + auto-restart in
