@@ -3220,8 +3220,11 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 - Predicted 0.9993 → ≈ 0.23 %; measured **0.1378 %**. The two removed biases were slightly larger
   than the section-integral estimate, which is expected — the estimate compared *areas*, and a
   wedge that is too wide also over-cuts where it meets the bore.
-- Regression sweep (a pass only counts if every lower milestone still passes): M1–M5 all
-  `pass=True, progress=1.0`. M6–M12 results in the next bullet / iter 76's header.
+- **Regression sweep is clean**: M1–M12 every one `pass=True, progress=1.0`, re-scored on this
+  commit. That matters more than usual here, because change 1 touches the wedge path that M5, M8
+  and M12 all take and change 2 touches every revolve in the ladder — a radius-relative RDP
+  epsilon is *finer* than `0.5*chord_tol` for anything under R = 20 mm·(ct/8), so M1's
+  `face_count_max` and M2/M3's small radii were the plausible casualties. Neither moved.
 - Runtime: M13 pipeline + score 278 s.
 
 
