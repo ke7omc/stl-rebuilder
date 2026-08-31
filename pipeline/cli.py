@@ -383,6 +383,11 @@ def _prism_from_ring(coords, z_lo: float, z_hi: float, area: float, arc_radius: 
         solid = solids.build_prism_solid(rolled + [rolled[0]], z_lo, z_hi,
                                           bore_radius=arc_radius)
         err = abs(_solid_volume(solid) - target) / target
+        # Keep this TIGHT. Relaxing it to 1 % (which would be only ~0.03 % of total volume, and
+        # is tempting because chording every lobe is what costs `gmsh_tet` — M5 min SICN 0.0816
+        # against a 0.1 gate) was measured and is much worse: M5 0.9898 -> 0.6722, because an arc
+        # fit can be within 0.81 % on volume and still 6.06 mm out of place. Volume alone does
+        # not validate an arc; it only detects a grossly wrong one.
         if err <= 1.0e-3:
             return solid
         if best is None or err < best[0]:
