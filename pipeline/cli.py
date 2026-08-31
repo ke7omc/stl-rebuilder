@@ -754,12 +754,16 @@ def _fuse_ok(fused, circ_solid, fin_solid) -> bool:
     return _solid_volume(fused) >= floor
 
 
-def _fuse_seam_bore(circ_pts_fn, fin_solid, seam_eps: float, chord_tol: float):
+def _fuse_seam_bore(circ_pts_fn, fin_solid, seam_eps: float, chord_tol: float, debug=None):
     """Fuse a single-seam circular/fin bore pair, retrying with a seam clearance (same rung
     `_fuse_sandwich_bore`'s caller already uses) when the zero-clearance fuse is invalid or
     silently degenerate -- see `_fuse_ok`. `circ_pts_fn(clearance)` returns the circular
     revolve's meridian points for a given clearance (the overlap-end radius tapered inward by
-    `clearance`, never a step -- same reasoning as `_fuse_sandwich_bore`)."""
+    `clearance`, never a step -- same reasoning as `_fuse_sandwich_bore`).
+
+    `debug` (optional dict) is filled with `circ_solid`/`fused` for the winning attempt, so a
+    caller can probe the individual cutters against `outer_solid` -- see PROGRESS.md M13
+    root cause #3 (a valid, non-degenerate fused bore still fails to meaningfully cut)."""
     fused = last_fused = last_circ = None
     for clearance in (0.0, 4.0 * seam_eps):
         circ_solid = solids.build_revolve_solid(circ_pts_fn(clearance), chord_tol)
@@ -768,7 +772,11 @@ def _fuse_seam_bore(circ_pts_fn, fin_solid, seam_eps: float, chord_tol: float):
         if _fuse_ok(last_fused, circ_solid, fin_solid):
             fused = last_fused
             break
-    return fused if fused is not None else last_fused
+    result = fused if fused is not None else last_fused
+    if debug is not None:
+        debug["circ_solid"] = last_circ
+        debug["fused"] = result
+    return result
 
 
 def _sector_of_ring(xy):
@@ -1492,6 +1500,7 @@ def _run(args) -> int:
     zone_fore = zone_aft = None
     paths_slot = None
     breakthrough_events = []
+    _seam_bore_dbg = {}
     if bore_rings and bore_pts:
         # M4: a plain circular bore fore of `fin_z_start`, fin slots (non-circular combined
         # bore+slot ring) aft of it (or vice versa) — a single topology event. M5 adds domes on
@@ -1808,19 +1817,29 @@ def _run(args) -> int:
             fin_overlap = 0.02 * seam_eps
             fin_solid = _build_prism_bore(bore_rings, event_z, z_max, fin_overlap, eps_cut_val,
                                            chord_tol, bore_radius=bore_pts[-1][1])
+            _seam_bore_dbg["fin_solid"] = fin_solid
             bore_solid = _fuse_seam_bore(
                 lambda clearance: [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts
                 + [(event_z + circ_overlap, bore_pts[-1][1] - clearance)],
-                fin_solid, seam_eps, chord_tol)
+                fin_solid, seam_eps, chord_tol, debug=_seam_bore_dbg)
         else:
             circ_overlap = 80.0 * seam_eps
             fin_overlap = 0.02 * seam_eps
             fin_solid = _build_prism_bore(bore_rings, z_min, event_z, eps_cut_val, fin_overlap,
                                            chord_tol, bore_radius=bore_pts[0][1])
+            _seam_bore_dbg["fin_solid"] = fin_solid
+            if __import__("os").environ.get("REBUILD_DEBUG_M13"):
+                from shapely.geometry import Polygon
+                _ring = _pick_best_ring(bore_rings, 0.5 * (z_min + event_z))
+                _poly = Polygon(_ring)
+                print(f"DEBUG_M13: fin ring n_pts={len(_ring)} poly.is_valid={_poly.is_valid} "
+                      f"poly.is_simple={_poly.is_simple} area={_poly.area:.1f} "
+                      f"height={event_z - z_min:.1f} area*height={_poly.area * (event_z - z_min):.1f}",
+                      file=sys.stderr)
             bore_solid = _fuse_seam_bore(
                 lambda clearance: [(event_z - circ_overlap, bore_pts[0][1] - clearance)]
                 + bore_pts + [(z_max + eps_cut_val, bore_pts[-1][1])],
-                fin_solid, seam_eps, chord_tol)
+                fin_solid, seam_eps, chord_tol, debug=_seam_bore_dbg)
     elif bore_rings:
         bore_solid = _build_bore_prism_or_loft(bore_rings, z_min, z_max, eps_cut_val, chord_tol)
     else:
@@ -1862,6 +1881,76 @@ def _run(args) -> int:
               f"valid={BRepCheck_Analyzer(_cut_test).IsValid()}", file=sys.stderr)
         print(f"DEBUG_M13: outer_solid volume={_op.Mass():.1f} bore_solid volume={_bp.Mass():.1f}",
               file=sys.stderr)
+        # Hypothesis (a): is bore_solid a compound of >1 disjoint solids whose combined
+        # bbox/volume look right but which don't coincide with outer_solid's true interior?
+        from OCP.TopExp import TopExp
+        from OCP.TopAbs import TopAbs_SOLID
+        from OCP.TopTools import TopTools_IndexedMapOfShape
+        _solid_map = TopTools_IndexedMapOfShape()
+        TopExp.MapShapes_s(bore_solid, TopAbs_SOLID, _solid_map)
+        print(f"DEBUG_M13: bore_solid n_solids={_solid_map.Size()}", file=sys.stderr)
+        for _i in range(1, _solid_map.Size() + 1):
+            _sub = _solid_map.FindKey(_i)
+            _sp = GProp_GProps()
+            BRepGProp.VolumeProperties_s(_sub, _sp)
+            _sb = Bnd_Box()
+            BRepBndLib.Add_s(_sub, _sb)
+            print(f"DEBUG_M13: bore_solid sub[{_i}] volume={_sp.Mass():.1f} bbox={_sb.Get()}",
+                  file=sys.stderr)
+            _sub_cut = booleans.cut(outer_solid, _sub, tol.fuzzy(chord_tol))
+            _scp = GProp_GProps()
+            BRepGProp.VolumeProperties_s(_sub_cut, _scp)
+            print(f"DEBUG_M13: cut(outer, bore_solid sub[{_i}]) volume={_scp.Mass():.1f} "
+                  f"(outer volume={_op.Mass():.1f})", file=sys.stderr)
+        # Hypothesis (c): cut with circ_solid and fin_solid SEPARATELY (pre-fuse) to isolate
+        # whether the no-op is in the fuse step or already present pre-fuse.
+        if "circ_solid" in _seam_bore_dbg:
+            for _name in ("circ_solid", "fin_solid"):
+                _piece = _seam_bore_dbg[_name]
+                _pp = GProp_GProps()
+                BRepGProp.VolumeProperties_s(_piece, _pp)
+                _pb = Bnd_Box()
+                BRepBndLib.Add_s(_piece, _pb)
+                _piece_cut = booleans.cut(outer_solid, _piece, tol.fuzzy(chord_tol))
+                _pcp = GProp_GProps()
+                BRepGProp.VolumeProperties_s(_piece_cut, _pcp)
+                print(f"DEBUG_M13: {_name} volume={_pp.Mass():.1f} bbox={_pb.Get()} valid="
+                      f"{BRepCheck_Analyzer(_piece).IsValid()} "
+                      f"orientation={_piece.Orientation()} -> "
+                      f"cut(outer, {_name}) volume={_pcp.Mass():.1f} "
+                      f"(outer volume={_op.Mass():.1f})", file=sys.stderr)
+                # Hypothesis (b): common(outer, piece) should be close to piece's own volume if
+                # they actually overlap the way cut() failed to reflect.
+                from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
+                _cmn_op = BRepAlgoAPI_Common(outer_solid, _piece)
+                _cmn_op.SetFuzzyValue(tol.fuzzy(chord_tol))
+                _cmn_op.Build()
+                _common = _cmn_op.Shape()
+                _cop = GProp_GProps()
+                BRepGProp.VolumeProperties_s(_common, _cop)
+                print(f"DEBUG_M13: common(outer, {_name}) volume={_cop.Mass():.1f} "
+                      f"is_done={_cmn_op.IsDone()}", file=sys.stderr)
+                if _name == "fin_solid":
+                    # Does outer_solid have ANY material at all over this z range/radius, or is
+                    # it itself hollow/absent there (independent of fin_solid's own geometry)?
+                    from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+                    from OCP.gp import gp_Ax2, gp_Pnt, gp_Dir
+                    _pb2 = _pb.Get()
+                    _probe_r = 814.0
+                    _probe = BRepPrimAPI_MakeCylinder(
+                        gp_Ax2(gp_Pnt(0.0, 0.0, _pb2[2]), gp_Dir(0.0, 0.0, 1.0)),
+                        _probe_r, _pb2[5] - _pb2[2]).Shape()
+                    _pop = GProp_GProps()
+                    BRepGProp.VolumeProperties_s(_probe, _pop)
+                    _pcm_op = BRepAlgoAPI_Common(outer_solid, _probe)
+                    _pcm_op.SetFuzzyValue(tol.fuzzy(chord_tol))
+                    _pcm_op.Build()
+                    _pcm = _pcm_op.Shape()
+                    _pcmp = GProp_GProps()
+                    BRepGProp.VolumeProperties_s(_pcm, _pcmp)
+                    print(f"DEBUG_M13: probe cylinder r={_probe_r} z=[{_pb2[2]:.1f},"
+                          f"{_pb2[5]:.1f}] volume={_pop.Mass():.1f} -> "
+                          f"common(outer, probe)={_pcmp.Mass():.1f}", file=sys.stderr)
 
     shape = booleans.cut(outer_solid, bore_solid, tol.fuzzy(chord_tol))
     # Slot lobes of a decomposed merged bore+slot cavity: each overlaps the already-cut bore
