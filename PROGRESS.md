@@ -3011,6 +3011,51 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 
+### iter 74 — M13 — opus/high (escalated) — 2026-08-31T07:55
+- Score before: progress 0.3046, first failure `volume_err_pct` = 96.3156 % (gate 0.5 %).
+- **Diagnosis (different hypothesis; iters 70–73 were all working downstream of the real bug).**
+  Iters 70–73 chased the boolean layer: a degenerate fuse (root cause #1, fixed in iter 72), then
+  "a valid, non-degenerate `bore_solid` still fails to cut `outer_solid`" (root cause #3). Both
+  are *symptoms*. The evidence that says so is the **path divergence between M12 and M13, which
+  are the same analytic solid**:
+  - `out/M12.report.json`: `paths_used = {outer: revolve, bore: mixed, slots: wedge}`,
+    `topology_events_z_mm = [5750.0, 9656.1, 9750.0]`, STEP 6072 entities → passes.
+  - `out/M13.report.json`: `paths_used = {outer: revolve, bore: mixed}` (**no `slots` key at
+    all**), `topology_events_z_mm = [357.2, 4241.8]`, STEP **253** entities → 96.3 % volume error.
+  So M13 never builds the slot cutters. It is not in the M12 code path at all.
+- **Why.** `_run()` takes the M5/M8/M12 *sandwich* branch only when `pts_before` **and**
+  `pts_after` are both non-empty, i.e. only when at least one **station** sampled a circular bore
+  on each side of the slot zone. The aft window between the slot end and the part end is
+  ~90 mm wide (slot_z_hi 9750, axial extent ~9843):
+  - M12 (`chord_tol` 0.5): `station_eps = min(max(eps_end, 200*ct), 0.02*L) = 100` mm; stations
+    run 195.9 → **9807.9** (`stations_z_mm`), so 9769/9789/9808 sample the aft circular bore →
+    sandwich → `_build_slot_wedges` → wedge path.
+  - M13 (`chord_tol` 8): the `200*ct` term saturates (1600 mm) and the cap binds, so
+    `station_eps = 0.02*L = 197` mm; stations run 289.1 → 9720.1 in the report's axial frame
+    (M13's frame is flipped, axis ≈ −x, so the aft window is at the *low* reported-z end and the
+    first station at 289.1 is already inside the slot zone). **The 90 mm window is narrower than
+    the 197 mm inset, so no station sees it.** `pts_before` is empty ⇒ single-event `else` branch
+    ⇒ one fin-shaped prism fused to one circular revolve over the whole length. That cutter is
+    geometrically meaningless here, which is exactly why iters 71–73 kept finding it degenerate
+    or inert no matter how the fuse was repaired.
+  - Confirms iter 72's own observation (`circ_before=False`, `event_z=-8263.2`, a single event)
+    from the other direction, and explains the 2 reported events as `[event_z] + breakthrough`,
+    not the sandwich's `[zone_fore, zone_aft]`.
+- **Ruled out by this evidence:** that the frontier is in `booleans.fuse`/`booleans.cut` at all
+  (root causes #1/#3). Repairing the fuse cannot help while the cutter being fused is the wrong
+  shape. Do not spend another iteration inside `_fuse_seam_bore` / `_fuse_ok` for M13.
+- **Change:** in `pipeline/cli.py`, immediately before the `bore_rings and bore_pts` branch, probe
+  the un-sampled end window with up to 5 extra **sections** (not stations — not reported, do not
+  consume the `--sections` budget, cannot move `station_bands`/`n_stations_max`; same status as
+  the bisection sections already used for event localisation). It fires only when one side of the
+  sandwich is missing entirely, and only accepts a probe whose section is one axis-centred outer
+  circle with exactly one axis-centred circular hole and no non-circular hole (a non-circular hole
+  means the probe is still inside the slot zone). Accepted probes are appended to `bore_pts`.
+  Blast radius: M1/M2/M6/M7 never reach the branch (`bore_rings` or `bore_pts` empty); M5/M8/M9/
+  M12 already have both sides so the probe does not run; M4's fins genuinely reach the part end so
+  the probe runs, finds a non-circular hole, and changes nothing but 5 extra sections.
+- Score after (my local run): see the follow-up note appended below.
+
 ### iter 63 — M9 — sonnet/medium — 2026-08-31T00:04
 - Score before: progress 0.4277, first failure `bbox_err_pct` 0.180% (gate 0.1%).
 - Change: added `_solve_pinch_z(z0, coef, target_r, near_z)` (`pipeline/cli.py`, next to
