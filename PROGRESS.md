@@ -56,7 +56,16 @@
      fixed it: `fin_zone` p99 **0.4294 → 0.1119**. Margins are huge (fillet rms 2.0e-4, absorbed
      points 1.8–2.3e-4, first true straight point 324 mm off) — there is no tuning band here.
   Final M5 numbers: volume err 0.00024 %, dev max 0.4302 / p99 0.1892, gmsh min SICN 0.3170,
-  54 faces, 3.9 s. Next milestone is **M6** (per-window loft).
+  54 faces, 3.9 s.
+- **M1–M8 ALL PASS at progress 1.0 on this tree (`21b021f`), scored individually this iteration.**
+  M6 and M7 (per-window loft; N cutters + generalised topology events) were already satisfied by
+  the work done while chasing M5 and were never the blocker — the loop stalled on M5 for five
+  iterations while M6/M7/M8 sat green behind it. **So the next iteration should not "start M6"
+  from scratch: score it first (`harness/score.py --milestone M6`) and expect a pass.** The first
+  genuinely unproven rung is **M9** (noisy anisotropic marching-cubes input, `--chord-tol 5`),
+  and its truth generation is the slow one (see Brady's 2026-08-30 12:15 note above: M9's checks
+  cost ~2–3 min each and the truth cache is the thing to lean on). Budget a full iteration for
+  the first M9 score before changing any code.
 - **Watch item for M6+:** `_grow_runs_to_circle` is inside `detect_arc_runs`, so it also feeds
   `_arc_line_wire` / `build_ruled_loft_solid` / `build_fillet_loft_solid`. It cannot change the
   number of runs or edges (it only moves the boundary between an arc run and the unclassified
@@ -2440,6 +2449,9 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   unclassified points next to it), so it cannot break the loft path's "identical edge count on
   both sections" invariant. M6/M7/M8 were scored separately — see the next log block if that run
   landed after this one was written.
+- **Also scored this iteration, unprompted, because `detect_arc_runs` is shared: M6, M7 and M8
+  all `pass: true`, progress 1.0.** No regression from the grow fix anywhere, and M6/M7 turn out
+  to have been passing already. M1–M8 are green on `21b021f`; the first unproven rung is M9.
 - **Next:** M5 is done; the driver should advance to M6. If `_grow_runs_to_circle` shows up in a
   later failure, note that the tolerance is deliberately derived per-run (`4 x` interior rms) —
   do not replace it with a shared absolute tolerance, and do not reuse `detect_arc_runs`'
