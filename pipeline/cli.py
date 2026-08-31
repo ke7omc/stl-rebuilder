@@ -756,8 +756,51 @@ def _fit_end_fillet(samples, z_edge: float, sign: float, r_plateau: float, outwa
     return f, float(np.max(np.abs(resid(f))))
 
 
+def _fillet_vertex_samples(mesh, z_edge: float, sign: float, r_out: float, f_seed: float,
+                            thetas, theta_half: float, chord_tol: float):
+    """(z, r) samples taken from the mesh's own VERTICES on a slot's outer end-fillet surface,
+    for `_fit_end_fillet` to re-fit the radius on.
+
+    Same bias as the dome (`_refine_dome_model_from_vertices`): the section-derived samples
+    `_build_slot_wedges` fits are each the max radius of a *sliced* lobe outline, and a plane
+    section of a tessellated torus runs along facet chords that lie inside it, so every sample
+    is low by up to the STL's chordal deflection. One-parameter fits amplify that into the
+    radius. Measured on M8's aft end: the section fit returned f_hi ~= 151.2 mm for a true
+    150 mm fillet, putting the built surface 0.41 mm inside truth at z=9575 and 0.55 mm at
+    z=9600 -- which is the whole of the residual `aft_wall` / `aft_dome` / `slot_zone`
+    deviation (p99 0.45/0.43/0.40 mm against a 0.4 mm gate) once the dome is fixed. Mesh
+    vertices sit exactly on the surface, so re-fitting on them removes the bias.
+
+    Vertices are kept only when they are inside a lobe's angular sector (and off its flanks, so
+    the corner blends are excluded), inside the fillet's own axial band, and within
+    `4*chord_tol` of the seed fillet surface -- so bore walls, flanks and the end wall cannot
+    contaminate the fit.
+    """
+    v = np.asarray(mesh.vertices, dtype=float)
+    if v.size == 0 or f_seed <= 0.0:
+        return []
+    z = v[:, 2]
+    s_in = sign * (z - z_edge)
+    sel = (s_in > 0.08 * f_seed) & (s_in < 0.92 * f_seed)
+    if int(sel.sum()) < 50:
+        return []
+    th = np.arctan2(v[sel, 1], v[sel, 0])
+    in_sector = np.zeros(int(sel.sum()), dtype=bool)
+    for tc in thetas:
+        dth = (th - tc + math.pi) % (2.0 * math.pi) - math.pi
+        in_sector |= np.abs(dth) < 0.6 * theta_half
+    r = np.hypot(v[sel, 0], v[sel, 1])
+    s_k = s_in[sel]
+    d = f_seed - s_k
+    r_pred = r_out - f_seed + np.sqrt(np.maximum(f_seed * f_seed - d * d, 0.0))
+    keep = in_sector & (np.abs(r - r_pred) <= 4.0 * chord_tol)
+    if int(keep.sum()) < 50:
+        return []
+    return list(zip(z[sel][keep].tolist(), r[keep].tolist()))
+
+
 def _build_slot_wedges(bore_rings, sat_rings, z_lo: float, z_hi: float, bore_radius: float,
-                        chord_tol: float):
+                        chord_tol: float, mesh=None):
     """Slot cutters as filleted angular wedges spanning the FULL slot zone [z_lo, z_hi].
 
     `_build_slot_lobes` models each slot as a constant-cross-section prism between the two
@@ -830,6 +873,20 @@ def _build_slot_wedges(bore_rings, sat_rings, z_lo: float, z_hi: float, bore_rad
     # plane, so allow a few chord_tol before rejecting the model.
     if max(res_lo, res_hi) > 6.0 * chord_tol:
         return []
+    # Re-fit each radius on mesh vertices, which carry no section bias (`_fillet_vertex_samples`).
+    # Only accepted when it stays near the section fit -- a large move means the vertex band
+    # selected the wrong surface, and the section fit is then the safer answer.
+    if mesh is not None:
+        for z_edge, sign, f_seed, set_lo in ((z_lo, +1.0, f_lo, True), (z_hi, -1.0, f_hi, False)):
+            vs = _fillet_vertex_samples(mesh, z_edge, sign, r_out, f_seed, thetas, theta_half,
+                                        chord_tol)
+            fit = _fit_end_fillet(vs, z_edge, sign, r_out, True, span) if vs else None
+            if fit is None or abs(fit[0] - f_seed) > 0.25 * f_seed:
+                continue
+            if set_lo:
+                f_lo = fit[0]
+            else:
+                f_hi = fit[0]
 
     # Inner plateau radius: hidden behind the bore in the zone interior, but visible in the end
     # windows where the lobe is still detached. Invert the same fillet law there.
@@ -1426,7 +1483,7 @@ def _run(args) -> int:
             # the entire M8 deviation failure. Falls back to the constant-section prism when the
             # sections do not fit the annular-sector model.
             lobe_cutters = _build_slot_wedges(bore_rings, sat_rings, zone_fore, zone_aft,
-                                               seam_bore_radius, chord_tol)
+                                               seam_bore_radius, chord_tol, mesh=mesh)
             if lobe_cutters:
                 paths_slot = "wedge"
             else:
