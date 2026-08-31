@@ -40,6 +40,63 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 58 (M5) — no net functional change (reverted to byte-identical `bc78877`); CONFIRMED
+  iter 57's fillet-defect hypothesis with the actual 3D tet geometry (needle slivers, not just a
+  region), then tried two point-thinning fixes derived from that diagnosis — both measured,
+  neither cleared the gate, reverted. `gmsh_tet` still 0.08173 at HEAD.**
+  1. **Confirmed the sliver mechanism directly.** Wrote `/tmp/dbg_worst_tet2.py` (not committed):
+     meshes `out/M5.step` at the harness's own hmax=100mm/hmin=10mm and dumps each of the 5
+     worst tets' 6 edge lengths + node coords via `gmsh.model.mesh.getElementQualities`/
+     `getElements`/`getNodes`. Every one of the 5 worst tets (min SICN 0.0817-0.0867) has
+     **exactly one edge ~5.97-6.0mm long and the other five edges 80-100mm** (matching hmax),
+     and the short edge's two endpoints share the same z (a fillet cross-section ring). This is
+     a textbook needle sliver: a ~6mm-wide extruded ribbon face (the straight-polygon fallback's
+     raw fillet chord, `_prism_from_ring`'s last-resort branch) meshed at a 100mm/10mm hmax/hmin
+     that's 15-17x coarser than the ribbon is wide. Directly confirms iter57's location finding
+     AND matches the exact mechanism `solids.build_fillet_loft_solid`'s docstring already
+     documents for M6's equivalent problem (there solved with exact fillet arcs instead).
+  2. **Tried fix 1: blanket ring-wide decimation** (drop any consecutive point < 8mm from the
+     last kept point, across the WHOLE ring, then straight-polygon-extrude) in
+     `_prism_from_ring`'s last-resort fallback. Never reached `gmsh_tet` —
+     `surface_deviation_max_mm` blew up to **6.06mm** at z=9079.6 (fin_zone), gate 0.6mm. A
+     naive distance-only greedy decimator drops genuine corner/transition points along with the
+     fillet's fine chording, moving the boundary far more than the fillet's own ~0.2mm sagitta
+     budget at 8mm chords would predict. **Ruled out: do not blanket-decimate the whole
+     fallback ring by point spacing alone** — corners must be protected explicitly, distance
+     alone is not a safe selector.
+  3. **Tried fix 2: surgical decimation, curved-runs only.** New helper
+     `_thin_curved_run_interiors(ring, min_edge)`: runs `fitting.detect_arc_runs(ring, None)`
+     (the SAME auto-classifier already proven correct at finding the true R=40 fillet + R=301.8
+     disc-cut runs, iter55), and thins ONLY each curved run's INTERIOR points (run endpoints —
+     the corners into straight runs — are never touched; straight runs are never touched). At
+     `min_edge=8.0`: still failed `surface_deviation_max_mm` at **1.878mm** (z=7131.2,
+     fin_zone) — much smaller than fix 1's 6.06mm (confirming corner-protection helps) but still
+     ~3x over gate, so something beyond simple chord sagitta is still at play (possibly
+     compounding across several dropped points in the same run, or the disc-cut run getting
+     thinned too and interacting with the seam it's snapped against — not diagnosed further, out
+     of time). At **`min_edge=5.0`**: `surface_deviation_max_mm` came back bit-identical to
+     baseline (0.43016805140745207 — the ring-wide max deviation location isn't even in
+     fin_zone, so this specific fillet's chording wasn't the deviation driver at 5mm), and
+     `gmsh_tet` moved from 0.08173 to **0.08277** — a real but small improvement, nowhere near
+     the 0.1 gate. Progress 0.9899 -> 0.9904. **Not worth keeping on its own** (no functional
+     gain, still fails); reverted `pipeline/cli.py` to `bc78877` byte-identical
+     (`git diff bc78877 -- pipeline/cli.py` empty).
+  4. **What this rules in for next time:** the fillet-chord ribbon-face sliver mechanism is now
+     confirmed at the individual-tet level, not just "the region is bad" — any future fix should
+     be validated against this exact test (`/tmp/dbg_worst_tet2.py`'s pattern: check the worst
+     tets' actual edge-length distributions, not just the aggregate min SICN) so an attempted fix
+     that doesn't remove the short-edge/long-edge pattern can be rejected immediately without a
+     full scorer run. `min_edge=5.0` bought a small, real, gate-safe improvement in isolation —
+     a next attempt could try tuning `min_edge` in the 5-6.5mm range specifically (the exact
+     boundary where deviation starts moving is unmapped between 5 and 8), or attack the disc-cut
+     run's own chording separately from the fillet's (they may have different safe `min_edge`
+     budgets since one is R=40 and the other R=301.8 — an order of magnitude difference in
+     sagitta per mm of chord). A full arc-based rebuild of just this one run (not the whole
+     lobe) gated on `arc_wire_max_dev` (iter56's position check) rather than volume might also
+     be worth one more try now that the exact geometric mechanism (not just "arcs made gmsh_tet
+     worse before") is understood — iter56's position-gated attempt built ALL curved runs as
+     arcs at once, mixing lobes with different fractions arc-vs-fallback; isolating just the
+     fillet run (leaving the disc-cut run on the fallback path) was not tried.
 - **iter 57 (M5) — no net functional change (reverted to byte-identical `bc78877`); located the
   exact worst-`gmsh_tet` defect for the first time (previous iterations knew the region, not the
   point), tried the dedup-threshold fix the location implies, and it made things WORSE at every
