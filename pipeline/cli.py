@@ -1287,7 +1287,10 @@ def _run(args) -> int:
                      # obround slots), any z -- R is the (possibly poor) Kasa-fit radius, kept
                      # only as a rough size estimate, not used for shape reconstruction
     all_zz = []      # every station z actually sliced, in order (for chain-edge neighbor lookup)
+    _dbg_stations = []
+    _dbg_on = bool(__import__("os").environ.get("REBUILD_DEBUG_M13"))
     for z in zs:
+        _n0 = (len(bore_pts), len(bore_rings), len(sat_samples), len(sat_rings))
         polys, zz = slice_station(mesh, z, chord_tol)
         if not polys:
             print(f"rebuild.py: no section recovered at z={z:.3f}", file=sys.stderr)
@@ -1357,6 +1360,16 @@ def _run(args) -> int:
                 # prism (`solids.build_prism_solid`, the same machinery M3's star bore uses)
                 # instead of a cylinder.
                 sat_rings.append((zz, cxh, cyh, Rh, hole))
+
+        if _dbg_on:
+            _n1 = (len(bore_pts), len(bore_rings), len(sat_samples), len(sat_rings))
+            _dbg_stations.append((zz, Ro, len(rings)) + tuple(b - a for a, b in zip(_n0, _n1)))
+
+    if _dbg_on:
+        print("DEBUG_M13 stations: z Ro n_rings +borePt +boreRing +satPt +satRing",
+              file=sys.stderr)
+        for _r in _dbg_stations:
+            print("DEBUG_M13 st %9.2f %8.2f %2d %d %d %d %d" % _r, file=sys.stderr)
 
     # Group satellite samples into chains by nearest-center match to the previous station's
     # live chains — satellites are straight (M7), so a true match is ~0 mm apart while distinct
@@ -1492,6 +1505,57 @@ def _run(args) -> int:
             z_hi = _bisect_ring_edge(mesh, z_last, all_zz[i_last + 1], chord_tol, cx0, cy0,
                                       match_dist)
         sat_cutters.append((solids.build_prism_solid(rep_hole.tolist(), z_lo, z_hi), z_lo, z_hi))
+
+    # The circular-bore run between the slot zone's axial end and the part's own end can be
+    # NARROWER THAN THE STATION INSET, so no station samples it at all and the sandwich branch
+    # below degrades to a single topology event. Measured on M13: the aft window is ~90 mm wide
+    # while `station_eps` is 0.02*L = 197 mm (the 200*chord_tol term saturates the cap at
+    # chord_tol 8), so the first station sits at 9554 mm and the run 9750..9843 is invisible;
+    # M12 is the same geometry at chord_tol 0.5, samples it (last station 9808 mm), and takes the
+    # wedge path. The single-seam fuse path M13 fell into produced an envelope-only solid
+    # (volume_err_pct 96.3 %).
+    #
+    # Probe that end window directly with a few extra SECTIONS -- not stations: they are not
+    # reported, do not consume the `--sections` budget and cannot move `station_bands` /
+    # `n_stations_max`, exactly like the bisection sections already used to localise events.
+    # Fires only when one side of the sandwich is missing entirely, so on M4 (fins genuinely run
+    # to the part end) it probes, finds a non-circular hole, and changes nothing; on M5/M8/M9/M12
+    # both sides are already sampled and it does not run at all.
+    if bore_rings and bore_pts and all_zz:
+        bore_rings.sort(key=lambda p: p[0])
+        _ring_lo, _ring_hi = bore_rings[0][0], bore_rings[-1][0]
+        _resid_gate = tol.circle_max_resid(chord_tol)
+        for _at_start in (True, False):
+            if [p for p in bore_pts if (p[0] < _ring_lo if _at_start else p[0] > _ring_hi)]:
+                continue
+            _z_edge = z_min if _at_start else z_max
+            _z_inner = all_zz[0] if _at_start else all_zz[-1]
+            if abs(_z_inner - _z_edge) <= 2.0 * eps_end_val:
+                continue
+            for _f in (0.9, 0.75, 0.6, 0.45, 0.3):
+                _zp = _z_edge + _f * (_z_inner - _z_edge)
+                _polys, _zz = slice_station(mesh, _zp, chord_tol)
+                if len(_polys) != 1:
+                    continue
+                _poly = _polys[0]
+                _cx, _cy, _Ro, _mr, _ = fit_circle_robust(np.asarray(_poly.exterior.coords))
+                if _mr > _resid_gate or not _axis_centered(_cx, _cy, _Ro, chord_tol):
+                    continue
+                _r_central, _bad = None, False
+                for _ring in _poly.interiors:
+                    _h = np.asarray(_ring.coords)
+                    _cxh, _cyh, _Rh, _mr2, _ = fit_circle(_h)
+                    if _mr2 > _resid_gate:
+                        _bad = True   # a non-circular hole: still inside the slot zone
+                        break
+                    if _axis_centered(_cxh, _cyh, _Rh, chord_tol):
+                        if _r_central is not None:
+                            _bad = True
+                            break
+                        _r_central = _Rh
+                if not _bad and _r_central is not None:
+                    bore_pts.append((_zz, _r_central))
+        bore_pts.sort(key=lambda p: p[0])
 
     event_z = None
     circ_before = None
