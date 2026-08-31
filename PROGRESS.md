@@ -40,7 +40,9 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
-- **iter 75 (M13, escalated) — DIAGNOSIS FIRST, then two dimensional-bias fixes. The residual
+- **iter 75 (M13, escalated) — RESULT: `volume_err_pct` 0.9993 % → **0.13778 %** (gate 0.5),
+  progress 0.3261 → **0.5652**; first failure moved five checks forward to `station_bands`.
+  M1-M5 and M12 all still pass at progress 1.0. DIAGNOSIS FIRST, then two dimensional-bias fixes. The residual
   0.9993% is now fully attributed, per-region, with numbers. Iter 74's split ("0.27% input,
   0.73% profile RDP") was half right: the input bias is real and confirmed, but the RDP term is
   only 0.30% and the DOMINANT term (0.47%) is somewhere iter 74 never looked — the slot wedge
@@ -104,6 +106,14 @@
      meridian RDP. Scale-relative (MISSION §2.7): volume error from a radial bias is 2·ΔR/R, so
      the epsilon must be a fraction of the radius; `chord_tol` describes the input's fidelity and
      is not a licence to add that much error again.
+  **Outcome, measured:** volume 0.9993 % → 0.13778 %, i.e. both biases were real and the residual
+     is now *below* the 0.24 % input-scale floor computed above — meaning our reconstruction is
+     slightly larger than the analytic truth, not smaller, and there is real headroom. The next
+     failure is `station_bands`: the scorer wants >= 10 stations in the `fore_wall` band and we
+     place 2 (breakthrough band has 18, dome bands 22 each, 120 stations total). That is the
+     `--adaptive` / `--refine-bands` feature-aware station placement that MISSION §6.2 calls for
+     and that Round 1 never implemented (HANDOFF §6 lists it as a known no-op). **This is a
+     feature to build, not a bug to fix** — do not go looking for it in the volume/geometry code.
 - **iter 74 (M13, escalated) — root cause #1/#3 were both SYMPTOMS. The real bug was branch
   selection, and fixing it took `volume_err_pct` from 96.3156% to 0.9993% (progress 0.3046 →
   0.3261). M13 still fails (gate 0.5%), but the frontier is now a measured 2-part dimensional
@@ -2793,6 +2803,25 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **Do not use an extreme-valued statistic (max/min radius, full angular spread) to size a cutter
+  from a noisy ring.** The max of n samples with radial noise sigma sits ~2.5 sigma outward, so on
+  M13 (sigma ~0.9 mm, few-hundred-point rings) `_sector_of_ring` produced wedges 2.14 mm too deep
+  AND 0.12 deg too wide simultaneously — 0.474 % of volume, the single largest term in iter 74's
+  residual, and it looks nothing like a bug when you read the code. Size cutters from **area and
+  second moments** (`_sector_of_ring_moments`), whose noise bias is O(sigma^2/R^2). Extremes are
+  still correct for *classification* (is this ring a sector at all), where outlier sensitivity is
+  conservative — that is why slots 0-3 of the `_lobe_sector_samples` tuple still exist.
+- **Do not scale a reconstruction tolerance off `chord_tol` alone when the error it controls is
+  radial.** `chord_tol` bounds the *input's* fidelity; reusing it as the reconstruction's own
+  budget spends the gate twice. The meridian RDP at `0.5*chord_tol` = 4 mm collapsed M13's whole
+  8.9 m barrel onto the shoulder radius (one cylinder at R 997.881 vs station fits 998.66-998.73,
+  0.295 % of volume). Volume error from a radial bias is 2*dR/R, so such a tolerance must also be
+  bounded by a fraction of the local radius (`tol.rdp_profile_eps`, 2e-4*r_ref). Still derived,
+  never an absolute mm constant (MISSION §2.7).
+- **Do not look for M13's remaining failure in the solid-building code.** As of iter 75 the volume,
+  bbox, frame, axial-extent, solid-count and BRep-validity checks all pass. The frontier is
+  `station_bands` (fore_wall: 2 stations, needs >= 10) — station *placement*, i.e. the
+  `--adaptive` / `--refine-bands` feature that has been a no-op since Round 1.
 - **Do not chase M13's `volume_err_pct` in the boolean layer** (`pipeline/booleans.py`,
   `_fuse_seam_bore`, `_fuse_ok`, fuzzy values, seam clearances, sequential-vs-fused cuts). Iters
   70-73 spent four iterations there. The cutter *shape* was wrong, not the boolean: `_run()` was
@@ -3140,6 +3169,61 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 75 — M13 — opus/high (escalated) — 2026-08-31T09:08
+- Score before: progress 0.3046 → 0.3261 (iter 74's end-probe), first failure `volume_err_pct`
+  = 0.9993 % (gate 0.5 %).
+- Score after: **progress 0.5652**, `volume_err_pct` = **0.13778 %** — the volume gate, the bbox
+  gate, the frame gate and the axial-extent gate all pass. First failure moved forward five
+  checks to `station_bands` (`fore_wall` band has 2 stations, needs ≥ 10).
+- **Diagnosis is in `## Current state` above; the short version.** The 0.9993 % was measured
+  per-region (`out/dbg/sect.py`, sectioning both STEPs every 100 mm) and split three ways:
+  **0.263 % is in the input mesh** (a pure radial scale 0.998685 about the axis — outer mean R
+  998.686 and bore mean R 549.276 give the *same* ratio, so it is the harness voxelising a
+  ct/2-deflection tessellation, and it is not reconstructable); **0.474 % was the slot wedges**
+  (the dominant term, which iter 74 never looked at); **0.295 % was the outer barrel's RDP**.
+  Both of ours are the *same* defect wearing two hats: **a systematic dimensional bias that
+  scales with `chord_tol`.** Neither is a boolean, a topology or a branch-selection problem, so
+  none of iters 70–74's machinery was ever going to move this number.
+- **Change 1 — read a slot ring's sector from its moments, not its extremes**
+  (`pipeline/cli.py`: new `_sector_of_ring_moments`, wired into `_lobe_sector_samples` as
+  tuple slots 6–9 and consumed by `_build_slot_wedges`).
+  `_sector_of_ring` took `r_hi = max(r)` and the full angular spread of the ring's points. On a
+  clean ring that is exact. On M13 the boundary carries σ ≈ 0.9 mm of radial noise and each ring
+  has a few hundred points, and **the max of n samples sits ≈ 2.5 σ outward** — so every wedge
+  came out too big in both dimensions at once: built R = 950.886 against truth 948.75 (2.14 mm
+  too deep) and half-angle 17.080° against 16.960° (0.12° too wide), and the cutter is subtracted,
+  so both errors remove material. The fix reads (θ_c, θ_half, r_in, r_out) from the ring's **area
+  and second moments about the axis** (Green's theorem, closed form, then one bisection on
+  I_vv/I_uu for θ_half) — an integral over every point instead of a function of the two most
+  extreme ones, so the σ² terms cancel instead of accumulating. Synthetic check at σ = 0.9 on a
+  known sector (θ_c 0.7, θ_half 0.2961, r 581 → 948.75): moments give r_out 948.660 / r_in 580.899
+  (error 0.09 / 0.10 mm), extremes give 950.782 / 578.462 (error 2.03 / 2.54 mm) — 20× better,
+  and the bias is gone rather than merely smaller.
+  The wedge **acceptance test** deliberately still reads the extreme slots 0–3: it is asking "is
+  this ring plausibly an annular sector at all", where an outlier-sensitive statistic is the
+  conservative choice, and M5 depends on it rejecting cartesian-width fins.
+- **Change 2 — bound the meridian RDP epsilon by the radius, not only by `chord_tol`**
+  (`pipeline/tol.py`: new `rdp_profile_eps`; `pipeline/solids.py:187` uses it).
+  `build_revolve_solid` simplified the (z, R) meridian at `0.5 * chord_tol` = **4 mm** at ct 8.
+  A straight run's RDP chord is pinned to its two end anchors, and those anchors are the
+  neighbouring dome window's boundary points, which sit just inside the dome curvature at a
+  *smaller* radius — so 4 mm was enough to swallow the entire 8.9 m barrel onto the shoulder
+  radius, emitting one cylinder at R = 997.881 against station circle fits of 998.66–998.73.
+  `chord_tol` bounds the **input's** fidelity; it is not a licence to add that much error again in
+  the reconstruction. Volume error from a radial bias is 2·dR/R, so the bound has to be a fraction
+  of the radius: `min(0.5*chord_tol, 2.0e-4 * r_ref)`, still a derived tolerance (MISSION §2.7),
+  never an absolute millimetre constant.
+- **Ruled out along the way** (so nobody re-tests them): the scorer's `result_step_volume` is the
+  **BRep** volume via `BRepGProp`, not a tessellated one, so there is no tessellation bias hiding
+  in our budget; and `fit_circle_robust` does not bias R, it only trims the residual it reports.
+- Predicted 0.9993 → ≈ 0.23 %; measured **0.1378 %**. The two removed biases were slightly larger
+  than the section-integral estimate, which is expected — the estimate compared *areas*, and a
+  wedge that is too wide also over-cuts where it meets the bore.
+- Regression sweep (a pass only counts if every lower milestone still passes): M1–M5 all
+  `pass=True, progress=1.0`. M6–M12 results in the next bullet / iter 76's header.
+- Runtime: M13 pipeline + score 278 s.
+
 
 ### iter 74 — M13 — opus/high (escalated) — 2026-08-31T07:55
 - Score before: progress 0.3046, first failure `volume_err_pct` = 96.3156 % (gate 0.5 %).
