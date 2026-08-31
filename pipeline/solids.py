@@ -266,9 +266,16 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
                 arc = GC_MakeArcOfCircle(p0, pm, p1).Value()
                 mkwire.Add(BRepBuilderAPI_MakeEdge(arc).Edge())
             except Exception:
-                mkwire.Add(BRepBuilderAPI_MakeEdge(p0, p1).Edge())
+                # p0/p1 themselves can be (near-)coincident when the classifier's own window
+                # straddles a run that's collapsed to a single effective point (denser adaptive
+                # station sampling makes this reachable where it wasn't before) --
+                # BRepBuilderAPI_MakeEdge raises on a zero-length pair, so just drop that edge
+                # rather than crash the whole cross-section.
+                if p0.Distance(p1) > 1e-9:
+                    mkwire.Add(BRepBuilderAPI_MakeEdge(p0, p1).Edge())
             next_p0 = run_endpoints[(i + 1) % n_arcs][0]
-            mkwire.Add(BRepBuilderAPI_MakeEdge(p1, next_p0).Edge())
+            if p1.Distance(next_p0) > 1e-9:
+                mkwire.Add(BRepBuilderAPI_MakeEdge(p1, next_p0).Edge())
 
     if not mkwire.IsDone():
         raise RuntimeError("prism cross-section wire construction failed")

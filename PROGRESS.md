@@ -40,6 +40,78 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 47 (M8) — NOT PASSING, progress currently 0.3528 (regressed from iter 46's 0.55; see
+  below), M1-M7 NOT re-verified this iteration (ran out of budget before the regression sweep —
+  do this first next iteration).** Implemented real `--adaptive` station placement
+  (`pipeline/stations.py::adaptive_stations`) to fix iter 46's `station_bands` blocker, found and
+  fixed two more bugs along the way, but a fourth issue (bore-solid wire construction on the new
+  denser station distribution) is only band-aided, not fixed, and is the net cause of the
+  regression. Do NOT consider this a step forward until that's resolved — it's a documented
+  trade of one failure mode for a different, currently worse one.
+  1. `pipeline/stations.py::adaptive_stations` — real feature-aware placement (was a documented
+     no-op falling back to `uniform_stations`). Coarse-scans `mesh.section` at up to 400 z's,
+     builds a weight from `log1p(|dA/dz| / median)` plus a data-driven bump (expand outward from
+     each topology event — a change in `sum(len(p.interiors) for p in polys)`, i.e. hole count —
+     while `|dA/dz|` stays >2x baseline, capped at 15% of the scan) multiplied onto the peak
+     weight, then draws `n` stations as inverse-CDF quantiles of that weighted density.
+     `_scan_area_and_loops`'s loop-count MUST count interior rings, not exterior polygons — a
+     watertight single-body part's exterior polygon count is always 1 regardless of how many
+     holes appear/merge, so counting exteriors (my first attempt) never detected anything.
+     Tuning the topology-bump multiplier is a real tension: 4.0x cleanly cleared `fore_wall`/
+     `aft_wall` (>=10 each) but starved `fore_dome` down to 4 stations (need >=8) — unlike
+     `aft_dome`, `fore_wall` does not spatially overlap `aft_dome`'s dome band, so fore_dome gets
+     no incidental boost from wall-band weight the way aft_dome does from aft_wall. 1.3x restored
+     fore_dome=12/aft_dome=17/fore_wall=11/aft_wall=11 (all pass) in isolation, but see bug 4 below.
+  2. Fixed a real (adaptive-density-exposed, not adaptive-specific) bug in M8's off-axis
+     non-circular satellite `ring_chains` matching (`pipeline/cli.py`): centroid-only greedy
+     matching had no z-adjacency requirement, so two disjoint narrow "flicker window" appearances
+     of the same physical slot (near the z=5850/9650 topology events) got bridged into one chain
+     spanning the ~3700mm merged middle region, using one edge-window cross-section swept across
+     that whole span -> wrong solid (`n_solids` mismatch). Fixed by requiring
+     `zz_index[z] == zz_index[lz] + 1` (immediate station adjacency) to extend a chain. Also added
+     `if len(ch) < 3: continue` before building `sat_cutters` — a 2-station flicker chain is too
+     thin to model as a standalone prism cutter and the surrounding merged-loop bore already
+     covers that z range.
+  3. Found and fixed a genuine, previously-unknown, non-M8-specific bug: a boolean-cut sliver
+     face can pass `BRepCheck_Analyzer` on the IN-MEMORY shape yet come back invalid after a STEP
+     write+reread, because STEP's on-disk numeric precision can quantize a merely-tiny face into
+     a truly zero-area one — confirmed by writing/rereading the same shape and finding one
+     zero-area, zero-centroid face that wasn't there before the round-trip. Applying
+     `ShapeFix_FixSmallFace` before export does NOT fix this (the degenerate face is created BY
+     the write, not present beforehand). Fix: `pipeline/export.py::write_step` now writes, rereads
+     the ACTUAL written file, and if `BRepCheck_Analyzer` fails on the reread shape, runs
+     `ShapeFix_FixSmallFace` + `ShapeFix_Shape` on the reread shape and rewrites (up to 2 rounds).
+     This is a generic robustness fix that should help every milestone, not just M8 — worth
+     keeping regardless of how the M8 station-count tuning above shakes out.
+  4. **UNRESOLVED / current blocker**: with the 1.3x multiplier's station distribution, the
+     M4/M5-style mixed bore path (`_build_prism_bore` -> `solids.build_prism_solid`) crashed:
+     `Standard_Failure: BRep_API: command not done` at `BRepBuilderAPI_MakeEdge(p0, p1)` — a
+     run's fallback straight-edge (taken when `GC_MakeArcOfCircle` throws on a near-degenerate
+     3-point run) can itself be a zero-length pair when p0==p1, which the denser/differently-
+     distributed adaptive stations make reachable in a way `uniform_stations` never hit. Band-
+     aided by skipping any edge add where `p0.Distance(p1) <= 1e-9` (`pipeline/solids.py`,
+     `build_prism_solid`) instead of crashing — this stops the exit-2 crash (confirmed) but
+     DROPS a wire edge, which is not geometrically sound (open/malformed wire risk) and is almost
+     certainly why the rerun scored `volume_err_pct` 3.5% (gate 0.2%, was passing pre-regression)
+     instead of a station_bands failure. **Do not consider this dedup guard the real fix** — it
+     converts a hard crash into a silent geometry defect. The real fix is almost certainly to
+     never let two representative cross-section points collapse to (near-)duplicates in the first
+     place (dedupe the resampled point list itself before run-classification, or re-pick a less
+     degenerate representative z for that bore_rings sample) rather than papering over it at edge
+     -construction time.
+  - **Next iteration, in order**: (a) run the full M1-M7 regression sweep (not done this
+    iteration — ran out of time/budget) and demote any that broke; (b) replace the solids.py
+    edge-skip band-aid with a real fix — investigate why the representative `bore_rings` sample
+    picked for the sandwich-case prism now contains a near-duplicate point (dedupe consecutive
+    points within some epsilon before arc/run classification is the likely fix, in
+    `pipeline/cli.py` or `pipeline/fitting.py` wherever that sample's point list is built); (c)
+    once that's fixed, re-verify `station_bands`/`dome_stations_min` still pass with whatever
+    multiplier is in place — 1.3x was tuned against the OLD (crashing) prism path so may need
+    re-checking once (b) changes what geometry gets built.
+  - Do NOT re-tune the topology-bump multiplier without re-testing bug 4's crash path — 4.0 and
+    1.3 are the two data points tried; nothing in between was tested; the real interaction is
+    with whatever fix lands for bug 4, not with dome_stations_min in isolation.
+
 - **iter 46 (M8) — NOT PASSING yet, progress 0.05 -> 0.55, M1-M7 all still pass (re-verified
   individually after fixing a regression, see below).** Fixed two bugs and made real progress:
   1. Outer-loop circularity check now uses new `fit_circle_robust` (`pipeline/fitting.py`,

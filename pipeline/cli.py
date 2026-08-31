@@ -427,8 +427,12 @@ def _run(args) -> int:
     # station-placement inset specifically, without touching eps_end's other uses (cutter
     # extension etc.) or M1's placement (its profile has no steep-slope region to avoid).
     station_eps = max(eps_end_val, 200.0 * chord_tol)
-    zs = stations.uniform_stations(z_min, z_max, args.sections, station_eps,
-                                    vertex_zs=mesh.vertices[:, 2])
+    if args.adaptive:
+        zs = stations.adaptive_stations(mesh, z_min, z_max, args.sections, station_eps,
+                                         vertex_zs=mesh.vertices[:, 2])
+    else:
+        zs = stations.uniform_stations(z_min, z_max, args.sections, station_eps,
+                                        vertex_zs=mesh.vertices[:, 2])
 
     outer_pts = []   # (z, R) of the exterior loop
     bore_pts = []    # (z, R) of the (single) axis-centered interior loop, only while circular
@@ -564,7 +568,8 @@ def _run(args) -> int:
         cxr, cyr = float(hole[:, 0].mean()), float(hole[:, 1].mean())
         ring_by_z.setdefault(z, []).append((cxr, cyr, hole))
     ring_chains = []
-    for z in sorted(ring_by_z):
+    zz_index = {z: i for i, z in enumerate(all_zz)}
+    for z in sorted(ring_by_z, key=lambda zk: zz_index[zk]):
         entries = ring_by_z[z]
         if len(entries) > 1:
             match_dist = 0.5 * min(
@@ -578,7 +583,20 @@ def _run(args) -> int:
             for i, ch in enumerate(ring_chains):
                 if i in used:
                     continue
-                _, lcx, lcy, _ = ch[-1]
+                lz, lcx, lcy, _ = ch[-1]
+                # A ring may only extend an existing chain from the IMMEDIATELY PRECEDING
+                # sliced station, not merely "some earlier station with a close centroid": if a
+                # station in between classified this satellite as merged into the single
+                # combined bore/slot ring (M8's slot midspan, where the off-axis holes overlap
+                # the central bore into one non-circular ring — see bore_rings above) rather
+                # than as its own separate off-axis loop, the satellite was genuinely NOT its
+                # own hole there and this must be a fresh chain, however close the centroid is
+                # (satellites don't move, so a stale centroid match across a huge z gap would
+                # otherwise wrongly bridge two disjoint narrow appearance windows into one
+                # chain spanning the whole merged middle with the WRONG, edge-window cross
+                # section swept across it).
+                if zz_index[z] != zz_index[lz] + 1:
+                    continue
                 d = math.hypot(cxr - lcx, cyr - lcy)
                 if d < match_dist and (best_d is None or d < best_d):
                     best_i, best_d = i, d
@@ -595,6 +613,22 @@ def _run(args) -> int:
     # makes), extended to the part's true axial extent if it spans every station, else bisected to
     # its own birth/death z (`_bisect_ring_edge`, M8's axial end fillet at z=5850/9650).
     for ch in ring_chains:
+        if len(ch) < 3:
+            # A 1-2 station chain right at the edge of a merged non-circular `bore_rings` run
+            # (M8's slot/bore overlap pinching to a momentary extra split before re-merging) is
+            # too thin a sliver to build a robust standalone prism cutter from: its "constant
+            # cross-section" is taken from a single near-degenerate sample right where it's
+            # about to vanish, and cutting that sliver so close to the bore boundary produced an
+            # invalid final BRep (caught by re-reading the exported STEP and re-checking with
+            # BRepCheck_Analyzer, even though the in-memory pre-export shape looked valid) —
+            # observed on M8's fore/aft wall transitions once adaptive placement got dense
+            # enough to sample inside the ~20 mm flicker window at all. The surrounding
+            # `bore_rings` merged-loop path already covers this z range as one combined hole, so
+            # dropping the sliver just means that few-mm-wide edge is approximated by the merged
+            # shape instead of modeled exactly — negligible next to the volume/deviation gates
+            # (this is exactly what happened, harmlessly, when placement missed the window
+            # entirely and passed every non-station_bands gate).
+            continue
         cx0 = float(np.mean([c[1] for c in ch]))
         cy0 = float(np.mean([c[2] for c in ch]))
         rep_hole = ch[len(ch) // 2][3]
@@ -819,7 +853,7 @@ def _run(args) -> int:
         return 5
 
     shape = export.undo_axis_transform(shape, R_axis)
-    export.write_step(shape, args.output)
+    export.write_step(shape, args.output, chord_tol)
     if args.stl:
         export.write_stl(shape, args.stl, chord_tol)
     if args.report:
