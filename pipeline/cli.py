@@ -594,11 +594,11 @@ def _lobe_sector_samples(bore_rings, sat_rings, bore_radius: float, chord_tol: f
             if g.geom_type != "Polygon" or g.area <= a_min:
                 continue
             tc, th, rlo, rhi = _sector_of_ring(np.asarray(g.exterior.coords))
-            by_z.setdefault(z, []).append((tc, th, rlo, rhi, True))
+            by_z.setdefault(z, []).append((tc, th, rlo, rhi, True, float(g.area)))
     for z, _cx, _cy, _R, hole in sat_rings:
         tc, th, rlo, rhi = _sector_of_ring(hole)
         by_z.setdefault(z, []).append(
-            (tc, th, rlo, rhi, rlo <= split_r + 2.0 * chord_tol))
+            (tc, th, rlo, rhi, rlo <= split_r + 2.0 * chord_tol, _ring_area(hole)))
     return sorted(by_z.items())
 
 
@@ -677,6 +677,16 @@ def _build_slot_wedges(bore_rings, sat_rings, z_lo: float, z_hi: float, bore_rad
     theta_half = float(np.median([lb[1] for _z, v in samples for lb in v]))
     if not (0.0 < theta_half < math.pi / n_lobes):
         return []
+
+    # Acceptance test: an annular sector's area is theta_half*(r_out^2 - r_in^2). This is what
+    # keeps the wedge path off shapes that merely *look* like slots -- M5's fins are constant-
+    # CARTESIAN-width rectangles, whose angular span is set by their inner corners, so the sector
+    # model over-states their area by ~65 % and they fall back to the prism path as before.
+    for _z, v in plateau:
+        for tc_, th_, rlo_, rhi_, _clip, area_ in v:
+            pred = th_ * (rhi_ * rhi_ - rlo_ * rlo_)
+            if area_ <= 0.0 or abs(pred - area_) > 0.03 * area_:
+                return []
 
     # Angular positions: cluster every station's lobes onto the plateau station's angles.
     ref = sorted(lb[0] for lb in plateau[len(plateau) // 2][1])

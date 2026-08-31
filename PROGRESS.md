@@ -40,6 +40,24 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 53 (M8, ESCALATED) — the slot end windows are SOLVED. M8 0.7012 -> 0.828; M5 unchanged
+  at 0.9898 (and correctly falls back to the old prism path).**
+  1. Each M8 slot is a **filleted angular wedge**: constant angular half-width 0.2199 rad, and a
+     meridian rectangle [400, 850] x [5850, 9650] with all four corners rounded at r=150. Built
+     by the new `solids.build_filleted_wedge_solid` + `cli._build_slot_wedges`, which fits one
+     fillet radius per end by 1-parameter least squares on the outer-radius samples.
+     `surface_deviation_max_mm` 42.748 -> **0.859** (gate 1.0); p99 0.380 (gate 0.4).
+  2. The path is gated by an **area** acceptance test (`theta_half*(r_out²-r_in²)` within 3 % of
+     the measured lobe area). That is what keeps M5's constant-Cartesian-width fins on the prism
+     path — a radius-only test would have accepted them and rebuilt them wrongly.
+  3. **The only thing left on M8 is the DOMES.** First failure is now
+     `surface_deviation_p99_by_region` = 0.714 mm in `fore_dome` (gate 0.4); `aft_dome` carries
+     the 0.859 mm max. This is the pre-existing 2:1-ellipsoidal-dome reconstruction error that
+     M2 and M5 also carry (they pass on looser gates), NOT anything to do with the cavity.
+  4. Unevaluated beyond that: `face_count_max` (<=300; the wedges cost ~80 faces),
+     `step_roundtrip`, `gmsh_tet`.
+
+### Earlier state (kept for context)
 - **iter 52 (M8, ESCALATED) — `topo_events` PASSES. M8 0.6526 -> 0.7012; M5 unchanged at
   0.9898. First failure is now `surface_deviation_max_mm=42.748 mm` (gate 1.0) at z=9621.4.**
   1. The reported topology events were the bore's *merge* planes (5888.197 / 9621.417), not the
@@ -1753,6 +1771,21 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **Iter 52's measured M8 lobe-growth table (r 530.2-680.1 at d=0.5, half-length growing like
+  sqrt(d) from 75, "does NOT match a Minkowski dilation").** Re-measured in iter 53 straight off
+  `harness/truth/M8.stl` and it does not reproduce: the real profile is
+  `r_out = 850 - 150 + sqrt(150² - (150-d)²)`, `r_in = 400 + 150 - sqrt(...)`, matching the
+  generator's filleted meridian rectangle to <0.5 mm at every d >= 10. Do not build on the old
+  table; `out/dbg/wedge_probe.py` regenerates the correct one in ~20 s.
+- **Estimating a lobe's angular half-width as a high percentile of |theta - mean_angle|.**
+  The mean angle is pulled toward whichever arc carries more ring points, so the estimate is
+  biased +0.013 rad on M8's detached end sections and -0.045 rad on the disc-split ones -- worth
+  0.24 % volume against a 0.2 % gate. Use the midpoint and half-spread of the angular RANGE
+  (exact for a sector, whose flanks are radial planes).
+- **Accepting the wedge path on radius agreement alone.** M5's fins are constant-*Cartesian*-
+  width, so their angular span is set by their inner corners (0.132 rad) not their outer ones
+  (0.057) and the sector model over-states their area by ~65 %, while their radial extent
+  matches perfectly. The acceptance test must be area (`theta_half*(r_out²-r_in²)` within 3 %).
 - **Do not widen the M5/M8 geometry seams `event_fore`/`event_aft` to the slot zone boundaries
   (iter 52).** They are the extents of `_build_slot_lobes`'s prism cutters; pushing them to
   5850/9650 sweeps the full-size lobe cross-section across the tapering end windows, an
@@ -2036,6 +2069,73 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 53 — M8 — opus/high (escalated) — 2026-08-30T22:05
+- Score before: `progress=0.7012`, stage `validate`, first failure
+  `surface_deviation_max_mm=42.748` (gate 1.0) at z=9621.4 `aft_wall`.
+- **Score after: M8 0.7012 -> 0.828.** `volume_err_pct` 0.0255 -> 0.0280 %,
+  `surface_deviation_max_mm` **42.748 -> 0.859** (gate 1.0), `surface_deviation_p99_mm` 0.380
+  (gate 0.4) both now PASS. First failure moves to `surface_deviation_p99_by_region` = 0.714 mm
+  in **`fore_dome`** (gate 0.4) — a pre-existing, unrelated defect (iter 52 already measured
+  fore_dome max 0.859 / p99 0.713 while everything else was inside gate). **M5 re-scored:
+  0.9898, unchanged**, and its report now says `slots: prism`, i.e. it correctly does NOT take
+  the new path.
+- **Diagnosis — iter 52's measured lobe-growth table was wrong, and the model it ruled out was
+  the right one.** Re-measured directly off `harness/truth/M8.stl` (`out/dbg/wedge_probe.py`,
+  8 lobes at every z in the zone):
+  | d = z-5850 | r_lo | r_hi | model 550-s / 700+s, s=sqrt(150²-(150-d)²) |
+  |---|---|---|---|
+  | 10 | 496.47 | 753.36 | 496.15 / 753.85 |
+  | 20 | 475.17 | 774.39 | 475.17 / 774.83 |
+  | 35 | 453.77 | 796.07 | 453.69 / 796.31 |
+  | 50 | (clipped) | 811.49 | — / 811.80 |
+  | 120 | (clipped) | 846.81 | — / 846.97 |
+  | 150+ | (clipped) | 850.00 | — / 850.00 |
+  and the aft window is the exact mirror (z=9630 reproduces z=5870 to 3 decimals). Angular
+  half-width is **constant at 0.2199 rad = atan(190/850)** at every z, detached or merged. So
+  each slot is exactly what `harness/generators.py::_obround_slot_cutter` builds: the meridian
+  rectangle [400, 850] x [5850, 9650] with all four corners rounded at r=150, revolved through
+  a limited angle. Iter 52's table (which showed r 530.2-680.1 at d=0.5 and h growing like
+  sqrt(d) from 75) does not reproduce; **do not trust it — trust this one.**
+- **The one change: a new solids rung, `solids.build_filleted_wedge_solid`, and
+  `cli._build_slot_wedges` that fits it.** Instead of one constant-cross-section prism spanning
+  the two stations that bracket the zone (which leaves both 150 mm fillet windows unmodelled —
+  that was 100 % of the deviation failure), each slot is now built over the FULL zone
+  [zone_fore, zone_aft] = [5850.000, 9650.000] as a filleted wedge. Fitting, all from stations
+  that already exist:
+  - per-station annular-sector samples of every lobe from BOTH representations
+    (`_lobe_sector_samples`): disc-split of the merged `bore_rings` in the zone interior, and
+    the detached `sat_rings` in the end windows;
+  - `theta_half` and `theta_c` from the **full angular spread** of each lobe's boundary
+    (`_sector_of_ring`), not from the spread about the mean angle;
+  - one fillet radius per end by 1-parameter least squares on the outer radius
+    (`_fit_end_fillet`, r(z) = R - f + sqrt(f² - (f-s)²)) — this is why it fits inside
+    `n_stations_max`: 5-6 stations in a window determine one parameter, where a
+    station-by-station loft of the same window needs ~15 and ~450 faces;
+  - the plateau inner radius by inverting the same law on the unclipped end-window samples
+    (it is hidden behind the bore everywhere else). Recovered 400.0 on M8.
+  Cost: 8 lateral faces + 2 planar flanks per wedge = 80 faces for 8 slots.
+- **Two measurement bugs found inside this, both worth remembering.**
+  1. `theta_half` taken as a high percentile of |theta - mean_angle| is biased in BOTH
+     directions, because the mean angle is pulled toward whichever arc carries more ring points:
+     **+0.013 rad on the detached sections, -0.045 rad on the disc-split ones.** First run came
+     out at `volume_err_pct` 0.243 % (gate 0.2) purely from that. Using the midpoint and half-
+     spread of the angular range — exact for a sector, whose flanks are radial planes — gives
+     0.0280 %.
+  2. The acceptance test that keeps this path off other geometry is **area**, not radius:
+     a sector's area is `theta_half*(r_out² - r_in²)`, and M5's constant-CARTESIAN-width fins
+     have their angular span set by their INNER corners (atan(40/302)=0.132 vs atan(40/700)=
+     0.057), so the sector model over-states their area by ~65 %. With a 3 % area gate M5 falls
+     back to the prism and is bit-for-bit unchanged. Without it M5 would have been silently
+     rebuilt as wedges.
+- **Next:** the remaining M8 failure is `surface_deviation_p99_by_region` 0.714 mm in
+  `fore_dome` (z 53-548), and the same defect is 0.859 mm in `aft_dome`. It has nothing to do
+  with the slots: it is the 2:1 ellipsoidal dome reconstruction (`_densify_dome_chords` +
+  `curve_windows` spline in `build_revolve_solid`) and it is the same number M2/M5 carry. M2
+  passes only because its gate is looser. Look at the dome meridian's fit residual near the
+  apex first; `dome_stations_min` is 10, so it is accuracy per station, not station count.
+  After that: `face_count_max<=300`, `step_roundtrip`, `gmsh_tet` are still unevaluated.
+
 (newest first — one block per iteration, format in MISSION.md §8)
 
 ### iter 52 — M8 — opus/high (escalated) — 2026-08-30T20:21
