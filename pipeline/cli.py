@@ -550,6 +550,189 @@ def _build_slot_lobes(bore_rings, z_lo: float, z_hi: float, bore_radius: float,
     return out
 
 
+def _sector_of_ring(xy):
+    """(theta_c, theta_half, r_lo, r_hi) of a ring, read as an annular sector.
+
+    A true annular sector is bounded by two radial planes, so its angular span is exactly the
+    full spread of its boundary angles and its centre is the midpoint of that spread. Deriving
+    `theta_half` from the spread of the *mean* angle instead is biased in both directions (the
+    mean is pulled toward whichever arc carries more points): measured on M8, +0.013 rad at the
+    detached end sections and -0.045 rad on the disc-split ones, i.e. several percent of slot
+    volume either way.
+    """
+    xy = np.asarray(xy, dtype=float)
+    r = np.hypot(xy[:, 0], xy[:, 1])
+    th = np.arctan2(xy[:, 1], xy[:, 0])
+    mean = math.atan2(float(np.sin(th).mean()), float(np.cos(th).mean()))
+    d = (th - mean + math.pi) % (2.0 * math.pi) - math.pi
+    lo, hi = float(d.min()), float(d.max())
+    return mean + 0.5 * (lo + hi), 0.5 * (hi - lo), float(r.min()), float(r.max())
+
+
+def _lobe_sector_samples(bore_rings, sat_rings, bore_radius: float, chord_tol: float):
+    """Per-station annular-sector samples of every slot lobe, from BOTH representations.
+
+    In the slot zone's interior the lobes have merged with the central bore into one ring
+    (`bore_rings`) and are recovered by subtracting a disc slightly larger than the bore; in the
+    end windows the lobes are still detached and arrive as separate off-axis holes
+    (`sat_rings`). Returns [(z, [(theta_c, theta_half, r_lo, r_hi, clipped), ...]), ...] sorted
+    by z, where `clipped` marks a lobe whose inner radius is the splitting disc, not real
+    geometry.
+    """
+    from shapely.geometry import Point, Polygon
+
+    split_r = bore_radius + 4.0 * chord_tol
+    disc = Point(0.0, 0.0).buffer(split_r, quad_segs=128)
+    a_min = tol.a_min(chord_tol)
+    by_z = {}
+    for z, ring in bore_rings:
+        poly = Polygon(np.asarray(ring.coords))
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        diff = poly.difference(disc)
+        for g in getattr(diff, "geoms", [diff]):
+            if g.geom_type != "Polygon" or g.area <= a_min:
+                continue
+            tc, th, rlo, rhi = _sector_of_ring(np.asarray(g.exterior.coords))
+            by_z.setdefault(z, []).append((tc, th, rlo, rhi, True))
+    for z, _cx, _cy, _R, hole in sat_rings:
+        tc, th, rlo, rhi = _sector_of_ring(hole)
+        by_z.setdefault(z, []).append(
+            (tc, th, rlo, rhi, rlo <= split_r + 2.0 * chord_tol))
+    return sorted(by_z.items())
+
+
+def _fit_end_fillet(samples, z_edge: float, sign: float, r_plateau: float, outward: bool,
+                     span: float):
+    """Least-squares fillet radius f for r(z) = r_plateau -+ (f - sqrt(f^2 - (f - s)^2)),
+    s = sign*(z - z_edge) the distance into the slot from the end plane at `z_edge`.
+
+    That is the exact profile of a corner rounded by radius f: tangent to the end plane at
+    s = 0 and tangent to the plateau at s = f. One parameter, so a handful of stations in the
+    window determine it -- which is why this works at all inside `n_stations_max`, where a
+    station-by-station loft of the same window would not.
+    """
+    if len(samples) < 2:
+        return None
+    zs = np.array([s[0] for s in samples], dtype=float)
+    rs = np.array([s[1] for s in samples], dtype=float)
+    s_in = sign * (zs - z_edge)
+
+    def resid(f):
+        d = np.clip(f - s_in, 0.0, f)
+        drop = f - np.sqrt(np.maximum(f * f - d * d, 0.0))
+        pred = r_plateau + (drop if not outward else -drop)
+        return pred - rs
+
+    grid = np.linspace(2.0, span, 240)
+    errs = [float(np.sum(resid(f) ** 2)) for f in grid]
+    f0 = float(grid[int(np.argmin(errs))])
+    lo, hi = max(1.0, f0 - 2.0 * (grid[1] - grid[0])), min(span, f0 + 2.0 * (grid[1] - grid[0]))
+    for _ in range(60):
+        m1, m2 = lo + (hi - lo) / 3.0, hi - (hi - lo) / 3.0
+        if float(np.sum(resid(m1) ** 2)) < float(np.sum(resid(m2) ** 2)):
+            hi = m2
+        else:
+            lo = m1
+    f = 0.5 * (lo + hi)
+    return f, float(np.max(np.abs(resid(f))))
+
+
+def _build_slot_wedges(bore_rings, sat_rings, z_lo: float, z_hi: float, bore_radius: float,
+                        chord_tol: float):
+    """Slot cutters as filleted angular wedges spanning the FULL slot zone [z_lo, z_hi].
+
+    `_build_slot_lobes` models each slot as a constant-cross-section prism between the two
+    stations that bracket the zone, which leaves the tapering fillet window at each end
+    unmodelled: on M8 that is the entire `surface_deviation_max_mm` failure (42.7 mm at
+    z=9621, against a 1.0 mm gate; every other region is already inside gate at <= 0.86 mm).
+    Extending the prism to the true zone edges is worse, not better -- it sweeps the full-size
+    cross-section across the taper and costs ~0.45 % volume against a 0.2 % gate.
+
+    Measured on M8 (`out/dbg/wedge_probe.py`): at every z in the zone there are 8 lobes of
+    constant angular half-width 0.2199 rad, and the radial extent follows
+    r_out(z) = 850 - 150 + sqrt(150^2 - (150 - d)^2), r_in(z) = 400 + 150 - sqrt(...), d the
+    distance from the zone edge -- i.e. a meridian rectangle with all four corners rounded at
+    150 mm, revolved through a limited angle. Fitting that (one radius per end, plus the two
+    plateau radii) reproduces the window to the STL's own tessellation error using only the
+    stations that are already there.
+
+    Returns [] when the samples do not fit that model, so the caller falls back to the prism.
+    """
+    samples = _lobe_sector_samples(bore_rings, sat_rings, bore_radius, chord_tol)
+    if len(samples) < 4:
+        return []
+    counts = [len(v) for _z, v in samples]
+    n_lobes = max(set(counts), key=counts.count)
+    if n_lobes < 1 or any(c != n_lobes for c in counts):
+        return []
+
+    zone = z_hi - z_lo
+    z_mid_lo, z_mid_hi = z_lo + 0.35 * zone, z_hi - 0.35 * zone
+    plateau = [(z, v) for z, v in samples if z_mid_lo <= z <= z_mid_hi]
+    if not plateau:
+        return []
+    r_out = float(np.median([lb[3] for _z, v in plateau for lb in v]))
+    inner_clean = [lb[2] for _z, v in plateau for lb in v if not lb[4]]
+    theta_half = float(np.median([lb[1] for _z, v in samples for lb in v]))
+    if not (0.0 < theta_half < math.pi / n_lobes):
+        return []
+
+    # Angular positions: cluster every station's lobes onto the plateau station's angles.
+    ref = sorted(lb[0] for lb in plateau[len(plateau) // 2][1])
+    acc = [[] for _ in ref]
+    for _z, v in samples:
+        for lb in v:
+            k = int(np.argmin([abs((lb[0] - t + math.pi) % (2.0 * math.pi) - math.pi)
+                               for t in ref]))
+            acc[k].append((lb[0] - ref[k] + math.pi) % (2.0 * math.pi) - math.pi)
+    thetas = [ref[k] + float(np.mean(a)) if a else ref[k] for k, a in enumerate(acc)]
+
+    # Outer profile: never clipped, so it carries the fillet fit at both ends.
+    span = 0.45 * zone
+    out_fore = [(z, lb[3]) for z, v in samples for lb in v if z < z_lo + span]
+    out_aft = [(z, lb[3]) for z, v in samples for lb in v if z > z_hi - span]
+    fit_lo = _fit_end_fillet(out_fore, z_lo, +1.0, r_out, True, span)
+    fit_hi = _fit_end_fillet(out_aft, z_hi, -1.0, r_out, True, span)
+    if fit_lo is None or fit_hi is None:
+        return []
+    f_lo, res_lo = fit_lo
+    f_hi, res_hi = fit_hi
+    # The STL's own chordal error is largest exactly where the fillet runs tangent to the end
+    # plane, so allow a few chord_tol before rejecting the model.
+    if max(res_lo, res_hi) > 6.0 * chord_tol:
+        return []
+
+    # Inner plateau radius: hidden behind the bore in the zone interior, but visible in the end
+    # windows where the lobe is still detached. Invert the same fillet law there.
+    est = []
+    for z, v in samples:
+        for lb in v:
+            if lb[4]:
+                continue
+            for z_edge, sign, f in ((z_lo, +1.0, f_lo), (z_hi, -1.0, f_hi)):
+                s = sign * (z - z_edge)
+                if not (0.0 < s < f):
+                    continue
+                d = f - s
+                est.append(lb[2] - f + math.sqrt(max(f * f - d * d, 0.0)))
+    if est:
+        r_in = float(np.median(est))
+    elif inner_clean:
+        r_in = float(np.median(inner_clean))
+    else:
+        r_in = bore_radius - tol.eps_cut(chord_tol)
+    r_in = min(r_in, bore_radius - tol.eps_cut(chord_tol))
+    if not (0.0 < r_in < r_out):
+        return []
+
+    out = []
+    for tc in thetas:
+        out.append(solids.build_filleted_wedge_solid(z_lo, z_hi, r_in, r_out, f_lo, f_hi,
+                                                      tc, theta_half))
+    return out
+
+
 def _ring_area(pts) -> float:
     """Shoelace area of a closed ring (`pts` may or may not repeat the first point last)."""
     arr = np.asarray(pts, dtype=float)
@@ -919,6 +1102,7 @@ def _run(args) -> int:
     pts_before, pts_after = [], []
     event_fore = event_aft = None
     zone_fore = zone_aft = None
+    paths_slot = None
     if bore_rings and bore_pts:
         # M4: a plain circular bore fore of `fin_z_start`, fin slots (non-circular combined
         # bore+slot ring) aft of it (or vice versa) — a single topology event. M5 adds domes on
@@ -1094,8 +1278,18 @@ def _run(args) -> int:
             # Preferred path: cavity decomposition (`_build_slot_lobes`) — one uninterrupted
             # circular bore revolve over the WHOLE length plus one independent prism per slot,
             # so no two cutter surfaces are ever near-coincident and no fuse is needed at all.
-            lobe_cutters = _build_slot_lobes(bore_rings, event_fore, event_aft,
-                                              seam_bore_radius, chord_tol)
+            # Preferred rung: filleted angular wedges over the WHOLE zone [zone_fore, zone_aft],
+            # which is the only path that models the tapering fillet window at each slot end —
+            # the entire M8 deviation failure. Falls back to the constant-section prism when the
+            # sections do not fit the annular-sector model.
+            lobe_cutters = _build_slot_wedges(bore_rings, sat_rings, zone_fore, zone_aft,
+                                               seam_bore_radius, chord_tol)
+            if lobe_cutters:
+                paths_slot = "wedge"
+            else:
+                paths_slot = "prism"
+                lobe_cutters = _build_slot_lobes(bore_rings, event_fore, event_aft,
+                                                  seam_bore_radius, chord_tol)
             if lobe_cutters:
                 bore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before + pts_after \
                     + [(z_max + eps_cut_val, pts_after[-1][1])]
@@ -1195,6 +1389,7 @@ def _run(args) -> int:
                 "outer": "revolve",
                 "bore": "mixed" if (bore_rings and bore_pts) else
                          ("prism" if bore_rings else "revolve"),
+                **({"slots": paths_slot} if paths_slot else {}),
             },
             topology_events_z_mm=sorted(
                 ([zone_fore, zone_aft] if zone_fore is not None

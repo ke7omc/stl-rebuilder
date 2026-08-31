@@ -22,12 +22,14 @@ import math
 
 import numpy as np
 
-from OCP.gp import gp_Pnt, gp_Ax1, gp_Ax2, gp_Dir, gp_Vec
+from OCP.gp import gp_Pnt, gp_Ax1, gp_Ax2, gp_Dir, gp_Vec, gp_Trsf
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeWire,
     BRepBuilderAPI_MakeFace,
+    BRepBuilderAPI_Transform,
 )
+from OCP.TopoDS import TopoDS
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol, BRepPrimAPI_MakePrism, BRepPrimAPI_MakeCylinder
 from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
 from OCP.GC import GC_MakeArcOfCircle
@@ -138,6 +140,75 @@ def build_revolve_solid(z_r_pairs, chord_tol: float, curve_windows=None) -> Topo
     revol = BRepPrimAPI_MakeRevol(face, axis, 2.0 * math.pi)
     if not revol.IsDone():
         raise RuntimeError("revolve failed")
+    return revol.Shape()
+
+
+def build_filleted_wedge_solid(z_lo: float, z_hi: float, r_in: float, r_out: float,
+                                f_lo: float, f_hi: float, theta_c: float,
+                                theta_half: float) -> TopoDS_Shape:
+    """An angular *wedge* cutter: the meridian rectangle [r_in, r_out] x [z_lo, z_hi] with its
+    four corners rounded (radius `f_lo` at the z_lo end, `f_hi` at the z_hi end) revolved about Z
+    through `2*theta_half`, centred on `theta_c`.
+
+    This is the exact shape class of a radial slot whose axial ends are filleted: every section
+    is an annular sector of the SAME angular span, and the radial extent follows a circular arc
+    into each end plane. A constant-cross-section prism over the interior of such a chain leaves
+    the whole fillet band unmodelled -- on M8 that is a 150 mm window at each end carrying up to
+    43 mm of surface deviation, i.e. the entire deviation failure.
+
+    Four arcs + four straight edges revolve into 8 lateral faces plus 2 planar flanks per wedge,
+    so eight slots cost ~80 faces -- a densely sampled loft of the same profile costs several
+    hundred and busts `face_count_max`.
+    """
+    def P(r, z):
+        return gp_Pnt(r, 0.0, z)
+
+    def arc_or_line(p0, p1, cr, cz, radius):
+        """Circular edge p0->p1 about centre (cr, cz); a straight edge when the radius is nil."""
+        if radius <= 1.0e-9:
+            return BRepBuilderAPI_MakeEdge(p0, p1).Edge()
+        u0 = np.array([p0.X() - cr, p0.Z() - cz], dtype=float)
+        u1 = np.array([p1.X() - cr, p1.Z() - cz], dtype=float)
+        bis = u0 / max(np.linalg.norm(u0), 1e-12) + u1 / max(np.linalg.norm(u1), 1e-12)
+        n = np.linalg.norm(bis)
+        if n < 1.0e-9:
+            return BRepBuilderAPI_MakeEdge(p0, p1).Edge()
+        bis = bis / n * radius
+        pm = gp_Pnt(cr + bis[0], 0.0, cz + bis[1])
+        return BRepBuilderAPI_MakeEdge(GC_MakeArcOfCircle(p0, pm, p1).Value()).Edge()
+
+    f_lo = max(0.0, min(f_lo, 0.5 * (z_hi - z_lo), 0.5 * (r_out - r_in)))
+    f_hi = max(0.0, min(f_hi, 0.5 * (z_hi - z_lo), 0.5 * (r_out - r_in)))
+
+    p1, p2 = P(r_in + f_lo, z_lo), P(r_in, z_lo + f_lo)
+    p3, p4 = P(r_in, z_hi - f_hi), P(r_in + f_hi, z_hi)
+    p5, p6 = P(r_out - f_hi, z_hi), P(r_out, z_hi - f_hi)
+    p7, p8 = P(r_out, z_lo + f_lo), P(r_out - f_lo, z_lo)
+
+    edges = [
+        arc_or_line(p1, p2, r_in + f_lo, z_lo + f_lo, f_lo),
+        BRepBuilderAPI_MakeEdge(p2, p3).Edge(),
+        arc_or_line(p3, p4, r_in + f_hi, z_hi - f_hi, f_hi),
+        BRepBuilderAPI_MakeEdge(p4, p5).Edge(),
+        arc_or_line(p5, p6, r_out - f_hi, z_hi - f_hi, f_hi),
+        BRepBuilderAPI_MakeEdge(p6, p7).Edge(),
+        arc_or_line(p7, p8, r_out - f_lo, z_lo + f_lo, f_lo),
+        BRepBuilderAPI_MakeEdge(p8, p1).Edge(),
+    ]
+    mkwire = BRepBuilderAPI_MakeWire()
+    for e in edges:
+        mkwire.Add(e)
+    if not mkwire.IsDone():
+        raise RuntimeError("wedge meridian wire construction failed")
+    face = BRepBuilderAPI_MakeFace(mkwire.Wire(), True).Face()
+
+    axis = gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0))
+    rot = gp_Trsf()
+    rot.SetRotation(axis, theta_c - theta_half)
+    placed = BRepBuilderAPI_Transform(face, rot, True).Shape()
+    revol = BRepPrimAPI_MakeRevol(TopoDS.Face_s(placed), axis, 2.0 * theta_half)
+    if not revol.IsDone():
+        raise RuntimeError("wedge revolve failed")
     return revol.Shape()
 
 
