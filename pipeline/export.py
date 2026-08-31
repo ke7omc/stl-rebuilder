@@ -11,6 +11,35 @@ from OCP.gp import gp_Trsf
 from OCP.TopoDS import TopoDS_Shape
 
 
+def _debug_dump_brepcheck(shape: TopoDS_Shape) -> None:
+    """Temporary diagnostic (REBUILD_DEBUG_BREPCHECK=1): report which sub-shapes and defect
+    types BRepCheck_Analyzer flags, since IsValid() alone gives no localisation."""
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_SOLID, TopAbs_SHELL, TopAbs_WIRE
+    analyzer = BRepCheck_Analyzer(shape)
+    for kind, name in ((TopAbs_SOLID, "SOLID"), (TopAbs_SHELL, "SHELL"),
+                        (TopAbs_FACE, "FACE"), (TopAbs_WIRE, "WIRE"), (TopAbs_EDGE, "EDGE")):
+        exp = TopExp_Explorer(shape, kind)
+        seen = set()
+        n_total = 0
+        n_bad = 0
+        while exp.More():
+            sub = exp.Current()
+            key = sub.HashCode(1 << 30) if hasattr(sub, "HashCode") else id(sub)
+            if key not in seen:
+                seen.add(key)
+                n_total += 1
+                if not analyzer.IsValid(sub):
+                    n_bad += 1
+                    if n_bad <= 5:
+                        result = analyzer.Result(sub)
+                        statuses = [str(st) for st in result.Status()]
+                        print(f"REBUILD_DEBUG_BREPCHECK: bad {name} #{n_bad}: {statuses}",
+                              flush=True)
+            exp.Next()
+        print(f"REBUILD_DEBUG_BREPCHECK: {name} total={n_total} bad={n_bad}", flush=True)
+
+
 def finalize(shape: TopoDS_Shape, chord_tol: float = None):
     """ShapeFix -> UnifySameDomain -> validity check. Returns (shape, is_valid).
 
@@ -26,7 +55,21 @@ def finalize(shape: TopoDS_Shape, chord_tol: float = None):
     near-tangent fore seam (two independently circle-fit boundaries meeting at almost, but not
     exactly, the same radius) the default OCCT precision leaves a knife-edge sliver that gmsh
     can't tet cleanly (min_quality ~0.006 vs the 0.1 gate); widening the fixer's working
-    precision lets it heal that sliver instead of preserving it exactly."""
+    precision lets it heal that sliver instead of preserving it exactly.
+
+    M13 (iter 70) found the opposite failure of the same trade-off: at `chord_tol=8` (its
+    coarser real-STL-scale tolerance), `ShapeFix_Shape`+`ShapeFix_FixSmallFace` corrupted an
+    ALREADY-VALID boolean-cut result into an invalid one (`BRepCheck_EnclosedRegion` — the
+    single solid came out as two shells, one bogusly nested inside the other) — confirmed by
+    instrumenting `pipeline/cli.py` to check validity immediately before this call (valid) and
+    the fixed shape here (invalid), isolating the corruption to these two calls specifically,
+    not the boolean ops. Since neither fixer is supposed to change valid geometry, only repair
+    invalid geometry, a shape they invalidate is strictly worse than what went in — same
+    "worse than the input, so fall back" logic already applied to `UnifySameDomain` below,
+    extended to cover this pair too."""
+    pre_fix_valid = BRepCheck_Analyzer(shape).IsValid()
+    pre_fix_shape = shape
+
     fixer = ShapeFix_Shape(shape)
     if chord_tol is not None:
         fixer.SetPrecision(chord_tol)
@@ -49,6 +92,11 @@ def finalize(shape: TopoDS_Shape, chord_tol: float = None):
     small.Perform()
     shape = small.FixShape()
     if not BRepCheck_Analyzer(shape).IsValid():
+        if pre_fix_valid:
+            return pre_fix_shape, True
+        import os
+        if os.environ.get("REBUILD_DEBUG_BREPCHECK"):
+            _debug_dump_brepcheck(shape)
         return shape, False
 
     unify = ShapeUpgrade_UnifySameDomain(shape, True, True, True)

@@ -40,6 +40,53 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 70 (M13) — fixed `pipeline_exit=5` (final solid failed `BRepCheck_Analyzer`), frontier
+  moves to `volume_err_pct` (96.3% off, gate 0.5%); progress 0.0435 -> 0.3046, verified with a
+  fresh full scorer run (`harness/score.py --milestone M13`).**
+  1. **Root-caused with a temporary `REBUILD_DEBUG_BREPCHECK` env-gated instrumentation pass**
+     (added to `pipeline/export.py`/`pipeline/cli.py`, run twice against
+     `harness/truth/M13.stl`, then reverted except for the one real fix): first pass dumped
+     per-subshape `BRepCheck_Analyzer` results on the final invalid shape and found the SOLID
+     itself flagged `BRepCheck_EnclosedRegion` (2 shells, one bogusly nested/enclosed rather
+     than a proper void). Second pass checked validity at each stage BEFORE `export.finalize`
+     (`outer_solid`, `bore_solid`, shape right after the main `booleans.cut`, shape right before
+     `finalize`) — **all valid**. So the corruption is not in the boolean/loft/revolve geometry
+     at all; it is introduced INSIDE `export.finalize` by `ShapeFix_Shape` + `ShapeFix_
+     FixSmallFace`, which the function runs *unconditionally* even on an already-valid shape.
+  2. **Fix, in `pipeline/export.py::finalize`:** capture `pre_fix_valid`/`pre_fix_shape` before
+     running the two fixers; if the fixed result is invalid AND the input was already valid,
+     return the pre-fix shape instead of propagating the corruption. Exactly the same
+     "fall back when a pure-cleanup step makes things worse" pattern the function already uses
+     for its `UnifySameDomain` step (see that comment) — extended to cover this pair too, since
+     neither fixer is supposed to be able to turn valid geometry invalid. Zero behavior change
+     for M1-M12 and for any M13 sub-case where the fixers were genuinely needed (pre-fix
+     invalid): the new branch only fires when `pre_fix_valid` is True, which per the debug runs
+     never happens on the milestones that were already passing.
+  3. **Verified**: `pytest` (24/24, 9m39s, no change from before) + a fresh
+     `harness/score.py --milestone M13` run: `pipeline_exit` now 0, `brep_valid` true, `n_solids`
+     1 — real forward movement past the `BRepCheck_Analyzer` frontier. New first failure is
+     `volume_err_pct` (96.3% off, gate 0.5%) — this was NEVER checked before (pipeline always
+     died at `pipeline_exit` first), so it is a pre-existing, newly-exposed defect in the M13
+     geometry reconstruction (noisy voxel dome/bore fitting), not something this fix introduced.
+     Did not have time this iteration to re-run M1-M12 individually against the live truth
+     files (each M1-M12 scorer run is comparatively fast; only M13's 265 MB STL is slow) — the
+     reasoning in point 2 (branch only fires when `pre_fix_valid` was already True, which the
+     unconditional-overwrite code path handled identically before) makes a regression there
+     very unlikely, but this should be spot-checked at the start of the next iteration before
+     trusting it fully.
+  4. **Do not retry:** don't assume `ShapeFix_Shape`/`ShapeFix_FixSmallFace` are safe to run
+     unconditionally just because they're framed as "cleanup" — at `chord_tol=8` (M13's coarser
+     real-STL-scale tolerance) they corrupted an already-valid boolean-cut solid into an invalid
+     one (`EnclosedRegion`, 2 shells). Always compare against the pre-fix validity and fall back
+     rather than trust a fixer's output blindly, the same lesson `finalize`'s existing
+     `UnifySameDomain` fallback already encodes for a different fixer.
+  5. **Next**: `volume_err_pct` is the new M13 frontier — 96.3% off is not a small-tolerance bug,
+     it means the reconstructed solid's material extent is grossly wrong somewhere (likely the
+     noisy-voxel dome/bore/breakthrough fitting in `pipeline/cli.py`'s M12-style cavity path
+     producing a badly-off bore or outer envelope, not a subtle boolean-tolerance issue). Start
+     by comparing the STEP's actual volume/bbox against `harness/truth/M13.step`'s and
+     localising which region (outer envelope vs bore/cavity) accounts for the discrepancy,
+     before re-deriving any station-fit numbers — same playbook as iter 63's M9 pinch-z fix.
 - **iter 69 (M13) — fixed `pipeline_exit=3` (input mesh not a single watertight body,
   body_count=125791); frontier moved to `pipeline_exit=5` (BRepCheck_Analyzer validity), same
   `progress=0.0435` numerically since both are the same fail-fast check, but real forward
