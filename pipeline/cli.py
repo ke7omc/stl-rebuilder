@@ -1555,6 +1555,12 @@ def _run(args) -> int:
                         _r_central = _Rh
                 if not _bad and _r_central is not None:
                     bore_pts.append((_zz, _r_central))
+                    if _dbg_on:
+                        print(f"DEBUG_M13: end-probe accepted at z={_zz:.2f} R={_r_central:.2f} "
+                              f"(at_start={_at_start})", file=sys.stderr)
+                elif _dbg_on:
+                    print(f"DEBUG_M13: end-probe rejected at z={_zp:.2f} "
+                          f"(at_start={_at_start}, n_polys={len(_polys)})", file=sys.stderr)
         bore_pts.sort(key=lambda p: p[0])
 
     event_z = None
