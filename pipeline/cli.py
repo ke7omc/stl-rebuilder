@@ -263,9 +263,10 @@ def _bisect_ring_edge(mesh, z_present: float, z_absent: float, chord_tol: float,
     return 0.5 * (z_a + z_b)
 
 
-def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
-                       eps_end_val: float, chord_tol: float, bore_radius: float = None):
-    """Build the cutter solid for a non-circular but axially-constant bore (e.g. M3's star):
+def _pick_best_ring(bore_rings, z_center: float):
+    """Pick the best-conditioned representative cross-section from `bore_rings` (raw ring points).
+
+    Used for a non-circular but axially-constant bore (e.g. M3's star):
     take the station closest to mid-length as the representative cross-section (least likely to
     be distorted by any inset/end effects) and hand its raw ring points straight to
     `solids.build_prism_solid`, which detects fillet-arc runs vs straight runs itself and builds
@@ -316,7 +317,6 @@ def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
     tier, prefer fewer wire edges, then break remaining ties by distance to the middle of this
     call's own z-window (least likely to be distorted by inset/end effects, same reasoning the
     old blind mid-index pick relied on)."""
-    z_center = 0.5 * (z_min + z_max)
 
     def _score(z, pts) -> tuple:
         pts = list(pts)
@@ -339,8 +339,76 @@ def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
             best_score, best_pts = s, pts
     if best_pts is None:
         best_pts = list(bore_rings[len(bore_rings) // 2][1].coords)
-    return solids.build_prism_solid(best_pts, z_min - eps_start, z_max + eps_end_val,
+    return best_pts
+
+
+def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
+                       eps_end_val: float, chord_tol: float, bore_radius: float = None):
+    """Prism cutter for the whole (bore + merged slots) cross-section — see `_pick_best_ring`."""
+    return solids.build_prism_solid(_pick_best_ring(bore_rings, 0.5 * (z_min + z_max)),
+                                     z_min - eps_start, z_max + eps_end_val,
                                      bore_radius=bore_radius)
+
+
+def _build_slot_lobes(bore_rings, z_lo: float, z_hi: float, bore_radius: float,
+                       chord_tol: float):
+    """Cavity decomposition (MISSION.md §5.5 item 3) of a merged bore+slot cross-section.
+
+    The M5/M8 "sandwich" bore is circular fore of `z_lo`, a merged bore+slot ring through
+    [`z_lo`, `z_hi`], and circular again aft of `z_hi`. Round 1 modelled that as three cutter
+    solids fused into one tool, and that fuse is unfixable in principle: the merged ring's own
+    main-bore arc and the circular cutter's cylinder are two DISTINCT surfaces separated by far
+    less than the boolean's fuzzy value (0.011 mm apart at the seam radius, and the ring's
+    straight bridges between detected arc runs dip a further ~0.22 mm inside its own snapped
+    arcs), which is the one configuration BOPAlgo cannot imprint. Every tolerance-side remedy
+    was measured and rejected (PROGRESS.md iters 48-51 and `## Do not retry`): the surviving
+    defect was always exactly ONE face of the fused tool carrying
+    `BRepCheck_BadOrientationOfSubshape` — the clearance cone, crossing the prism's bore
+    boundary — which then made `BRepAlgoAPI_Cut` emit 57/62 faces at `TopAbs_INTERNAL` and the
+    STEP writer silently drop them.
+
+    Decompose instead: the bore is ONE full-length circular revolve (exact, no seam anywhere),
+    and each slot becomes its own prism cutter. Every remaining cutter/target surface pair then
+    meets transversally: the lobes' flanks cross the bore cylinder at a large angle, and the part
+    of each lobe inside the cylinder is a geometric no-op because the bore cutter already removed
+    it. All offsets here are scale-relative (MISSION.md §2 rule 7).
+
+    Returns [] when the ring does not decompose into lobes, so the caller can fall back to the
+    fused path.
+    """
+    from shapely.affinity import translate
+    from shapely.geometry import Point, Polygon
+    from shapely.ops import unary_union
+
+    pts = _pick_best_ring(bore_rings, 0.5 * (z_lo + z_hi))
+    poly = Polygon(pts)
+    if not poly.is_valid:
+        poly = poly.buffer(0)
+    # The splitting disc must be strictly LARGER than the main bore, or the ring does not
+    # separate at all: subtracting a smaller disc leaves ONE polygon with an interior ring whose
+    # exterior is just the original merged outline again (measured, iter 51).
+    split_r = bore_radius + 4.0 * chord_tol
+    # 512-segment disc: 0.008 mm chordal error at R=450, far inside `chord_tol`.
+    disc = Point(0.0, 0.0).buffer(split_r, quad_segs=128)
+    a_min = tol.a_min(chord_tol)
+    lobes = [g for g in getattr(poly.difference(disc), "geoms", [poly.difference(disc)])
+             if g.geom_type == "Polygon" and g.area > a_min]
+    if not lobes:
+        return []
+    # Each lobe now stops `split_r - bore_radius` short of the bore cylinder. Close that gap by
+    # translating a copy of the lobe inward along its OWN centreline and unioning: translation
+    # preserves the slot's flank spacing exactly, where a radial scale would narrow it.
+    reach = (split_r - bore_radius) + tol.eps_cut(chord_tol)
+    out = []
+    for g in lobes:
+        c = g.centroid
+        n = math.hypot(c.x, c.y)
+        if n > 0.0:
+            g = unary_union([g, translate(g, -reach * c.x / n, -reach * c.y / n)])
+        if g.geom_type != "Polygon":
+            g = max(g.geoms, key=lambda p: p.area)
+        out.append(solids.build_prism_solid(list(g.exterior.coords), z_lo, z_hi))
+    return out
 
 
 def _ring_area(pts) -> float:
@@ -787,6 +855,7 @@ def _run(args) -> int:
     outer_full = sorted(start_pt + fore_gap + middle_pts + aft_gap + end_pt, key=lambda p: p[0])
     outer_solid = solids.build_revolve_solid(outer_full, chord_tol, curve_windows=curve_windows)
 
+    lobe_cutters = []
     if bore_rings and bore_pts:
         # Two bore cutters, one per side of the topology event, fused into one before the single
         # cut against the envelope. Past the part's true ends (z_min/z_max) each cutter still
@@ -860,18 +929,32 @@ def _run(args) -> int:
             # (two collar points, dropping over `fin_overlap`) was tried and is worse: it puts a
             # real 2 mm feature at the seam plane that the prism does not fully mask, pushing
             # M5's `surface_deviation_max_mm` to 1.073 (gate 0.6) versus 0.681 for the taper.
-            bore_seam_clearance = 4.0 * seam_eps
-            circ_fore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before \
-                + [(event_fore + circ_overlap, pts_before[-1][1] - bore_seam_clearance)]
-            circ_aft_full = [(event_aft - circ_overlap, pts_after[0][1] - bore_seam_clearance)] \
-                + pts_after + [(z_max + eps_cut_val, pts_after[-1][1])]
             seam_bore_radius = 0.5 * (pts_before[-1][1] + pts_after[0][1])
-            fin_solid = _build_prism_bore(bore_rings, event_fore, event_aft, fin_overlap, fin_overlap,
-                                           chord_tol, bore_radius=seam_bore_radius)
-            circ_fore_solid = solids.build_revolve_solid(circ_fore_full, chord_tol)
-            circ_aft_solid = solids.build_revolve_solid(circ_aft_full, chord_tol)
-            bore_solid = booleans.fuse(circ_fore_solid, fin_solid, seam_eps)
-            bore_solid = booleans.fuse(bore_solid, circ_aft_solid, seam_eps)
+            # Preferred path: cavity decomposition (`_build_slot_lobes`) — one uninterrupted
+            # circular bore revolve over the WHOLE length plus one independent prism per slot,
+            # so no two cutter surfaces are ever near-coincident and no fuse is needed at all.
+            lobe_cutters = _build_slot_lobes(bore_rings, event_fore, event_aft,
+                                              seam_bore_radius, chord_tol)
+            if lobe_cutters:
+                bore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before + pts_after \
+                    + [(z_max + eps_cut_val, pts_after[-1][1])]
+                bore_solid = solids.build_revolve_solid(bore_full, chord_tol)
+            else:
+                # Fallback: the Round 1 three-cutter fuse. See `_build_slot_lobes` for why the
+                # circular cutters need a clearance taper here and why it is not repairable.
+                bore_seam_clearance = 4.0 * seam_eps
+                circ_fore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before \
+                    + [(event_fore + circ_overlap, pts_before[-1][1] - bore_seam_clearance)]
+                circ_aft_full = [(event_aft - circ_overlap,
+                                  pts_after[0][1] - bore_seam_clearance)] \
+                    + pts_after + [(z_max + eps_cut_val, pts_after[-1][1])]
+                fin_solid = _build_prism_bore(bore_rings, event_fore, event_aft, fin_overlap,
+                                               fin_overlap, chord_tol,
+                                               bore_radius=seam_bore_radius)
+                circ_fore_solid = solids.build_revolve_solid(circ_fore_full, chord_tol)
+                circ_aft_solid = solids.build_revolve_solid(circ_aft_full, chord_tol)
+                bore_solid = booleans.fuse(circ_fore_solid, fin_solid, seam_eps)
+                bore_solid = booleans.fuse(bore_solid, circ_aft_solid, seam_eps)
         elif circ_before:
             # Same asymmetric-overlap fix as the M5 sandwich path above (`circ_overlap`/
             # `fin_overlap`), applied to M4's single-event seam: the bore_radius snap makes
@@ -909,6 +992,11 @@ def _run(args) -> int:
         bore_solid = solids.build_revolve_solid(bore_full, chord_tol)
 
     shape = booleans.cut(outer_solid, bore_solid, tol.fuzzy(chord_tol))
+    # Slot lobes of a decomposed merged bore+slot cavity: each overlaps the already-cut bore
+    # deeply and transversally, so independent sequential cuts are robust (same argument as the
+    # M7 satellites below).
+    for lobe in lobe_cutters:
+        shape = booleans.cut(shape, lobe, tol.fuzzy(chord_tol))
     # Satellite perforations (M7) are geometrically disjoint from the main bore and from each
     # other, so a sequence of independent cuts gives the same result as fusing them first and
     # is simpler/more robust than a multi-solid fuse of disjoint cutters.
