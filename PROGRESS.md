@@ -2012,7 +2012,8 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 - Score before: `progress=0.30`, stage `validate`, first failure `brep_valid=False`. 4
   consecutive stalls, best 0.550.
 - **Score after: M8 0.30 -> 0.6526 (first failure now `topo_events`), M5 0.7156 -> 0.9898 (first
-  failure now `gmsh_tet`). M1/M2/M3/M4/M6/M7 all still PASS (sequential sweep).**
+  failure now `gmsh_tet`). M1/M2/M3/M4/M6/M7 all still PASS at progress 1.0 (sequential sweep,
+  run after the final commit).**
 - **The one change: stop fusing the bore cutters; decompose the cavity instead**
   (MISSION.md §5.5 item 3). New `cli._build_slot_lobes` + `_prism_from_ring`; the M5-sandwich
   branch now builds ONE full-length circular bore revolve and one independent prism per slot,
