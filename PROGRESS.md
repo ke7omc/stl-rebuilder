@@ -40,22 +40,78 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
-- **iter 72 (M13) IN PROGRESS — testing a fuse-validity+degeneracy-floor retry (NOT the
-  sequential-split fallback iter 71 tried and reverted).** Added `_fuse_ok` (BRepCheck_Analyzer
-  valid AND fused volume >= 0.9*max(circ_v, fin_v) — the same degeneracy floor iter 71
-  root-caused but never landed) and `_fuse_seam_bore` (retries the `circ_before`/`else`
-  single-seam fuse with a tapered clearance, 0 then `4*seam_eps`, reusing the exact rung
-  `_fuse_sandwich_bore`'s caller already proves works for the M5/M8 multi-cutter case — NOT a
-  new sequential-cut path, so it should not reproduce iter 71's `BRepCheck_UnorientableShape`
-  regression). Wired into both `circ_before` (line ~1808) and `else` (line ~1817) branches in
-  `pipeline/cli.py`. **Testing now**: direct `rebuild.py` run against `harness/truth/M13.stl`
-  with `REBUILD_DEBUG_M13=1`, args from `milestones.py` M13 (`--axis auto --units in --sections
-  120 --adaptive --chord-tol 8`). Expect the `DEBUG_M13: outer_solid volume=... bore_solid
-  volume=...` stderr line to show a sane (multi-billion mm^3, not ~-5770) bore_solid volume, and
-  `pipeline_exit=0`/`brep_valid=true`. If bore_solid still looks degenerate after this, revert
-  and try shrinking `fin_solid`'s reprojected `bore_radius` by a small clearance too (right now
-  only the circular cutter's radius tapers — the fin's own snapped arc, which is what actually
-  creates the coincident surface per iter 71's root cause #2, is untouched by this change).
+- **iter 72 (M13) — fixed root cause #1 (degenerate fuse) via a validity+degeneracy-floor retry;
+  discovered a NEW, deeper root cause #3 that still blocks `volume_err_pct`. Progress unchanged
+  numerically (still ~0.3046, not re-verified with the full scorer — see below) but real forward
+  diagnostic movement. Left the fix IN (does not regress anything measured), documented the new
+  frontier for the next iteration.**
+  1. **Landed** (in `pipeline/cli.py`): `_fuse_ok(fused, circ_solid, fin_solid)` — True only if
+     `BRepCheck_Analyzer(fused).IsValid()` AND `_solid_volume(fused) >= 0.9 * max(circ_v, fin_v)`
+     (the degeneracy floor iter 71 root-caused: a valid-but-near-empty fuse, volume ~= -5770 mm^3
+     against multi-billion-mm^3 inputs). `_fuse_seam_bore(circ_pts_fn, fin_solid, seam_eps,
+     chord_tol)` retries the fuse with a tapered seam clearance (0, then `4*seam_eps`) exactly
+     like `_fuse_sandwich_bore`'s caller already does for the M5/M8 multi-cutter case — this is
+     NOT the sequential-cut split path iter 71 tried and reverted (that one produced
+     `BRepCheck_UnorientableShape` by reusing a wide fuse-tuned overlap as an independent cut
+     margin; this one stays entirely inside `booleans.fuse`, so it can't hit that failure mode).
+     Wired into both the `circ_before` and `else` single-seam branches (were previously calling
+     `booleans.fuse` directly with **no validity check at all** — the M5/M8 sandwich path already
+     had this safety net, these two single-event branches never did).
+  2. **Verified the fuse fix works in isolation**: direct `rebuild.py` run against
+     `harness/truth/M13.stl` (`REBUILD_DEBUG_M13=1`, args from `milestones.py` M13) now shows
+     `bore_solid volume=12980620687.5` (sane, positive, was ~-5770 before) and the `else` branch
+     fires (`circ_before=False`, confirmed via `pts_before`/`pts_after` bisection logic — M13's
+     bore is fin/slot-shaped BEFORE `event_z=-8263.2` and circular after). `pipeline_exit=0`,
+     `brep_valid=true`, output STEP has 253 entities. **M1 rescored individually
+     (`harness/score.py --milestone M1`) after this change: still `pass:true, progress:1.0`** —
+     no regression on the only other milestone re-checked this iteration (ran out of time to
+     re-check M2-M12 against the live truth files; each is fast except M13, so low risk, but
+     spot-check first next iteration per the standing caution in iter 70's log).
+  3. **Root cause #3 (NEW, blocks the actual fix): the fixed `bore_solid`, despite being
+     individually valid and volumetrically sane, still fails to meaningfully cut `outer_solid`.**
+     Added temporary debug prints (bbox + a direct `booleans.cut(outer_solid, bore_solid, ...)`
+     probe, still behind `REBUILD_DEBUG_M13`) and reran: `outer_solid bbox=(-998, -998, -12421,
+     998, 998, -2578)`, `bore_solid bbox=(-823, -824, -12515, 823, 825, -2484)` — bore_solid's
+     bbox is fully nested inside outer_solid's in x/y and heavily overlapping in z (bore extends
+     ~94 mm past outer_solid's z bounds on both ends, as intended by the `eps_cut_val` buffer).
+     Despite this, `cut(outer_solid, bore_solid, fuzzy).volume = 30174203620.9` vs
+     `outer_solid.volume = 30174250733.0` — **a difference of only ~47000 mm^3**, i.e. the cut
+     removed essentially nothing, even though `bore_solid`'s own volume is 12.98 billion mm^3 and
+     it geometrically overlaps outer_solid's interior by bbox. The exported STEP's volume
+     (30174242608, from the real, non-debug run) matches `outer_solid`'s volume almost exactly —
+     confirms the same near-zero-removal happens in the real code path, not just the debug probe.
+     **Not yet root-caused further** — ran out of time this iteration. Hypotheses to check first,
+     cheapest first: (a) `bore_solid` (the fuse of `circ_solid`/`fin_solid`) might be a COMPOUND
+     of >1 disjoint sub-solids whose combined bbox/volume look right but which don't actually
+     coincide with `outer_solid`'s true interior the way a single well-formed solid would — check
+     `TopExp.MapShapes_s(bore_solid, TopAbs_SOLID, ...)`'s count; (b) `BRepAlgoAPI_Fuse`'s output
+     face orientation could be inverted somewhere the topological validity check doesn't catch
+     (BRepCheck_Analyzer checks topology, not "is this solid oriented the way BOPAlgo expects for
+     a subsequent boolean" — worth comparing `bore_solid`'s orientation-sensitive behavior against
+     a known-good milestone's fused bore, e.g. dump `TopoDS_Shape.Orientation()` per face/shell and
+     compare to M4's, which uses the identical `_fuse_seam_bore` code path and passes); (c) try
+     cutting with `circ_solid` and `fin_solid` SEPARATELY (not fused) against `outer_solid` one at
+     a time and check each individually removes a sane amount — isolates whether the bug is in the
+     fuse step itself or was already present pre-fuse.
+  4. **Do not retry**: don't trust `BRepCheck_Analyzer` + a volume floor as sufficient evidence
+     that a fused cutter solid will behave correctly in a SUBSEQUENT boolean cut — both passed
+     here and the cut still silently no-op'd. Whatever check replaces/extends `_fuse_ok` needs to
+     validate against the actual downstream cut (e.g. run the real cut and check the removed
+     volume against an expected floor too), not just the cutter's own intrinsic properties.
+  5. Kept the extra debug prints (bbox + cut-volume probe) in the `REBUILD_DEBUG_M13` block —
+     reuse them for hypothesis (a)/(c) above rather than re-deriving.
+  6. **Not re-verified with the full scorer this iteration** (each M13 scorer run is ~13 min;
+     budget only allowed 2 direct pipeline runs plus a pytest pass). `out/score.json` on disk is
+     stale (from iter 71's revert, progress 0.3046) — the next iteration should not trust it
+     without a fresh run once root cause #3 is fixed too (fixing #1 alone does not move
+     `volume_err_pct`, confirmed above: 30174242608 vs truth 15370275932, same ~96.3% error).
+  7. **Pytest note**: the full `pytest tests/` run this iteration reported a flaky
+     `SELFTEST FAILED: M5: truth STEP passes all gates` failure — re-ran `selftest.py
+     --milestone M5` alone immediately after and it PASSED cleanly (all 8 checks). Root cause
+     is very likely CPU/memory contention from running the M13 pipeline diagnostics, an M1
+     scorer run, and the full pytest suite concurrently (this iteration only, not a
+     `pipeline/cli.py` regression — that check scores the pre-built truth STEP directly and does
+     not touch the code changed here). Re-run in isolation before trusting a similar failure.
 - **iter 71 (M13) — root-caused `volume_err_pct=96.3%` but reverted the fix attempt; NOT fixed,
   frontier unchanged at `volume_err_pct` (progress still 0.3046).** Confirmed via direct OCP
   volume comparison that the pipeline output ~= the plain outer envelope (cylinder + 2 dome caps,

@@ -1848,6 +1848,18 @@ def _run(args) -> int:
         print(f"DEBUG_M13: z_min={z_min:.2f} z_max={z_max:.2f} "
               f"zone_fore={zone_fore} zone_aft={zone_aft} event_z={event_z}",
               file=sys.stderr)
+        from OCP.Bnd import Bnd_Box
+        from OCP.BRepBndLib import BRepBndLib
+        _ob, _bb = Bnd_Box(), Bnd_Box()
+        BRepBndLib.Add_s(outer_solid, _ob)
+        BRepBndLib.Add_s(bore_solid, _bb)
+        print(f"DEBUG_M13: outer_solid bbox={_ob.Get()} bore_solid bbox={_bb.Get()}",
+              file=sys.stderr)
+        _cut_test = booleans.cut(outer_solid, bore_solid, tol.fuzzy(chord_tol))
+        _ct = GProp_GProps()
+        BRepGProp.VolumeProperties_s(_cut_test, _ct)
+        print(f"DEBUG_M13: cut(outer,bore) volume={_ct.Mass():.1f} "
+              f"valid={BRepCheck_Analyzer(_cut_test).IsValid()}", file=sys.stderr)
         print(f"DEBUG_M13: outer_solid volume={_op.Mass():.1f} bore_solid volume={_bp.Mass():.1f}",
               file=sys.stderr)
 
