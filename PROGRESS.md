@@ -2803,6 +2803,28 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **Do not believe a station/event/region gate's `hint` before checking the REPORTED AXIS
+  DIRECTION.** `station_bands` said "band 'fore_wall' has 2 station(s), need >= 10" for two
+  iterations' worth of planning, and the placement was never the problem: `report.frame.axis`
+  was `-x` while M13's truth frame is `+x`, so the 120 correctly-placed stations were reported
+  mirrored (`z` vs `L-z`). The frozen `score.py` does **not** implement MISSION §7.2's
+  "flip when `dot(report.frame.axis, truth.frame.axis) < 0`" — it reads `stations_z_mm` raw —
+  and `frame_axis_err_deg` uses `abs(dot)`, so a 180-degree-wrong axis passes the frame check at
+  0.0003 degrees while silently reversing every axial number in the report. **The 30-second test:
+  recount the bands after `z -> L - z`; if the counts become sane, it is a direction bug.**
+  Applies to any milestone using `--axis auto` (M10, M13, and MR on real inputs).
+- **Do not return a raw `np.linalg.eigh` eigenvector as a direction.** Its sign is arbitrary and
+  can differ between two meshes of the same part. M10 happened to come out `+x` and passed; M13
+  came out `-x` and failed. `_auto_axis` now canonicalises it (largest-magnitude component
+  positive). Anything else that consumes an eigenvector as a direction needs the same treatment.
+- **Do not wait on the mere EXISTENCE of `out/score.local.json` (or `out/M13.report.json`,
+  `out/M13.step`).** They are left behind by previous iterations and are only overwritten when a
+  run *finishes*, so `until [ -f ... ]` returns instantly and you read a stale verdict that looks
+  exactly like "my change did nothing". Wait on the scorer's pid, or on the file's mtime.
+- **Do not `git add -A` while a scorer run is in flight.** `score.py` renames `harness/truth/` to
+  `harness/.truth_hidden_<pid>/` for the duration; that path is not covered by the `harness/truth/`
+  gitignore rule, so `-A` commits the hidden truth metadata into the frozen `harness/` tree.
+  Now gitignored as `harness/.truth_hidden_*/`.
 - **Do not use an extreme-valued statistic (max/min radius, full angular spread) to size a cutter
   from a noisy ring.** The max of n samples with radial noise sigma sits ~2.5 sigma outward, so on
   M13 (sigma ~0.9 mm, few-hundred-point rings) `_sector_of_ring` produced wedges 2.14 mm too deep
