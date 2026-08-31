@@ -4,6 +4,9 @@ out/
 logs/
 state/
 harness/truth/
+# score.py renames harness/truth/ to this for the duration of the pipeline subprocess
+# (the _truth_hidden anti-gaming measure); a `git add -A` mid-run otherwise commits it
+harness/.truth_hidden_*/
 __pycache__/
 *.pyc
 .pytest_cache/
