@@ -3170,6 +3170,46 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 
+### iter 76 — M13 — opus/high (escalated) — 2026-08-31T09:50
+- Score before: progress 0.5652, first failure `station_bands` — `fore_wall` band has 2
+  station(s), needs ≥ 10 (`breakthrough` 18, both domes 22, 120 stations total).
+- **DIAGNOSIS: the stations are placed correctly. They are REPORTED MIRRORED.** The driver's
+  hint ("band 'fore_wall' has 2 stations") and iter 75's closing note ("this is the adaptive
+  station-placement feature to build") are both wrong about the cause. Evidence, all from
+  `out/M13.report.json` + `harness/score.py`:
+  - `report.frame.axis = (−0.99999999998, 3.9e−06, 4.2e−06)` — the pipeline resolved M13's
+    motor axis to **−x**. The milestone's frame axis (`harness/milestones.py::_m13`) is **+x**.
+  - `score.py` reads `stations_z_mm` **raw** against `[axial_lo, axial_hi]` from
+    `_canonical(spec, truth)` = [82.4, 9917.6] (M12/M13's bore exits the 2:1 dome at r=550, so
+    the solid's own bbox starts at z=82.4, not 0). MISSION §7.2 says the scorer flips the
+    stations when `dot(report.frame.axis, truth.frame.axis) < 0`; **the frozen harness does not
+    implement that flip** (there is no flip anywhere in `score.py` — `frame_axis_err_deg` uses
+    `abs(dot)`, which is why the frame check passes at 0.00033° while the stations are backwards).
+    So the pipeline, not the scorer, owns the direction convention.
+  - Arithmetic proof (reproduced this iteration): counting the *same* 120 reported stations after
+    `z → L − z` gives **fore_wall 15** (gate 10), breakthrough 17, fore_dome 22, aft_dome 22 —
+    every band passes. Un-mirrored the topology events become [5745.0, 9642.8, 9727.3] against
+    the expected [5750, 9750]: **5745.0 matches 5750 to 5.0 mm** (tol 8) where as-reported the
+    nearest event to 5750 was 1495 mm away. Two independent gates agree on the direction, which
+    is what makes this a reporting bug and not a coincidence.
+- **Root cause:** `io._auto_axis` returned `eigvecs[:, distinct_idx]` straight from
+  `np.linalg.eigh`, whose eigenvector **sign is arbitrary**. M10 (also `--axis auto`, also a +x
+  truth frame) happened to come out +x and passes; M13 came out −x. Nothing downstream could
+  detect it: the pipeline builds the solid correctly either way (volume 0.1378 %), and the axis
+  is undone before export, so only the *report's* axial coordinates carry the mirror.
+- **Ruled out by this evidence:** (a) that `--adaptive` is a no-op — it is not; it puts 15
+  stations inside a 295 mm band and 22 in each dome, which is exactly the feature-aware
+  behaviour M8/M12 demand; (b) that the fore/aft wall needs new placement logic; (c) any
+  geometry, volume or boolean cause (those checks all pass).
+- Change: canonicalise the auto-axis sign in `pipeline/io.py::_auto_axis` — make the
+  largest-magnitude component positive (standard eigenvector sign convention, ties → lowest
+  index). Deterministic, geometry-independent, and it resolves both auto-axis milestones (M10,
+  M13) to +x. Nothing else in the pipeline changes.
+- Expected: `station_bands` and `n_stations_max` (120 ≤ 120) pass; first failure moves to
+  `topo_events` (expected 9750 vs a reported event at ≈9727, 22.7 mm out against a tol of 8),
+  progress 0.5652 → ≈0.67.
+- Score after: SEE THE FOLLOW-UP BULLET BELOW (written after the verification run).
+
 ### iter 75 — M13 — opus/high (escalated) — 2026-08-31T09:08
 - Score before: progress 0.3046 → 0.3261 (iter 74's end-probe), first failure `volume_err_pct`
   = 0.9993 % (gate 0.5 %).

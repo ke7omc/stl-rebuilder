@@ -22,7 +22,14 @@ def _auto_axis(mesh) -> np.ndarray:
     mesh, choosing the *distinct* eigenvalue -- not always the largest or the smallest, since a
     short fat grain's long-axis variance can be the SMALLEST of the three (the two in-plane,
     axisymmetric directions tie for largest). The axisymmetric pair is whichever two eigenvalues
-    are closest to each other; the axis is the remaining (odd-one-out) eigenvector."""
+    are closest to each other; the axis is the remaining (odd-one-out) eigenvector.
+
+    `eigh` returns each eigenvector with an ARBITRARY sign, and nothing in a grain's geometry
+    says which end is fore -- but the reported axis fixes the direction every axial coordinate in
+    the report (`stations_z_mm`, `topology_events_z_mm`) is measured along, so an unstable sign
+    silently mirrors the whole report. Canonicalise it the standard way: make the
+    largest-magnitude component positive (ties -> lowest index). Both auto-axis milestones then
+    resolve to +x deterministically instead of by eigensolver luck."""
     centers = mesh.triangles_center
     areas = mesh.area_faces
     total = areas.sum()
@@ -34,7 +41,10 @@ def _auto_axis(mesh) -> np.ndarray:
     closest_pair = [(0, 1), (0, 2), (1, 2)][int(np.argmin(gaps))]
     distinct_idx = ({0, 1, 2} - set(closest_pair)).pop()
     axis_vec = eigvecs[:, distinct_idx]
-    return axis_vec / np.linalg.norm(axis_vec)
+    axis_vec = axis_vec / np.linalg.norm(axis_vec)
+    if axis_vec[int(np.argmax(np.abs(axis_vec)))] < 0.0:
+        axis_vec = -axis_vec
+    return axis_vec
 
 
 def parse_axis(axis_arg: str, mesh=None) -> np.ndarray:
