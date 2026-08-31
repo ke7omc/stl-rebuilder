@@ -179,6 +179,48 @@ def _hole_classification(hole_pts, chord_tol: float):
     return is_circ, R
 
 
+def _station_has_cavity_features(polys, chord_tol: float) -> bool:
+    """True when this section's cavity is anything richer than a single axis-centered circular
+    bore: several interior loops (M8's slots before they merge into the bore), one non-circular
+    interior loop (the merged bore+slot "gear"), or several outer polygons (M12's breakthrough).
+    An empty/degenerate section counts as no features so a bad slice can never widen a zone."""
+    if len(polys) != 1:
+        return bool(polys)
+    interiors = polys[0].interiors
+    if len(interiors) == 0:
+        return False
+    if len(interiors) > 1:
+        return True
+    is_circ, _ = _hole_classification(np.asarray(interiors[0].coords), chord_tol)
+    return not is_circ
+
+
+def _bisect_slot_zone_edge(mesh, z_present: float, z_absent: float, chord_tol: float,
+                            n_iter: int = 50, min_dz: float = 1e-4) -> float:
+    """Localize the z where the slot zone begins or ends — the plane where the slots are BORN or
+    DIE, which is *not* the plane where they merge with the bore.
+
+    `_bisect_topology_event` can only see a change in the classification of ONE hole, so on M8 it
+    reports the merge plane instead: measured on `harness/truth/M8.stl`, z<=5849 has one circular
+    R=450 bore; z in [5851, 5888] has NINE interior loops (the bore plus 8 detached slot lobes
+    growing out of the r=150 end fillet); only at z>5888 do the lobes touch the bore and the
+    section becomes a single non-circular "gear" ring. The expected event is the birth at 5850,
+    38 mm fore of the merge. Bisecting on `_station_has_cavity_features` instead brackets the
+    birth/death directly. `z_present` is a station known to have features, `z_absent` one known
+    not to (order doesn't matter)."""
+    z_a, z_b = z_present, z_absent
+    for _ in range(n_iter):
+        if abs(z_b - z_a) <= min_dz:
+            break
+        zm = 0.5 * (z_a + z_b)
+        polys, _zz = slice_station(mesh, zm, chord_tol)
+        if _station_has_cavity_features(polys, chord_tol):
+            z_a = zm
+        else:
+            z_b = zm
+    return 0.5 * (z_a + z_b)
+
+
 def _bisect_topology_event(mesh, z_a: float, z_b: float, chord_tol: float, circ_at_a: bool,
                             n_iter: int = 50, min_dz: float = 1e-4) -> float:
     """Localize the z where a single bore hole's cross-section switches between circular and
@@ -876,6 +918,7 @@ def _run(args) -> int:
     circ_before = None
     pts_before, pts_after = [], []
     event_fore = event_aft = None
+    zone_fore = zone_aft = None
     if bore_rings and bore_pts:
         # M4: a plain circular bore fore of `fin_z_start`, fin slots (non-circular combined
         # bore+slot ring) aft of it (or vice versa) — a single topology event. M5 adds domes on
@@ -898,6 +941,27 @@ def _run(args) -> int:
                                                  circ_at_a=True)
             event_aft = _bisect_topology_event(mesh, ring_z_max, pts_after[0][0], chord_tol,
                                                 circ_at_a=False)
+            # Those two are the planes where the BORE's own cross-section changes class, and they
+            # stay the geometry seams (the prism cutters must not reach past the run of stations
+            # whose cross-section they were fitted from). They are not the topology events: when
+            # the slots are born detached from the bore (M8's r=150 end fillets) the zone starts
+            # earlier and ends later, so report the zone's true birth/death, found by bisecting on
+            # the whole section's cavity content (`_bisect_slot_zone_edge`). Reporting the two
+            # zone boundaries rather than the interior merge planes also keeps the event count at
+            # 2, inside M8's `topo_events_max` of 3. On M4/M5, where the fins reach the bore at
+            # their first station, the two brackets coincide and min/max is a no-op.
+            zone_fore, zone_aft = event_fore, event_aft
+            slot_i = [zz_index[z] for z, _ring in bore_rings] + \
+                     [zz_index[z] for z, _cx, _cy, _R, _h in sat_rings]
+            i_lo, i_hi = min(slot_i), max(slot_i)
+            if i_lo > 0:
+                zone_fore = min(zone_fore,
+                                _bisect_slot_zone_edge(mesh, all_zz[i_lo], all_zz[i_lo - 1],
+                                                       chord_tol))
+            if i_hi < len(all_zz) - 1:
+                zone_aft = max(zone_aft,
+                               _bisect_slot_zone_edge(mesh, all_zz[i_hi], all_zz[i_hi + 1],
+                                                      chord_tol))
         else:
             circ_before = bool(pts_before)
             z_a, z_b = (pts_before[-1][0], ring_z_min) if circ_before \
@@ -1133,7 +1197,7 @@ def _run(args) -> int:
                          ("prism" if bore_rings else "revolve"),
             },
             topology_events_z_mm=sorted(
-                ([event_fore, event_aft] if event_fore is not None
+                ([zone_fore, zone_aft] if zone_fore is not None
                  else ([event_z] if event_z is not None else [])) + sat_events_z_mm
             ),
         )
