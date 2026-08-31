@@ -40,32 +40,39 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
-- **MILESTONE M13 PASSES (iter 76). `pass: true`, progress 1.0, all 23 checks green** — see the
-  iter-76 log block for the full margin table. That is the last non-optional rung of Round 2's
-  ladder (MISSION §6.2): M1-M12 were already passing on `1b4ff91`+ and M13 was the capstone.
-  What remains is **MR** (the real-STL slot, `optional = True` — it self-skips with `pass: true`
-  while `real_inputs/` is empty) and then **HANDOFF v2** (MISSION §9: `HANDOFF.md` covering
-  M1-M13 + MR, the per-body-count SpaceClaim checklist, the inch/x-axis cases M10 and M13, the
-  real-STL runbook v2, and the "what Round 3 (GUI) needs from the engine" section).
-- **What iter 76 actually was:** a one-line direction bug, not the station-placement feature iter
-  75 predicted. `io._auto_axis` returned a raw `np.linalg.eigh` eigenvector, whose sign is
-  arbitrary; on M13 it came out `-x` against a `+x` truth frame, so 120 correctly-placed stations
-  and 3 correctly-detected topology events were all **reported mirrored**. The frozen `score.py`
-  reads `stations_z_mm` raw (it does not implement MISSION §7.2's `dot < 0` flip) and
-  `frame_axis_err_deg` uses `abs(dot)`, so the frame check passed at 0.0003 degrees while every
-  axial number in the report was backwards. Canonicalising the sign (largest-magnitude component
-  positive) fixed `station_bands`, `n_stations_max`, `topo_events` and everything downstream in
-  one go. `--adaptive` is NOT a no-op, contrary to the Round 1 HANDOFF and iter 75's closing
-  note: it places 14 stations in a 295 mm feature band and 22 in each dome, inside a 120-station
-  budget.
+- **ROUND 2 COMPLETE (iter 77).** M1–M13 all `pass: true, progress: 1.0` (driver regression
+  sweep 2026-08-31 10:05–10:10 for M1–M12, `out/score.local.json` 09:58 for M13); **MR** is
+  `skipped: "no real input"` because `real_inputs/` is empty; **HANDOFF v2 is written** to
+  `HANDOFF.md` per MISSION §9 (results table with gates, artifact paths + exact commands,
+  SpaceClaim checklist incl. the per-body M11 and inch/x-axis M10+M13 entries, real-STL runbook
+  v2, limitations, and "what Round 3 (GUI) needs from the engine"). There is no remaining
+  milestone work in Round 2.
+- **Highest-value next action, by a wide margin: put a real burnback STL in `real_inputs/` and
+  run MR.** Everything proven so far is against meshes we synthesised from solids we authored.
+  `HANDOFF.md` §5 is the runbook.
+- **Engine gaps the handoff surfaced** (all recorded in `HANDOFF.md` §6 / §7, none blocking):
+  `paths_used.bore` can never report `loft` even when `ThruSections` ran (`cli.py:2152`); the
+  report has no `bodies` key and no `status` field, and no report is written at all on a
+  non-zero exit; `--refine-bands` is a no-op in every passing configuration; the outer wall must
+  be axisymmetric (hard exit-4 reject); and no milestone exceeds 120 sections.
+- **Round 3 (PySide6 GUI, MISSION §12) prerequisites**: there is no `pipeline.engine` module and
+  no `--progress-json` today — all orchestration is `pipeline/cli.py::_run(args)`, a ~840-line
+  function reachable only through an `argparse.Namespace`, returning an exit code. `HANDOFF.md`
+  §7 lists the six things to extract, in dependency order (callable `engine.run(...)`, progress
+  callback + `--progress-json`, structured failure block in the report, cancellation,
+  intermediate station/section geometry for preview, in-process determinism).
 - **Known-fragile margins on M13** (all passing, none with much room): `axial_extent_err_mm`
   7.715/8.0, `surface_deviation_p99_by_region` 3.923/4.0 in the `breakthrough` band, `gmsh_tet`
   min SICN 0.1431/0.1. The extent one has a known clean fix if it ever bites — measure the axial
   extent from the coarse section-area sweep (MISSION §5.5.2) instead of `mesh.bounds`, which the
   sigma=0.8 mm input noise inflates.
-- **Suggested next steps, in order:** (1) let the driver's own regression sweep confirm M1-M13
-  together; (2) MR is a no-op skip unless Brady has dropped a file into `real_inputs/`; (3) write
-  `HANDOFF.md` v2. Do not go looking for more M13 geometry work — the milestone is met.
+- **`--adaptive` is NOT a no-op**, contrary to the Round 1 HANDOFF: on M13 it places 14 stations
+  in a 295 mm feature band and 22 in each dome inside a 120-station budget. `--refine-bands` is.
+- Kept for the record: **iter 76 was a one-line direction bug**, not the station-placement
+  feature iter 75 predicted. `io._auto_axis` returned a raw `np.linalg.eigh` eigenvector whose
+  sign is arbitrary; on M13 it came out `-x` against a `+x` truth frame, so 120 correctly-placed
+  stations and 3 correctly-detected topology events were all **reported mirrored**. Full detail
+  in the `## Do not retry` entry and the iter-76 log block.
 - Older M13 detail (iters 74-75), kept because the measurements are still the best record of
   where M13's volume error lives:
 
@@ -3146,6 +3153,37 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 77 — HANDOFF — opus/medium — 2026-08-31T10:10
+- Mode: `handoff`. No code changes (the mode forbids them); the deliverable is `HANDOFF.md` v2.
+- **Inputs used (nothing estimated):** the driver's iteration-76 regression sweep
+  `out/score.M1.json` … `out/score.M12.json` (2026-08-31 10:05–10:10, all `pass:true,
+  progress:1.0`), `out/score.local.json` for M13 (09:58, `pass:true`), `out/score.json` for MR
+  (`skipped: "no real input"`), `harness/truth/M*.json` for `V_truth`, and the first line of
+  each `out/M*.pipeline.log` for the exact `rebuild.py` argv.
+- **Written**: `HANDOFF.md` — summary; an M1–M13+MR results table (volume err, dev max/p99,
+  gmsh min SICN, stations, bodies, `paths_used`, faces, runtime, each with its gate); the
+  thin-margin table; reference volumes in mm³; artifact paths + the exact per-milestone command;
+  a SpaceClaim checklist split into universal / inch-x-axis (M10, M13) / multi-body (M11); the
+  real-STL runbook v2 (`--chord-tol` estimation from median edge length, how to read
+  `frame`/`axial_extent_mm`/`stations_z_mm`/`topology_events_z_mm`, the exit-code taxonomy,
+  three failure modes and their knobs); known limitations; and "what Round 3 (GUI) needs".
+- **Three things the write-up discovered that were not previously recorded:**
+  1. **`paths_used.bore` can never say `loft`.** `cli.py:2152` emits `"prism"` whenever any bore
+     ring exists, so M6 — which genuinely runs `BRepOffsetAPI_ThruSections` at `solids.py:534`
+     / `:588` and proves it with 0.001 % volume error on a ×1.5-tapered star — is reported as
+     `prism`. The label does not distinguish the two builders. Recorded as a limitation.
+  2. **The report has no `bodies` key and no `status` field**, both of which MISSION §9 asks the
+     handoff to explain. Body count is only observable in the STEP (or in the `cli.py:1262`
+     stderr message); failure is signalled by the exit code, and **on any non-zero exit no
+     report is written at all**, so an absent `--report` file is itself the failure signal.
+  3. **The exit codes form a clean taxonomy worth publishing**: 0 ok / 2 unexpected exception
+     (`cli.py:2171`) / 3 input-mesh or body-count problem (`1263, 1273, 1330`) / 4 section-loop
+     topology problem (`1372–1665`) / 5 final `BRepCheck_Analyzer` invalid (`2128`).
+  Also confirmed `--axis` accepts an arbitrary comma-separated vector, not just `auto|x|y|z`
+  (`io.py::parse_axis`), and that `out/`, `logs/` and `harness/truth/` are **all gitignored** —
+  so every artifact referenced in the handoff is local to this machine and the handoff says so.
+- **Round 2 is complete**: M1–M13 all pass, MR self-skips, HANDOFF v2 is written.
 
 ### iter 76 — M13 — opus/high (escalated) — 2026-08-31T09:50
 - Score before: progress 0.5652, first failure `station_bands` — `fore_wall` band has 2
