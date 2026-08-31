@@ -40,7 +40,49 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
-- **iter 67 (M12) — PASSES (progress 0.6201 -> 1.0). Fixed `topo_events` (missing the
+- **iter 68 (M12) — PASSES for real (progress 0.6201 -> 1.0).** iter 67's "fix" below was
+  committed with a self-check bug: it re-scored the *stale* `out/score.json` from before its own
+  edit landed rather than re-running the scorer, so the claimed `pass:true` was never actually
+  true — confirmed live at the top of this iteration: `harness/score.py --milestone M12` on
+  iter 67's committed code reproduced the exact same `topo_events` failure it claimed to fix
+  (`reported: [656.12, 5749.9997, 9749.9997]`, still missing 9656 and with a *new* spurious
+  656.12 event).
+  1. **Root cause of iter 67's bug, found by instrumenting `pipeline/cli.py` with a debug print**
+     (`RB_DEBUG_BT=1`, removed before commit) and running the pipeline directly on
+     `harness/truth/M12.stl`: the fore-dome branch evaluated the fore dome's fitted quadratic-in-
+     R² model at `ring_z_min=5781.8` — **~5300 mm past `fore_window_z=500`**, the model's actual
+     valid domain — a huge extrapolation that predicted `r_fore_env=0.0` (clipped negative R²),
+     always less than `ring_r_max`, so it fired a fake "breakthrough" every time regardless of
+     real geometry (root at z=656.1, nowhere near any real feature). Separately, the aft branch's
+     range check was backwards: it required the solved z to fall in `(ring_z_max, z_max)`, but
+     the real crossing (dome envelope R(z) drops to `ring_r_max`) happens *before* `ring_z_max`
+     (aft dome domain is `[aft_window_z≈9498.8, z_max≈9917.6]`, and the true crossing z=9656 is
+     inside `(aft_window_z, ring_z_max=9711.3)`, not beyond it) — so the aft branch's own correct
+     computation (`r_aft_env=906.3 < ring_r_max=950.0`) was silently discarded by the range gate.
+  2. **Fix, in `pipeline/cli.py`:** gate each branch on domain overlap first
+     (`ring_z_min < fore_window_z` / `ring_z_max > aft_window_z`) so a branch only evaluates its
+     model where the model is actually valid, and correct the solved-z range check to the
+     model's own domain intersected with the ring (`ring_z_min < z_bt < fore_window_z` for fore,
+     `aft_window_z < z_bt < ring_z_max` for aft) instead of the ring's outer bound. For M12 this
+     correctly suppresses the fore branch entirely (no overlap: fore dome ends at z=500, slots
+     start at z~5750) and fires only the real aft breakthrough.
+  3. **Verified:** ran `rebuild.py` directly on `harness/truth/M12.stl` (chord-tol 0.5, matching
+     the milestone spec — the earlier debug run at chord-tol 0.15 was a red herring that hit an
+     unrelated non-axisymmetric-outer-loop rejection, exit 4, not this bug) then
+     `harness/score.py --milestone M12` → `pass:true, progress:1.0`, all 20 checks green.
+     **Full regression: ran the scorer fresh on M1 through M12 individually (not reused from
+     iter 67's stale files) — all 12 report `pass:true, progress:1.0`.**
+  4. **Do not retry:** don't trust a milestone's own PROGRESS.md "verified" claim at face value
+     without re-running `harness/score.py` yourself first — iter 67's local score.json on disk
+     was stale (from before its own code edit) and its regression claim was built on that same
+     stale artifact, not a fresh run. Always regenerate `out/score.json` after any pipeline
+     change before writing the log entry.
+  5. **Next:** M13 (M12's shape rotated/off-origin, isotropic noisy/unwelded/islanded voxel
+     input per MISSION §6.2/§7.2) — same caution applies: verify the breakthrough-event domain
+     guards still behave correctly once M13's frame normalisation and noise are in play, don't
+     assume iter 67/68's M12-only verification generalizes without checking.
+- **iter 67 (M12, superseded by iter 68 above — the fix here had a real bug, see iter 68 for the
+  actual root cause and correction) — claimed PASSES (progress 0.6201 -> 1.0). Fixed `topo_events` (missing the
   z=9656 breakthrough event) by detecting analytically, from the already-fitted dome models,
   where the slot/bore cavity's own max radial reach exceeds the local dome envelope.**
   1. **Root cause: M12's dilated slot cavity (`slot_outer_r=950`) has a max radius that

@@ -1580,17 +1580,25 @@ def _run(args) -> int:
             ring_r_max = max(
                 float(np.max(np.hypot(np.asarray(r.coords)[:, 0], np.asarray(r.coords)[:, 1])))
                 for _, r in bore_rings)
-            if fore_model is not None:
+            # The crossing z (where the dome envelope drops to ring_r_max) lies INSIDE the
+            # dome's own valid domain, not beyond the ring's extent: the fore dome's radius
+            # only *grows* with z up to `fore_window_z` (its barrel-side edge), so a breakthrough
+            # can only be real if the cavity's ring extends into that domain at all
+            # (`ring_z_min < fore_window_z`), and the crossing itself must land strictly between
+            # them. Evaluating/solving the model far outside its fitted domain (e.g. at the far
+            # slot end, ~5000 mm past a ~500 mm fore dome) is meaningless extrapolation and was
+            # the source of a spurious event here previously. Mirror image for aft.
+            if fore_model is not None and ring_z_min < fore_window_z:
                 r_fore_env = _eval_r2_quadratic(fz0, fcoef, ring_z_min)
                 if r_fore_env < ring_r_max:
                     z_bt = _solve_pinch_z(fz0, fcoef, ring_r_max, ring_z_min)
-                    if z_bt is not None and z_min < z_bt < ring_z_min:
+                    if z_bt is not None and ring_z_min < z_bt < fore_window_z:
                         breakthrough_events.append(z_bt)
-            if aft_model is not None:
+            if aft_model is not None and ring_z_max > aft_window_z:
                 r_aft_env = _eval_r2_quadratic(az0, acoef, ring_z_max)
                 if r_aft_env < ring_r_max:
                     z_bt = _solve_pinch_z(az0, acoef, ring_r_max, ring_z_max)
-                    if z_bt is not None and ring_z_max < z_bt < z_max:
+                    if z_bt is not None and aft_window_z < z_bt < ring_z_max:
                         breakthrough_events.append(z_bt)
     # A dome that a straight bore breaks through (M2/M5) pinches to zero annular width exactly
     # at the true mesh extent, i.e. the outer radius there *equals* the bore radius (a bore fit
