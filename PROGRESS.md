@@ -3708,3 +3708,4 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   returns exact volume for boolean-cut cylinders (no floating-point error at all).
 - Next: build `harness/metrics.py` (volume/CoM/inertia from trimesh; symmetric deviation;
   STEP round-trip) and `harness/meshcheck.py` (gmsh subprocess check).
+Testing: arc-corrected target for _prism_from_ring, expect M5 gmsh_tet SICN to improve above 0.1

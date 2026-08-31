@@ -529,8 +529,8 @@ def _prism_from_ring(coords, z_lo: float, z_hi: float, area: float, arc_radius: 
     if len(ring) > 1 and ring[0] == ring[-1]:
         ring = ring[:-1]
     n = len(ring)
-    target = area * (z_hi - z_lo)
-    if target <= 0.0:
+    raw_target = area * (z_hi - z_lo)
+    if raw_target <= 0.0:
         return None
     best = None
     seen = set()
@@ -540,6 +540,20 @@ def _prism_from_ring(coords, z_lo: float, z_hi: float, area: float, arc_radius: 
             continue
         seen.add(k)
         rolled = ring[k:] + ring[:k]
+        # `area` (raw shapely polygon area) is a biased target for a ring with genuine curvature:
+        # a chord always cuts inside a convex arc / outside a concave one, so the raw-polygon
+        # volume can never match a CORRECT arc-based solid to 0.1%. `arc_corrected_ring_area`
+        # replaces each run `detect_arc_runs` would classify as curved with its exact
+        # Green's-theorem arc area (same construction `build_prism_solid` builds, including the
+        # bore_radius origin-snap), so the target tracks the actual arc solid instead of the
+        # chorded mesh sample (PROGRESS.md "iter 55"/"iter 56").
+        try:
+            corrected_area = fitting.arc_corrected_ring_area(rolled, bore_radius=arc_radius)
+        except Exception:
+            corrected_area = area
+        target = corrected_area * (z_hi - z_lo)
+        if target <= 0.0:
+            target = raw_target
         solid = solids.build_prism_solid(rolled + [rolled[0]], z_lo, z_hi,
                                           bore_radius=arc_radius)
         err = abs(_solid_volume(solid) - target) / target
@@ -550,8 +564,8 @@ def _prism_from_ring(coords, z_lo: float, z_hi: float, area: float, arc_radius: 
         # not validate an arc; it only detects a grossly wrong one. Re-measured after the
         # `fitting.detect_arc_runs` `min_side`-elbow fix (this iteration): still true, 5% still
         # gives 6.065 mm at z=7412.9 — a better-conditioned elbow does not make volume-only
-        # acceptance safe. See PROGRESS.md for the arc-corrected-target idea that should replace
-        # this raw-polygon-area comparison instead.
+        # acceptance safe. The arc-corrected target above (this iteration) fixes the bias
+        # directly instead of relaxing the tolerance.
         if err <= 1.0e-3:
             return solid
         if best is None or err < best[0]:
@@ -563,7 +577,7 @@ def _prism_from_ring(coords, z_lo: float, z_hi: float, area: float, arc_radius: 
     # `area * height` by construction. Chords cost at most the slicer's own `chord_tol`, and only
     # on lobes that are already wrong by far more than that.
     solid = solids.build_prism_solid(ring + [ring[0]], z_lo, z_hi, r_fillet_thresh=1.0e-9)
-    err = abs(_solid_volume(solid) - target) / target
+    err = abs(_solid_volume(solid) - raw_target) / raw_target
     if best is None or err < best[0]:
         best = (err, solid)
     return best[1] if best[0] < 0.5 else None
