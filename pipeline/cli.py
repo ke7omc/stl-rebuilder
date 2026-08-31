@@ -350,6 +350,39 @@ def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
                                      bore_radius=bore_radius)
 
 
+def _prism_from_ring(coords, z_lo: float, z_hi: float):
+    """`build_prism_solid`, retried from different start vertices until it yields real volume.
+
+    A slot lobe cut out of a merged ring occasionally collapses to a zero-volume prism: the disc
+    subtraction leaves micron-scale edges (measured min edge 0.00536 mm) where the flanks meet
+    the split arc, and whether `build_prism_solid`'s arc-run detection survives them depends on
+    WHERE in the ring it starts. Measured on M5: 8 lobes of identical 2-D area (31778.2), seven
+    built at V=1.07e8 and the eighth at V=3.4e-11. Rolling the ring is exact — same polygon, same
+    points, different seam — where the two obvious alternatives are not: deduping the short edges
+    starves the arc fitter and collapses all eight, and Douglas-Peucker at 0.05*chord_tol cuts
+    every lobe from 1.10e8 to 5.5e6.
+    """
+    ring = list(coords)
+    if len(ring) > 1 and ring[0] == ring[-1]:
+        ring = ring[:-1]
+    n = len(ring)
+    for k in (0, n // 3, 2 * n // 3, n // 6):
+        rolled = ring[k:] + ring[:k]
+        solid = solids.build_prism_solid(rolled + [rolled[0]], z_lo, z_hi)
+        if _solid_volume(solid) > 0.0:
+            return solid
+    return None
+
+
+def _solid_volume(shape) -> float:
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+
+    props = GProp_GProps()
+    BRepGProp.VolumeProperties_s(shape, props)
+    return props.Mass()
+
+
 def _build_slot_lobes(bore_rings, z_lo: float, z_hi: float, bore_radius: float,
                        chord_tol: float):
     """Cavity decomposition (MISSION.md §5.5 item 3) of a merged bore+slot cross-section.
@@ -376,7 +409,9 @@ def _build_slot_lobes(bore_rings, z_lo: float, z_hi: float, bore_radius: float,
     Returns [] when the ring does not decompose into lobes, so the caller can fall back to the
     fused path.
     """
-    from shapely.affinity import translate
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
+    from OCP.gp import gp_Ax1, gp_Dir, gp_Pnt, gp_Trsf
+    from shapely.affinity import rotate, translate
     from shapely.geometry import Point, Polygon
     from shapely.ops import unary_union
 
@@ -399,15 +434,36 @@ def _build_slot_lobes(bore_rings, z_lo: float, z_hi: float, bore_radius: float,
     # translating a copy of the lobe inward along its OWN centreline and unioning: translation
     # preserves the slot's flank spacing exactly, where a radial scale would narrow it.
     reach = (split_r - bore_radius) + tol.eps_cut(chord_tol)
-    out = []
+    axis = gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0))
+    built = []
     for g in lobes:
         c = g.centroid
         n = math.hypot(c.x, c.y)
-        if n > 0.0:
-            g = unary_union([g, translate(g, -reach * c.x / n, -reach * c.y / n)])
+        if n <= 0.0:
+            continue
+        g = unary_union([g, translate(g, -reach * c.x / n, -reach * c.y / n)])
         if g.geom_type != "Polygon":
             g = max(g.geoms, key=lambda p: p.area)
-        out.append(solids.build_prism_solid(list(g.exterior.coords), z_lo, z_hi))
+        # Build every lobe in the same canonical orientation (centroid on +x) and rotate the
+        # solid back, so `build_prism_solid`'s angle-sorted arc fitting never sees a lobe
+        # straddling the atan2 branch cut at +-pi.
+        theta = math.atan2(c.y, c.x)
+        g = rotate(g, -theta, origin=(0.0, 0.0), use_radians=True)
+        built.append((theta, g.area, _prism_from_ring(list(g.exterior.coords), z_lo, z_hi)))
+    # Last resort for a lobe no ring-roll could build: reuse a CONGRUENT sibling's canonical
+    # solid. Dropping the lobe instead costs a whole slot (+0.46 % volume on M5, gate 0.2 %),
+    # which is far worse than the sibling's small angular misregistration.
+    good = [(a, s) for _, a, s in built if s is not None]
+    out = []
+    for theta, area, solid in built:
+        if solid is None:
+            twin = [s for ga, s in good if abs(ga - area) <= 1e-6 * max(area, 1.0)]
+            if not twin:
+                continue
+            solid = twin[0]
+        trsf = gp_Trsf()
+        trsf.SetRotation(axis, theta)
+        out.append(BRepBuilderAPI_Transform(solid, trsf, True).Shape())
     return out
 
 
