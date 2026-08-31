@@ -93,7 +93,13 @@
      cut leaves the slot/bore walls INTERNAL (candidates: `Fuse` of the 8 slot cutters producing
      a non-manifold union; the slot cutters ending exactly on the envelope surface; needing
      `BRepAlgoAPI_Cut.SetGlue`/`SetNonDestructive` or a `ShapeFix_Shell`/`sewing` pass) — NOT
-     by tuning tolerances further.
+     by tuning tolerances further. **Narrowed further after committing the fix:** both bore
+     fuses still return `valid=False`, so `booleans.cut` is handed an INVALID tool, and that is
+     the whole cause of the internal faces. Healing the tool afterwards is ruled out (see
+     `## Do not retry`). The concrete target for iter 51 is to make
+     `booleans.fuse(circ_fore_solid, fin_solid, seam_eps)` and the following
+     `fuse(..., circ_aft_solid)` return VALID solids, or to stop fusing the three bore cutters
+     into one tool at all.
 - **iter 49 (M5, per iter-48's priority order) — fixed the `face_count_max` regression
   root-caused last iteration (`_build_prism_bore`'s blind `bore_rings[len//2]` mid-index pick),
   M5 now 0.3528 -> 0.7761 (M1-M4/M6/M7 all still PASS, verified sequentially); one gate short:
@@ -1704,6 +1710,17 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   surfaces that are distinct but MUCH CLOSER than a boolean's fuzzy value cannot be imprinted
   cleanly — either make them exactly coincident, or separate them by well more than the fuzzy
   value. Nothing in between works.
+- **M8 `TopAbs_INTERNAL` faces: `ShapeFix_Shape` on the invalid fused bore cutter before the cut
+  — do not retry.** The chain is real and worth knowing (`out/dbg/exp7.py`): BOTH bore fuses
+  return `valid=False`, so `booleans.cut` is handed an INVALID tool, and that is what makes it
+  emit 2 shells with 57/62 faces at `TopAbs_INTERNAL`. Healing the tool first looks like the
+  obvious fix and is not: `ShapeFix_Shape(fuse_out)` returns a *valid* solid but with the
+  orientation inverted (volume **-1.77e9**), so the cut comes back EMPTY (0 solids, 0 faces).
+  Correcting that by reversing on negative volume gives a valid 1-solid cut — but with only
+  **6 faces** and a cutter volume of 1.77e9 against a true bore volume of ~6.4e9
+  (pi*450^2*10000), i.e. ShapeFix silently discarded most of the cutter. The cut "passes" while
+  being geometrically wrong. **The tool must come out of the fuse valid in the first place** —
+  fix the fuse (or avoid fusing the bore cutters at all), do not post-hoc repair it.
 - **M8 seam clearance as a STEP at the seam plane rather than a taper — do not retry.** The taper
   form perturbs `build_revolve_solid`'s RDP simplification of the whole meridian, which costs M5
   `surface_deviation_max_mm` 0.612 -> 0.681 (gate 0.6). The obvious fix — drop over `fin_overlap`
@@ -1947,7 +1964,16 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   returning `RetDone`. The cavity walls are never sewn into the shell. Attack why the cut leaves
   them INTERNAL (non-manifold `Fuse` of the 8 slot cutters, slot cutters terminating exactly on
   the envelope surface, `SetGlue`/`SetNonDestructive`, or an explicit sewing/`ShapeFix_Shell`
-  pass) — not by tuning tolerances further.
+  pass) — not by tuning tolerances further. **One step further, done after committing the fix
+  above** (`exp7.py`/`exp8.py`): the cause is now pinned exactly. BOTH bore fuses still return
+  `valid=False` — the clearance fix stopped them producing a *self-intersecting* result and a
+  2-solid cut, but not an invalid one — so `booleans.cut` is handed an INVALID tool, and that is
+  what makes BOPAlgo emit the internal faces. Post-hoc `ShapeFix_Shape` on the tool is ruled out
+  (see `## Do not retry`: it inverts orientation, and correcting for that leaves a cutter with
+  1.77e9 of volume against a ~6.4e9 true bore, i.e. a cut that is valid and wrong). **So the
+  target for iter 51 is narrow and concrete: make `booleans.fuse(circ_fore, fin)` /
+  `fuse(..., circ_aft)` return a VALID solid, or restructure so the three bore cutters are never
+  fused into one tool.**
 
 ### iter 44 — M6 — opus/high (escalated) — 2026-08-30T18:20
 - Score before: `progress=0.9384`, stage `validate`, first failure `gmsh_tet` min SICN
