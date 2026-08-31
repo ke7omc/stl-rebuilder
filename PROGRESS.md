@@ -40,6 +40,55 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 57 (M5) — no net functional change (reverted to byte-identical `bc78877`); located the
+  exact worst-`gmsh_tet` defect for the first time (previous iterations knew the region, not the
+  point), tried the dedup-threshold fix the location implies, and it made things WORSE at every
+  threshold tried — ruling that direction out with real numbers instead of leaving it untested.**
+  1. **Found the worst tet's exact location.** Wrote `/tmp/dbg_worst_tet.py` (not committed):
+     loads a STEP into gmsh with the harness's own `hmax=R_o/10=100mm` and dumps the centroid of
+     the lowest-`minSICN` tets after `Netgen` optimize (matches `harness/meshcheck.py` exactly).
+     On `out/M5.step` (HEAD, current gmsh_tet=0.08173): all 15 worst tets cluster at r=690-730mm
+     (== `fin_r_outer`=700 +/- `fin_tip_r`=40's span), spread across z=6179-9279 (the full
+     `fin_zone`) at 8 discrete theta values (one per fin). Same check on `harness/truth/M5.step`
+     gives min_quality=0.378, 4.6x better and NOT concentrated at the fin tips -- confirming this
+     really is a reconstruction defect, not an inherent hard-to-mesh feature of the part.
+  2. **Traced the actual ring points at that location.** Monkeypatched `pipeline.cli._prism_from_ring`
+     (`/tmp/dbg_ring2.py`, not committed) to capture the raw ring handed to it for the lobe whose
+     z-range covers z~7263. Printed points idx 20-68 (the fin-tip region, r~653->700->653):
+     the ~6mm chord steps expected from an R=40 fillet (2*asin(3/40)=8.6deg turn per step, matches
+     the measured ~8.57deg turns exactly) are real and fine, but interleaved with them are
+     clusters of 2-4 points only 0.001-0.01mm apart (e.g. idx 45-48: (699.888,2.989),
+     (699.888,-2.984), (699.888,-2.989), (699.887,-2.994)) -- almost certainly a `mesh.section`
+     tessellation-seam artifact where the slicing plane crosses two adjacent, nearly-coplanar
+     triangle edges. These survive `build_prism_solid`'s existing consecutive-point dedup
+     (threshold 1e-6mm, i.e. 1000-10000x tighter than the artifact) and become ~0.005mm wire
+     edges sitting next to ~6mm neighbors.
+  3. **Hypothesis: that edge-length disparity (not the genuine 8.57deg fillet turns) is what
+     gmsh can't mesh well there. Tested it directly by raising the dedup threshold** in
+     `solids.build_prism_solid` (both dedup lines) from 1e-6mm: at 0.02mm (25x above the
+     artifact's spread, still 40x below the 6mm real chord spacing) `gmsh_tet` moved from 0.08173
+     to 0.08070 (slightly worse); at 1.0mm (well below the 6mm chord spacing, should cleanly
+     collapse every cluster) `gmsh_tet` moved further to 0.07645 (worse again), and
+     `face_count_max` stayed at exactly 205 both times -- so removing the near-duplicate points
+     is not a geometric no-op the way it looked; it measurably hurts, monotonically with
+     threshold. Full scores: `out/score.M5.iter57.json` (0.02mm), `out/score.M5.iter57b.json`
+     (1.0mm). **Ruled out, do not retry:** raising `build_prism_solid`'s point-dedup threshold to
+     collapse the fin-tip mesh-seam artifact. Consistent with iter 55's separate finding that
+     decimating short edges (0.1-5mm, a different code path) only moved `gmsh_tet` within noise.
+     Reverted `pipeline/solids.py` to `bc78877`'s exact bytes (`git diff` empty) -- no functional
+     change kept.
+  4. **What this rules in for next time:** the defect is REAL and LOCATED (fin tip region, all
+     8 lobes, `fin_tip_r`=40mm fillet), and it is NOT the near-duplicate points themselves (those
+     are a red herring -- collapsing them makes the mesh worse, presumably because the removed
+     points were acting as extra subdivision that kept the local turn angle small; fewer points
+     over the same 0.01mm span barely changes anything but fewer points elsewhere in a cluster
+     can coarsen the effective polygon slightly). The next iteration should stop guessing at the
+     ring's point list and instead inspect the ACTUAL 3D faces/edges of the worst tet directly
+     (`gmsh.model.getBoundary` / `getAdjacencies` on the worst element's entity, from
+     `/tmp/dbg_worst_tet.py`'s pattern) to see which specific edge or face pair it touches, then
+     look at THAT edge's two neighboring faces' dihedral angle in the exported STEP -- the
+     turn-angle analysis here only looked at the 2D source ring, not the resulting 3D dihedral,
+     which is one level removed and is what gmsh's SICN metric actually responds to.
 - **iter 56 (M5) — implemented iter 55's point-4 fix (arc-corrected target area), it DID fix the
   bias it targeted, but volume-matching (even bias-corrected) is provably insufficient on its
   own, and a position-gated version of it made `gmsh_tet` WORSE (0.0817 -> 0.0711). Reverted
