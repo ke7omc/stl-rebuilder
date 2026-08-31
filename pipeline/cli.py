@@ -798,15 +798,83 @@ def _sector_of_ring(xy):
     return mean + 0.5 * (lo + hi), 0.5 * (hi - lo), float(r.min()), float(r.max())
 
 
+def _sector_of_ring_moments(xy):
+    """(theta_c, theta_half, r_lo, r_hi) of a ring read as an annular sector, from its AREA and
+    SECOND MOMENTS about the axis instead of its extremes. Returns None if the ring is not a
+    plausible sector.
+
+    `_sector_of_ring` is exact on a clean tessellation but biased outward on a noisy one: the max
+    of n radii sits ~2.5 sigma outside the true surface, and the caller's median *over stations*
+    cannot remove it because every station carries the same positive bias. Measured on M13
+    (marching-cubes input, sigma 0.8 mm, ring sigma ~0.9 mm): the slot wedge came out 2.14 mm too
+    deep radially and 0.12 deg too wide, together 79% of a 24,990 mm^2 per-section area deficit
+    (0.47% of the volume gate's 0.5%).
+
+    Moments are integrals, so zero-mean boundary noise cancels: for a radial perturbation d(theta)
+    the area bias is only ~sigma^2/R^2, roughly 1000x smaller than a max's 2.5*sigma/R. For a true
+    annular sector (r_in..r_out, half-angle t about theta_c) they invert in closed form:
+        A     = t*(r_out^2 - r_in^2)
+        M_rr  = Iuu + Ivv = t*(r_out^4 - r_in^4)/2          (u along theta_c, v across)
+        Ivv/Iuu = (2t - sin 2t) / (2t + sin 2t)             (monotone on 0 < t < pi/2)
+    so t comes from the moment ratio alone, then r_out^2, r_in^2 = M_rr/A +- A/(2t). theta_c is
+    the centroid direction, which is exact for a shape symmetric about it.
+    """
+    p = np.asarray(xy, dtype=float)
+    if len(p) > 1 and np.allclose(p[0], p[-1]):
+        p = p[:-1]
+    if len(p) < 3:
+        return None
+    x, y = p[:, 0], p[:, 1]
+    x2, y2 = np.roll(x, -1), np.roll(y, -1)
+    c = x * y2 - x2 * y
+    A = 0.5 * float(c.sum())
+    if A == 0.0:
+        return None
+    cx = float(((x + x2) * c).sum()) / (6.0 * A)
+    cy = float(((y + y2) * c).sum()) / (6.0 * A)
+    Ixx = float((c * (x * x + x * x2 + x2 * x2)).sum()) / 12.0
+    Iyy = float((c * (y * y + y * y2 + y2 * y2)).sum()) / 12.0
+    Ixy = float((c * (2.0 * x * y + x * y2 + x2 * y + 2.0 * x2 * y2)).sum()) / 24.0
+    if A < 0.0:  # clockwise ring: every Green integral flips sign together
+        A, Ixx, Iyy, Ixy = -A, -Ixx, -Iyy, -Ixy
+    tc = math.atan2(cy, cx)
+    ct, st = math.cos(tc), math.sin(tc)
+    Iuu = Ixx * ct * ct + 2.0 * Ixy * ct * st + Iyy * st * st
+    Ivv = Ixx * st * st - 2.0 * Ixy * ct * st + Iyy * ct * ct
+    if Iuu <= 0.0 or Ivv <= 0.0 or Ivv >= Iuu:
+        return None
+    rho = Ivv / Iuu
+    lo, hi = 1e-9, 0.5 * math.pi - 1e-9
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        if (2.0 * mid - math.sin(2.0 * mid)) / (2.0 * mid + math.sin(2.0 * mid)) < rho:
+            lo = mid
+        else:
+            hi = mid
+    th = 0.5 * (lo + hi)
+    mean_r2 = (Iuu + Ivv) / A          # (r_out^2 + r_in^2) / 2
+    half_r2 = A / (2.0 * th)           # (r_out^2 - r_in^2) / 2
+    r_out2, r_in2 = mean_r2 + half_r2, mean_r2 - half_r2
+    if r_out2 <= 0.0 or r_in2 < 0.0:
+        return None
+    return tc, th, math.sqrt(r_in2), math.sqrt(r_out2)
+
+
 def _lobe_sector_samples(bore_rings, sat_rings, bore_radius: float, chord_tol: float):
     """Per-station annular-sector samples of every slot lobe, from BOTH representations.
 
     In the slot zone's interior the lobes have merged with the central bore into one ring
     (`bore_rings`) and are recovered by subtracting a disc slightly larger than the bore; in the
     end windows the lobes are still detached and arrive as separate off-axis holes
-    (`sat_rings`). Returns [(z, [(theta_c, theta_half, r_lo, r_hi, clipped), ...]), ...] sorted
-    by z, where `clipped` marks a lobe whose inner radius is the splitting disc, not real
-    geometry.
+    (`sat_rings`). Returns [(z, [(theta_c, theta_half, r_lo, r_hi, clipped, area, *moments), ...]),
+    ...] sorted by z, where `clipped` marks a lobe whose inner radius is the splitting disc, not
+    real geometry, and `moments` is the same 4-tuple from `_sector_of_ring_moments` (falling back
+    to the extreme-based one when the moment inversion rejects the ring).
+
+    The extreme-based values stay in slots 0-3 because `_build_slot_wedges`'s acceptance test is
+    calibrated on them: it rejects M5's constant-CARTESIAN-width fins precisely *because*
+    extremes over-state a rectangle's sector area by ~65%, whereas a moment fit reproduces any
+    convex blob's area by construction and would let the wedge path swallow them.
     """
     from shapely.geometry import Point, Polygon
 
@@ -822,12 +890,15 @@ def _lobe_sector_samples(bore_rings, sat_rings, bore_radius: float, chord_tol: f
         for g in getattr(diff, "geoms", [diff]):
             if g.geom_type != "Polygon" or g.area <= a_min:
                 continue
-            tc, th, rlo, rhi = _sector_of_ring(np.asarray(g.exterior.coords))
-            by_z.setdefault(z, []).append((tc, th, rlo, rhi, True, float(g.area)))
+            ring_xy = np.asarray(g.exterior.coords)
+            tc, th, rlo, rhi = _sector_of_ring(ring_xy)
+            mom = _sector_of_ring_moments(ring_xy) or (tc, th, rlo, rhi)
+            by_z.setdefault(z, []).append((tc, th, rlo, rhi, True, float(g.area)) + mom)
     for z, _cx, _cy, _R, hole in sat_rings:
         tc, th, rlo, rhi = _sector_of_ring(hole)
+        mom = _sector_of_ring_moments(hole) or (tc, th, rlo, rhi)
         by_z.setdefault(z, []).append(
-            (tc, th, rlo, rhi, rlo <= split_r + 2.0 * chord_tol, _ring_area(hole)))
+            (tc, th, rlo, rhi, rlo <= split_r + 2.0 * chord_tol, _ring_area(hole)) + mom)
     return sorted(by_z.items())
 
 
@@ -944,9 +1015,12 @@ def _build_slot_wedges(bore_rings, sat_rings, z_lo: float, z_hi: float, bore_rad
     plateau = [(z, v) for z, v in samples if z_mid_lo <= z <= z_mid_hi]
     if not plateau:
         return []
-    r_out = float(np.median([lb[3] for _z, v in plateau for lb in v]))
-    inner_clean = [lb[2] for _z, v in plateau for lb in v if not lb[4]]
-    theta_half = float(np.median([lb[1] for _z, v in samples for lb in v]))
+    # Slots 6-9 are the moment-derived (theta_c, theta_half, r_lo, r_hi): unbiased on a noisy
+    # ring, where slots 0-3's extremes are not. Slots 0-3 are still what the acceptance test
+    # below reads — see `_lobe_sector_samples`.
+    r_out = float(np.median([lb[9] for _z, v in plateau for lb in v]))
+    inner_clean = [lb[8] for _z, v in plateau for lb in v if not lb[4]]
+    theta_half = float(np.median([lb[7] for _z, v in samples for lb in v]))
     if not (0.0 < theta_half < math.pi / n_lobes):
         return []
 
@@ -955,25 +1029,26 @@ def _build_slot_wedges(bore_rings, sat_rings, z_lo: float, z_hi: float, bore_rad
     # CARTESIAN-width rectangles, whose angular span is set by their inner corners, so the sector
     # model over-states their area by ~65 % and they fall back to the prism path as before.
     for _z, v in plateau:
-        for tc_, th_, rlo_, rhi_, _clip, area_ in v:
+        for lb in v:
+            _tc_, th_, rlo_, rhi_, _clip, area_ = lb[:6]
             pred = th_ * (rhi_ * rhi_ - rlo_ * rlo_)
             if area_ <= 0.0 or abs(pred - area_) > 0.03 * area_:
                 return []
 
     # Angular positions: cluster every station's lobes onto the plateau station's angles.
-    ref = sorted(lb[0] for lb in plateau[len(plateau) // 2][1])
+    ref = sorted(lb[6] for lb in plateau[len(plateau) // 2][1])
     acc = [[] for _ in ref]
     for _z, v in samples:
         for lb in v:
-            k = int(np.argmin([abs((lb[0] - t + math.pi) % (2.0 * math.pi) - math.pi)
+            k = int(np.argmin([abs((lb[6] - t + math.pi) % (2.0 * math.pi) - math.pi)
                                for t in ref]))
-            acc[k].append((lb[0] - ref[k] + math.pi) % (2.0 * math.pi) - math.pi)
+            acc[k].append((lb[6] - ref[k] + math.pi) % (2.0 * math.pi) - math.pi)
     thetas = [ref[k] + float(np.mean(a)) if a else ref[k] for k, a in enumerate(acc)]
 
     # Outer profile: never clipped, so it carries the fillet fit at both ends.
     span = 0.45 * zone
-    out_fore = [(z, lb[3]) for z, v in samples for lb in v if z < z_lo + span]
-    out_aft = [(z, lb[3]) for z, v in samples for lb in v if z > z_hi - span]
+    out_fore = [(z, lb[9]) for z, v in samples for lb in v if z < z_lo + span]
+    out_aft = [(z, lb[9]) for z, v in samples for lb in v if z > z_hi - span]
     fit_lo = _fit_end_fillet(out_fore, z_lo, +1.0, r_out, True, span)
     fit_hi = _fit_end_fillet(out_aft, z_hi, -1.0, r_out, True, span)
     if fit_lo is None or fit_hi is None:
@@ -1022,7 +1097,7 @@ def _build_slot_wedges(bore_rings, sat_rings, z_lo: float, z_hi: float, bore_rad
                 if not (0.0 < s < f):
                     continue
                 d = f - s
-                est.append(lb[2] - f + math.sqrt(max(f * f - d * d, 0.0)))
+                est.append(lb[8] - f + math.sqrt(max(f * f - d * d, 0.0)))
     if est:
         r_in = float(np.median(est))
     elif inner_clean:

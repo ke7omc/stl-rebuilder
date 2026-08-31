@@ -37,6 +37,7 @@ from OCP.GeomAPI import GeomAPI_Interpolate
 from OCP.TColgp import TColgp_HArray1OfPnt
 from OCP.TopoDS import TopoDS_Shape
 
+from pipeline import tol
 from pipeline.fitting import rdp, detect_arc_runs, fit_circle
 
 
@@ -184,7 +185,8 @@ def build_revolve_solid(z_r_pairs, chord_tol: float, curve_windows=None) -> Topo
                 pts_for_rdp = [runs[i - 1][1][-1]] + pts_for_rdp
             if i < len(runs) - 1:
                 pts_for_rdp = pts_for_rdp + [runs[i + 1][1][0]]
-            simplified = _dedupe(rdp(pts_for_rdp, 0.5 * chord_tol))
+            r_ref = max(r for _z, r in pts_for_rdp)
+            simplified = _dedupe(rdp(pts_for_rdp, tol.rdp_profile_eps(chord_tol, r_ref)))
             for (za, ra), (zb, rb) in zip(simplified, simplified[1:]):
                 profile_edges.append(
                     BRepBuilderAPI_MakeEdge(gp_Pnt(ra, 0.0, za), gp_Pnt(rb, 0.0, zb)).Edge())
