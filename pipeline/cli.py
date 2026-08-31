@@ -269,7 +269,7 @@ def _dome_model(outer_pts, mesh, at_start: bool, min_dz: float, resid_tol: float
 
 
 def _densify_dome_chords(outer_pts, z_lo, z_hi, at_start: bool, min_dz: float, resid_tol: float,
-                          window_z: float, n_samples: int = 24, model=None):
+                          window_z: float, n_samples: int = 60, model=None):
     """Replace the real (noisy, unevenly-spaced) circle-fit stations inside the validated dome
     window — from the pinch endpoint through `window_z`, the last station the quadratic-in-R^2
     model actually fit — with a clean, evenly-spaced resample of that same model, including the

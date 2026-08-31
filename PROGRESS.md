@@ -40,6 +40,48 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 65 (M10) — PASSES (progress 0.8607 -> 1.0). Fixed `surface_deviation_p99_by_region`
+  (0.0107mm -> 0.0088mm in `fore_dome`, gate 0.010mm) by building dome window profile edges as
+  exact `GC_MakeArcOfEllipse` arcs instead of `GeomAPI_Interpolate` B-splines.**
+  1. **Root cause (diagnosed with a throwaway script reusing `harness/score.py`'s own
+     `_canonical`/`_mesh_from_step`, not committed): the spline profile's (z, R) VALUES were
+     already accurate** — a direct max-radius-per-z-slice comparison of truth vs result meshes
+     showed only ~0.0002-0.002mm radial disagreement across the whole fore_dome band. Bumping
+     `_densify_dome_chords`'s `n_samples` 24->60 (`pipeline/cli.py`) barely moved the scorer's
+     p99 (0.010688 -> 0.010672mm), confirming point density/interpolation accuracy wasn't the
+     lever. The ~0.011mm the scorer actually measures (nearest-surface-point distance after
+     independently re-tessellating both STEPs at `deflection=ct/2`) turned out to be a
+     **triangulation-pattern mismatch**: `BRepMesh_IncrementalMesh` triangulates a
+     `Geom_SurfaceOfRevolution` wrapping a generic BSplineCurve differently from one wrapping an
+     exact `Geom_Ellipse` (which is what `harness/generators.py::_ellipse_dome_edge` builds for
+     the truth), even when both curves occupy nearly the same (z, R) values — confirmed by a
+     "floor test": re-tessellating the SAME truth STEP twice gives an EXACTLY 0mm difference
+     (deterministic), so the ~0.01mm wasn't generic tessellation noise, it was specifically the
+     BSpline-vs-ellipse surface-type difference.
+  2. **Fix: `pipeline/solids.py::_ellipse_arc_edge(run_pts)`** — inside `build_revolve_solid`'s
+     existing `curve_windows` branch, locally re-fits the SAME quadratic-in-R^2 form
+     `_densify_dome_chords`'s points already came from (`np.polyfit(z, R^2, 2)`, self-contained,
+     no new params threaded from `cli.py`), completes the square to recover the ellipse's center
+     z, radial (major) and axial (minor) semi-axes (`a<0` required, same math
+     `_dome_shoulder_z` already uses for the parabola apex), picks the winding (`n_dir`) by
+     which end of `run_pts` has the smaller R (the apex), solves each endpoint's arc parameter
+     via `asin`, and builds one `GC_MakeArcOfEllipse` edge spanning exactly the window's
+     `[z_lo, z_hi]` — mirroring `harness/generators.py::_ellipse_dome_edge`'s construction so
+     both STEPs' dome surfaces are the same OCCT surface type. Falls back to the prior
+     `GeomAPI_Interpolate` spline (unchanged) whenever the local refit doesn't cleanly explain
+     the points (`a>=0`, non-finite axes, or max residual > `max(1e-3, 5% of radial)`) — a
+     conservative guard so any non-dome or malformed window still gets the old, safe path.
+  3. **Regression: full milestone sweep M1-M9 (`score.py --milestone Mk` each) — all still
+     `pass:true, progress:1.0`.** (First parallel run of all 9 hit a truth-generation race —
+     `harness/truth/M2.stl` momentarily missing mid-regeneration when 9 processes wrote to the
+     shared truth cache simultaneously — re-ran M2/M6/M9 serially and they passed; this was a
+     test-harness race from running 9 scorers at once, not a pipeline regression.) M10 itself:
+     `score.py --milestone M10` -> `pass:true, progress:1.0`, no more `first_failure`.
+  4. **Do not retry:** don't chase `n_samples` further for this class of error — verified twice
+     it's not the lever; don't assume `surface_deviation_p99_by_region` failures near dome
+     apexes are always a station-density problem (the header's stock hint "add stations there"
+     was misleading here) — check whether the built surface's OCCT curve/surface TYPE matches
+     the truth generator's before adding more points.
 - **iter 64 (M10) — progress 0.0455 -> 0.8607 (not yet passing).** Added Round-2 frame
   normalisation: `--units`/`--axis auto` (area-weighted-covariance "distinct eigenvalue" pick),
   a two-pass radial-origin+tilt refine in `pipeline/io.py` (`_axis_origin_refine`: line-fits

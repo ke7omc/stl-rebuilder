@@ -22,7 +22,7 @@ import math
 
 import numpy as np
 
-from OCP.gp import gp_Pnt, gp_Ax1, gp_Ax2, gp_Dir, gp_Vec, gp_Trsf
+from OCP.gp import gp_Pnt, gp_Ax1, gp_Ax2, gp_Dir, gp_Vec, gp_Trsf, gp_Elips
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeWire,
@@ -32,7 +32,7 @@ from OCP.BRepBuilderAPI import (
 from OCP.TopoDS import TopoDS
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol, BRepPrimAPI_MakePrism, BRepPrimAPI_MakeCylinder
 from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
-from OCP.GC import GC_MakeArcOfCircle
+from OCP.GC import GC_MakeArcOfCircle, GC_MakeArcOfEllipse
 from OCP.GeomAPI import GeomAPI_Interpolate
 from OCP.TColgp import TColgp_HArray1OfPnt
 from OCP.TopoDS import TopoDS_Shape
@@ -46,6 +46,81 @@ def _dedupe(pts):
         if abs(p[0] - dedup[-1][0]) > 1e-9:
             dedup.append(p)
     return dedup
+
+
+def _ellipse_arc_edge(run_pts):
+    """Fit an exact elliptical arc through a dome-window point run and return the matching
+    TopoDS_Edge, or None if the points don't support one (caller falls back to a B-spline
+    interpolation edge).
+
+    `_densify_dome_chords` resamples a validated quadratic-in-R^2 dome model uniformly in z, so
+    a local re-fit of the SAME quadratic form to `run_pts` recovers that model (any single
+    point that was snapped to an exact bore radius at one end barely perturbs a least-squares
+    fit dominated by ~60 clean model points). The truth generator builds real dome surfaces as
+    an exact `GC_MakeArcOfEllipse` revolve (harness/generators.py `_ellipse_dome_edge`); our own
+    window previously matched that shape only approximately (a cubic B-spline through discrete
+    samples), and `BRepMesh_IncrementalMesh` triangulates a spline-of-revolution differently
+    enough from an ellipse-of-revolution that `surface_deviation_p99_by_region` measured ~0.011
+    mm of apparent deviation at M10's fore_dome even though the spline's own (z, R) values were
+    already within ~0.002 mm of the true profile (verified by comparing max-radius-per-z-slice
+    profiles directly) — a triangulation-pattern mismatch, not a real geometric error. Building
+    the exact analytic curve here removes that mismatch at the source.
+
+    `R(z)^2 = a*(z-z0)^2 + b*(z-z0) + c` with `a < 0` completes the square to an ellipse:
+    center `z_c = z0 - b/(2a)`, radial (major) semi-axis `sqrt(c - b^2/(4a))`, axial (minor)
+    semi-axis `radial / sqrt(-a)` — the same relationship `_dome_shoulder_z` already exploits
+    for the parabola-in-R^2 apex. The apex (R -> 0) is whichever end of `run_pts` has the
+    smaller radius; `n_dir` picks the ellipse winding (mirrors
+    `harness/generators.py::_ellipse_dome_edge`) so the arc's angle-pi/2 end lands on that side.
+    """
+    zs = np.asarray([p[0] for p in run_pts], dtype=float)
+    rs = np.asarray([p[1] for p in run_pts], dtype=float)
+    if len(zs) < 5:
+        return None
+    z0 = zs[0]
+    try:
+        coef = np.polyfit(zs - z0, rs ** 2, 2)
+    except Exception:
+        return None
+    a, b, c = (float(v) for v in coef)
+    if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(c)) or a >= 0.0:
+        return None
+    z_center = z0 - b / (2.0 * a)
+    r_max_sq = c - b * b / (4.0 * a)
+    if not np.isfinite(r_max_sq) or r_max_sq <= 0.0:
+        return None
+    radial = math.sqrt(r_max_sq)
+    if -a <= 0.0:
+        return None
+    axial = radial / math.sqrt(-a)
+    if not (np.isfinite(radial) and np.isfinite(axial)) or axial <= 0.0:
+        return None
+    r_pred = np.sqrt(np.maximum(0.0, np.polyval(coef, zs - z0)))
+    if float(np.max(np.abs(r_pred - rs))) > max(1e-3, 0.05 * radial):
+        return None  # fit doesn't actually explain the points -- not a clean dome window
+
+    z_first, z_last = float(zs[0]), float(zs[-1])
+    apex_at_first = rs[0] < rs[-1]
+    n_dir = (0.0, 1.0, 0.0) if apex_at_first else (0.0, -1.0, 0.0)
+
+    def t_of_z(z: float):
+        s = (z_center - z) / axial if apex_at_first else (z - z_center) / axial
+        s = min(1.0, max(-1.0, s))
+        return math.asin(s)
+
+    t_first, t_last = t_of_z(z_first), t_of_z(z_last)
+    tlo, thi = (t_first, t_last) if t_first <= t_last else (t_last, t_first)
+    if thi - tlo < 1e-9:
+        return None
+    try:
+        ax2 = gp_Ax2(gp_Pnt(0.0, 0.0, z_center), gp_Dir(*n_dir), gp_Dir(1.0, 0.0, 0.0))
+        elips = gp_Elips(ax2, radial, axial)
+        arc = GC_MakeArcOfEllipse(elips, tlo, thi, True)
+        if not arc.IsDone():
+            return None
+        return BRepBuilderAPI_MakeEdge(arc.Value()).Edge()
+    except Exception:
+        return None
 
 
 def build_revolve_solid(z_r_pairs, chord_tol: float, curve_windows=None) -> TopoDS_Shape:
@@ -117,12 +192,15 @@ def build_revolve_solid(z_r_pairs, chord_tol: float, curve_windows=None) -> Topo
             run_pts = _dedupe(run_pts)
             if len(run_pts) < 2:
                 continue
-            harray = TColgp_HArray1OfPnt(1, len(run_pts))
-            for i, (z, r) in enumerate(run_pts):
-                harray.SetValue(i + 1, gp_Pnt(r, 0.0, z))
-            interp = GeomAPI_Interpolate(harray, False, 1e-7)
-            interp.Perform()
-            profile_edges.append(BRepBuilderAPI_MakeEdge(interp.Curve()).Edge())
+            edge = _ellipse_arc_edge(run_pts)
+            if edge is None:
+                harray = TColgp_HArray1OfPnt(1, len(run_pts))
+                for i, (z, r) in enumerate(run_pts):
+                    harray.SetValue(i + 1, gp_Pnt(r, 0.0, z))
+                interp = GeomAPI_Interpolate(harray, False, 1e-7)
+                interp.Perform()
+                edge = BRepBuilderAPI_MakeEdge(interp.Curve()).Edge()
+            profile_edges.append(edge)
 
     edges = [BRepBuilderAPI_MakeEdge(gp_Pnt(0.0, 0.0, z0), gp_Pnt(r0, 0.0, z0)).Edge()]
     edges.extend(profile_edges)
