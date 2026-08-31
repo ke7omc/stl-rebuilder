@@ -350,28 +350,54 @@ def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
                                      bore_radius=bore_radius)
 
 
-def _prism_from_ring(coords, z_lo: float, z_hi: float):
-    """`build_prism_solid`, retried from different start vertices until it yields real volume.
+def _prism_from_ring(coords, z_lo: float, z_hi: float, area: float, arc_radius: float = None):
+    """`build_prism_solid`, retried from different start vertices, scored against `area`.
 
-    A slot lobe cut out of a merged ring occasionally collapses to a zero-volume prism: the disc
-    subtraction leaves micron-scale edges (measured min edge 0.00536 mm) where the flanks meet
-    the split arc, and whether `build_prism_solid`'s arc-run detection survives them depends on
-    WHERE in the ring it starts. Measured on M5: 8 lobes of identical 2-D area (31778.2), seven
-    built at V=1.07e8 and the eighth at V=3.4e-11. Rolling the ring is exact — same polygon, same
-    points, different seam — where the two obvious alternatives are not: deduping the short edges
-    starves the arc fitter and collapses all eight, and Douglas-Peucker at 0.05*chord_tol cuts
-    every lobe from 1.10e8 to 5.5e6.
+    A prism's volume must be its cross-section's area times its height, so `area * (z_hi - z_lo)`
+    is an exact acceptance test — and `build_prism_solid` fails it in BOTH directions on a slot
+    lobe cut out of a merged ring. The disc subtraction leaves short edges where the flanks meet
+    the split arc, and the arc-run detection's behaviour there depends on WHERE in the ring it
+    starts: on M5 one of 8 congruent lobes collapsed to V=3.4e-11 (the other seven 1.07e8), and
+    on M8 all 8 lobes have area 116305.2 (=> 4.342e8) yet built at 4.255e8 .. 5.379e8, the
+    over-fitted arcs bulging outward and over-cutting by 1.1e8 in total.
+
+    Rolling the ring is exact — same polygon, same points, only a different seam. The two obvious
+    alternatives are not: deduping the short edges starves the arc fitter (all eight M5 lobes
+    collapse), and Douglas-Peucker at 0.05*chord_tol cuts every lobe from 1.10e8 to 5.5e6.
     """
     ring = list(coords)
     if len(ring) > 1 and ring[0] == ring[-1]:
         ring = ring[:-1]
     n = len(ring)
-    for k in (0, n // 3, 2 * n // 3, n // 6):
+    target = area * (z_hi - z_lo)
+    if target <= 0.0:
+        return None
+    best = None
+    seen = set()
+    for num in range(8):
+        k = (num * n) // 8
+        if k in seen:
+            continue
+        seen.add(k)
         rolled = ring[k:] + ring[:k]
-        solid = solids.build_prism_solid(rolled + [rolled[0]], z_lo, z_hi)
-        if _solid_volume(solid) > 0.0:
+        solid = solids.build_prism_solid(rolled + [rolled[0]], z_lo, z_hi,
+                                          bore_radius=arc_radius)
+        err = abs(_solid_volume(solid) - target) / target
+        if err <= 1.0e-3:
             return solid
-    return None
+        if best is None or err < best[0]:
+            best = (err, solid)
+    # No seam gave the right volume, so the arc fitting itself is wrong on this outline (some
+    # runs come back as the MAJOR arc: on M8 one lobe over-built by 24 %, two by ~4 %). Last
+    # rung: an `r_fillet_thresh` below any real local radius makes `detect_arc_runs` find nothing
+    # and `build_prism_solid` fall back to a straight-edge polygon, whose volume is exactly
+    # `area * height` by construction. Chords cost at most the slicer's own `chord_tol`, and only
+    # on lobes that are already wrong by far more than that.
+    solid = solids.build_prism_solid(ring + [ring[0]], z_lo, z_hi, r_fillet_thresh=1.0e-9)
+    err = abs(_solid_volume(solid) - target) / target
+    if best is None or err < best[0]:
+        best = (err, solid)
+    return best[1] if best[0] < 0.5 else None
 
 
 def _solid_volume(shape) -> float:
@@ -449,7 +475,17 @@ def _build_slot_lobes(bore_rings, z_lo: float, z_hi: float, bore_radius: float,
         # straddling the atan2 branch cut at +-pi.
         theta = math.atan2(c.y, c.x)
         g = rotate(g, -theta, origin=(0.0, 0.0), use_radians=True)
-        built.append((theta, g.area, _prism_from_ring(list(g.exterior.coords), z_lo, z_hi)))
+        # The slot's outer boundary is an axis-centred arc, so give `build_prism_solid` an
+        # accurate radius for it (averaged over the outermost band) the same way the M4/M5 bore
+        # prism is given its fitted bore radius. Without it, each lobe's outer run gets a noisy
+        # 3-point arc fit that bulges outward: on M8 all 8 lobes have area 116305.2 (=> V
+        # 4.342e8) but built at 4.255e8 .. 5.379e8, over-cutting by 1.1e8 in total.
+        ring_xy = np.asarray(g.exterior.coords, dtype=float)
+        rad = np.hypot(ring_xy[:, 0], ring_xy[:, 1])
+        outer = rad[rad > rad.max() - 2.0 * chord_tol]
+        built.append((theta, g.area,
+                      _prism_from_ring(list(g.exterior.coords), z_lo, z_hi, g.area,
+                                        float(outer.mean()))))
     # Last resort for a lobe no ring-roll could build: reuse a CONGRUENT sibling's canonical
     # solid. Dropping the lobe instead costs a whole slot (+0.46 % volume on M5, gate 0.2 %),
     # which is far worse than the sibling's small angular misregistration.
