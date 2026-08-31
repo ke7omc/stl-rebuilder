@@ -40,6 +40,60 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 50 (M8, ESCALATED) — root-caused and fixed the `BRepCheck_Analyzer` invalid-solid
+  failure iter 49 flagged. M8 0.05 -> 0.30 (`pipeline_exit` 5 -> 0, `n_solids` 1,
+  `step_readable` now pass). M1-M4/M6/M7 all still PASS (verified sequentially). M5 moved
+  0.7761 -> 0.7156 — it does NOT pass at HEAD either, so no passing-milestone regression, but
+  it is a real cost and is documented in full below.**
+  1. **Diagnosis (numbers, from a 3.6 s direct repro: `rebuild.py harness/truth/M8.stl --axis z
+     --sections 80 --adaptive --chord-tol 0.5`).** Every cutter and the envelope are
+     individually valid. The failure is the FIRST `booleans.fuse(circ_fore_solid, fin_solid,
+     seam_eps)` in the M5-sandwich branch of `cli.py`: it returns
+     `BRepCheck_SelfIntersectingWire` and the downstream cut then yields **2 solids** (gate 1).
+     Three measured facts, all of which put two distinct surfaces much CLOSER than the fuse's
+     own fuzzy value (`seam_eps` = 0.5*chord_tol = 0.25 mm) — the single worst input for BOPAlgo:
+     - one prism serves both seams, so `seam_bore_radius = 0.5*(449.9651102598165 +
+       449.98673636995267) = 449.9759233148846` lands **0.011 mm from each** fitted seam radius;
+     - `build_revolve_solid` RDP-simplifies the circular cutter's meridian at `0.5*chord_tol`
+       (0.25 mm) over a total radius variation of only **0.029 mm across 5860 mm of z**, so the
+       cutter collapses to **one very slightly conical face** (3 faces total) that grazes and
+       crosses the prism's constant-radius bore arc rather than sitting inside it;
+     - the prism's raw ring still dips to **r_min = 449.759995** (~0.2 mm inside its own snapped
+       bore arcs) on the straight bridges between arc runs.
+     The `circ_overlap = 80*seam_eps` widening (added for M5's gmsh sliver) is only the claimed
+     geometric no-op while the circular cutter is a STRICT SUBSET of the prism cross-section. It
+     is not — it is *almost* coincident, which is the case BOPAlgo cannot imprint.
+  2. **Fix (one change, `pipeline/cli.py`, M5-sandwich branch only)**: drop the circular
+     cutters' radius by `bore_seam_clearance = 4.0 * seam_eps` (= 2.0*chord_tol, scale-relative
+     per MISSION §7 — no absolute mm constant) at the far end of the overlap band, making the
+     containment unambiguous an order of magnitude past the fuzzy value. Both fuses become
+     valid, the cut becomes 1 solid, the raw cut's remaining `UnorientableShape` face is healed
+     by `finalize`'s `ShapeFix`, exit 5 -> 0. The M4 branches (`elif circ_before:` / `else:`)
+     pass `bore_radius=bore_pts[-1][1]` (exactly-equal radii, no averaging) and are deliberately
+     untouched.
+  3. **Cost, stated honestly: M5 0.7761 -> 0.7156**, `surface_deviation_max_mm` 0.681 vs gate
+     0.6 (was 0.612 passing; M5's own first failure at HEAD was `surface_deviation_p99_mm`
+     0.413 vs 0.4). Mechanism: the meridian is RDP-simplified as ONE polyline, so adding the
+     2 mm end point rewrites which points survive upstream of the seam and slightly distorts the
+     real dome profile. A step-form variant meant to fix exactly that was tried and is WORSE
+     (see `## Do not retry`).
+  4. **New first failure for M8 is `brep_valid`, and it is a genuinely different bug —
+     next iteration starts here.** Measured with `out/dbg/exp3.py`..`exp6.py`: the shape handed
+     to `write_step` is `valid=True, solids=1, faces=62`, but the written STEP file contains
+     only **5 `ADVANCED_FACE` entities** and rereads `valid=False`. The writer is not at fault
+     and neither is the self-heal loop: the RAW `BRepAlgoAPI_Cut` result already has
+     **2 shells and 57 of its 62 faces carrying `TopAbs_INTERNAL` orientation** (only 5 are
+     FORWARD). `ShapeFix_Shape` turns that into 58 shells and *reports the result valid*, but
+     never reorients anything; `ShapeFix_FixSmallFace` and `ShapeUpgrade_UnifySameDomain` leave
+     the counts identical. `STEPControl_Writer` legitimately emits only the 5 bounding faces and
+     silently drops the 57 internal ones, returning `RetDone`. So: **the cavity walls are never
+     sewn into the solid's shell** — the cut produces a solid plus 57 free-floating internal
+     faces. Volume happens to come out close (2.974e10 in-memory vs 2.985e10 reread) which is
+     why this hid behind the validity failure until now. Next iteration should attack why the
+     cut leaves the slot/bore walls INTERNAL (candidates: `Fuse` of the 8 slot cutters producing
+     a non-manifold union; the slot cutters ending exactly on the envelope surface; needing
+     `BRepAlgoAPI_Cut.SetGlue`/`SetNonDestructive` or a `ShapeFix_Shell`/`sewing` pass) — NOT
+     by tuning tolerances further.
 - **iter 49 (M5, per iter-48's priority order) — fixed the `face_count_max` regression
   root-caused last iteration (`_build_prism_bore`'s blind `bore_rings[len//2]` mid-index pick),
   M5 now 0.3528 -> 0.7761 (M1-M4/M6/M7 all still PASS, verified sequentially); one gate short:
@@ -1628,6 +1682,37 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **M8 invalid-solid / `BRepCheck_SelfIntersectingWire` at the fore seam (iter 50): four
+  hypotheses are now RULED OUT by measurement, do not retry any of them.**
+  1. *Cutting the three bore cutters sequentially against the envelope instead of fusing them
+     first.* This is the pattern M7's satellites already use, so it looked promising.
+     `out/dbg/exp1.py`: `SEQUENTIAL-cut -> valid=False solids=2`, and still `valid=False` after
+     `finalize`. Does not help.
+  2. *Clamping the prism ring's points outward onto the bore circle* (`r < bore_radius` ->
+     project to `bore_radius`, in `build_prism_solid` before `detect_arc_runs`). Fuse still
+     invalid and WORSE (2 solids, truncated bbox). It cannot work: clamping moves the POINTS
+     onto the circle but the straight bridge chords between them still dip inside it.
+  3. *Making the two radii exactly equal* (`seam_bore_radius = pts_before[-1][1]`). The first
+     fuse went 2 solids -> 1 solid but stayed INVALID. This is what revealed that the circular
+     cutter is a slightly conical face rather than a cylinder, so matching endpoint radii does
+     not give coincident surfaces anywhere except at the single endpoint.
+  4. *`ShapeUpgrade_UnifySameDomain` as the cause of the STEP face loss.* Tested by skipping it
+     in `finalize` — reread is still 5 faces and still invalid. Not the culprit (the culprit is
+     the 57 `TopAbs_INTERNAL` faces in the raw cut; see `## Current state` iter 50 point 4).
+  **What DOES work** is making the containment unambiguous rather than exact: drop the circular
+  cutter's radius by `4*seam_eps` across the overlap band. General rule worth carrying: two
+  surfaces that are distinct but MUCH CLOSER than a boolean's fuzzy value cannot be imprinted
+  cleanly — either make them exactly coincident, or separate them by well more than the fuzzy
+  value. Nothing in between works.
+- **M8 seam clearance as a STEP at the seam plane rather than a taper — do not retry.** The taper
+  form perturbs `build_revolve_solid`'s RDP simplification of the whole meridian, which costs M5
+  `surface_deviation_max_mm` 0.612 -> 0.681 (gate 0.6). The obvious fix — drop over `fin_overlap`
+  with two collar points so RDP splits at the seam and leaves the real profile alone — was tried
+  and is strictly worse: **M5 `surface_deviation_max_mm` 1.073**, M8 unchanged at 0.30. The step
+  puts a real 2 mm feature at the seam plane that the prism does not in fact mask, so the
+  "inside the prism's span, therefore a geometric no-op" argument is NOT sound at the plane
+  itself. If the M5 deviation cost needs recovering, attack it somewhere other than the shape of
+  this collar.
 - **SUPERSEDED BY iter 44 — read this before the three arc-related M6 entries below.** Those
   entries say "do not use arc edges in the M6 loft" and that conclusion is WRONG as stated. The
   common defect in iters 40/42/43 was that all three built arcs from `detect_arc_runs` runs
@@ -1814,6 +1899,55 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 50 — M8 — opus/high (escalated) — 2026-08-30T19:20
+- Score before: `progress=0.05`, stage `pipeline`, first failure `pipeline_exit=5`
+  ("final solid failed BRepCheck_Analyzer validity check"). 3 consecutive stalls, best 0.550.
+- **Diagnosis (escalated-mode requirement), measured not assumed.** Built a 3.6 s repro
+  (`rebuild.py` straight onto `harness/truth/M8.stl`) and instrumented every intermediate solid
+  (`out/dbg/diag2.py`, `diag3.py`). Every cutter and the envelope are individually valid; the
+  first `booleans.fuse(circ_fore_solid, fin_solid, seam_eps)` in the M5-sandwich branch is not,
+  returning `BRepCheck_SelfIntersectingWire`, and the downstream cut then yields **2 solids**.
+  Three measured near-coincidences, all far below the fuse's fuzzy value `seam_eps` = 0.25 mm:
+  (a) one prism serves both seams so `seam_bore_radius = 0.5*(449.9651102598165 +
+  449.98673636995267) = 449.9759233148846`, **0.011 mm from each** fitted seam radius;
+  (b) `build_revolve_solid` RDP-simplifies the circular cutter's meridian at 0.25 mm over a
+  total radius variation of **0.029 mm across 5860 mm**, collapsing the cutter to ONE slightly
+  conical face that grazes and crosses the prism's bore arc; (c) the prism's raw ring dips to
+  **r_min = 449.759995**, ~0.2 mm inside its own snapped bore arcs, on the straight bridges
+  between arc runs. The pre-existing `circ_overlap = 80*seam_eps` widening is only the claimed
+  geometric no-op while the circular cutter is a STRICT SUBSET of the prism cross-section; it is
+  merely *almost* coincident with it, which is precisely what BOPAlgo cannot imprint.
+- **Hypotheses ruled out before landing on the fix** (all recorded in `## Do not retry`):
+  sequential cuts instead of a fused cutter (`exp1.py`: still 2 solids, still invalid);
+  clamping the prism ring outward onto the bore circle (worse — the bridge chords still dip
+  inside); making the two radii exactly equal (1 solid but still invalid — this is what proved
+  the cutter is a cone, not a cylinder).
+- **Change (one, `pipeline/cli.py`, M5-sandwich branch only):** drop the circular cutters'
+  radius by `bore_seam_clearance = 4.0 * seam_eps` (= 2.0*chord_tol; scale-relative per
+  MISSION §7, no absolute mm constant) at the far end of the overlap band, so containment is
+  unambiguous an order of magnitude past the fuzzy value instead of ambiguous just under it.
+  The M4 branches use exactly-equal radii and are untouched.
+- **Result: M8 `progress` 0.05 -> 0.30.** Both fuses valid, cut is 1 solid, `pipeline_exit` 0;
+  `n_solids` and `step_readable` now pass. Regression sweep, run SEQUENTIALLY: M1 1.0, M2 1.0,
+  M3 1.0, M4 1.0, M6 1.0, M7 1.0 — all still PASS. **M5 0.7761 -> 0.7156**
+  (`surface_deviation_max_mm` 0.681 vs gate 0.6; it was 0.612 and M5's first failure at HEAD was
+  `surface_deviation_p99_mm` 0.413 vs 0.4). M5 does not pass at HEAD either so the driver's
+  regression gate is not violated, but this is a real cost, not a rounding artifact: the meridian
+  is RDP-simplified as one polyline, so the added end point slightly rewrites the dome's
+  simplification. The obvious remedy — express the drop as a step at the seam so RDP splits
+  there — was tried and is strictly worse (M5 1.073); reverted, and recorded in `## Do not retry`.
+- **Next iteration: a genuinely different bug, already localised.** M8's new first failure is
+  `brep_valid`. Measured with `exp3.py`..`exp6.py`: `write_step` receives `valid=True, solids=1,
+  faces=62` but the file contains only **5 `ADVANCED_FACE`** entities and rereads invalid. Not
+  the writer and not the self-heal loop — the RAW `BRepAlgoAPI_Cut` result already has 2 shells
+  with **57 of 62 faces at `TopAbs_INTERNAL` orientation** (5 FORWARD). `ShapeFix_Shape` scatters
+  those into 58 shells and *calls the result valid*; `FixSmallFace` and `UnifySameDomain` change
+  nothing; `STEPControl_Writer` correctly emits only the 5 bounding faces and drops the rest,
+  returning `RetDone`. The cavity walls are never sewn into the shell. Attack why the cut leaves
+  them INTERNAL (non-manifold `Fuse` of the 8 slot cutters, slot cutters terminating exactly on
+  the envelope surface, `SetGlue`/`SetNonDestructive`, or an explicit sewing/`ShapeFix_Shell`
+  pass) — not by tuning tolerances further.
 
 ### iter 44 — M6 — opus/high (escalated) — 2026-08-30T18:20
 - Score before: `progress=0.9384`, stage `validate`, first failure `gmsh_tet` min SICN

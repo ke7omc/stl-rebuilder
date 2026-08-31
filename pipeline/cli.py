@@ -839,10 +839,32 @@ def _run(args) -> int:
             # 0.167, less margin — kept the small nonzero value for a bigger safety margin).
             circ_overlap = 80.0 * seam_eps
             fin_overlap = 0.02 * seam_eps
+            # The `circ_overlap` widening is only the claimed geometric no-op while the circular
+            # cutter is a STRICT subset of the prism's cross-section throughout the overlap band.
+            # By default it is not, it is merely *almost* coincident with it, which is the worst
+            # case for BOPAlgo: (a) one prism serves both seams, so its `seam_bore_radius` snap
+            # cannot equal both fitted seam radii — on M8 it lands 0.011 mm from each; (b) the
+            # circular cutter's meridian is RDP-simplified (eps 0.5*chord_tol) over a radius
+            # variation far below that, so the whole cutter collapses to ONE very slightly
+            # conical face that grazes — and crosses — the prism's constant-radius bore arc; and
+            # (c) the prism's raw ring still dips ~0.2 mm inside its own snapped bore arcs on the
+            # straight bridges between runs. Two surfaces that are distinct but much closer than
+            # the boolean's fuzzy value cannot be resolved into a clean imprint: measured on M8,
+            # the fuse returned BRepCheck_SelfIntersectingWire and the subsequent cut split the
+            # part into 2 solids (exit 5). Making the containment unambiguous instead — dropping
+            # the circular cutter's radius by `bore_seam_clearance`, an order of magnitude past
+            # the fuzzy value, at the overlap end — makes both fuses valid and the cut a single
+            # solid. It costs no geometry: the z range it applies to is inside the prism's own
+            # span, where the prism already removes strictly more material than the circle could.
+            # The drop is a TAPER from the last real point, not a step at the seam. A step form
+            # (two collar points, dropping over `fin_overlap`) was tried and is worse: it puts a
+            # real 2 mm feature at the seam plane that the prism does not fully mask, pushing
+            # M5's `surface_deviation_max_mm` to 1.073 (gate 0.6) versus 0.681 for the taper.
+            bore_seam_clearance = 4.0 * seam_eps
             circ_fore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before \
-                + [(event_fore + circ_overlap, pts_before[-1][1])]
-            circ_aft_full = [(event_aft - circ_overlap, pts_after[0][1])] + pts_after \
-                + [(z_max + eps_cut_val, pts_after[-1][1])]
+                + [(event_fore + circ_overlap, pts_before[-1][1] - bore_seam_clearance)]
+            circ_aft_full = [(event_aft - circ_overlap, pts_after[0][1] - bore_seam_clearance)] \
+                + pts_after + [(z_max + eps_cut_val, pts_after[-1][1])]
             seam_bore_radius = 0.5 * (pts_before[-1][1] + pts_after[0][1])
             fin_solid = _build_prism_bore(bore_rings, event_fore, event_aft, fin_overlap, fin_overlap,
                                            chord_tol, bore_radius=seam_bore_radius)
