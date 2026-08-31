@@ -40,6 +40,35 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 54 (M8, ESCALATED) — M8 PASSES. progress 0.828 -> 1.0, all 20 checks green.**
+  Local `harness/score.py --milestone M8`: volume 0.0322 % (gate 0.2), deviation max 0.2724
+  (gate 1.0), p99 0.2351 (gate 0.4), worst region 0.2415 (gate 0.4), 80 stations (cap 80),
+  76 faces (cap 300), `topo_events` 2.1e-5 mm off, `step_roundtrip` 8.8e-14, gmsh min SICN
+  0.309 (gate 0.1).
+  1. **One root cause explained every remaining deviation: a plane section of a *tessellated*
+     curved surface lies systematically INSIDE it**, so every radius the pipeline derives from
+     an STL section is biased LOW — one-signed, so no amount of averaging across stations
+     removes it. Measured on `harness/truth/M8.stl`: dome circle fits were -0.238 mm at
+     z=171.5 down to -0.078 mm at z=479; the aft slot fillet fit came out f=151.2 mm for a
+     true 150 mm. **Mesh VERTICES have no such bias** (the truth STL's dome vertices are within
+     1e-4 mm of the analytic ellipse), so both fits were re-run against vertices selected by a
+     band around the section-fitted seed surface. See `_refine_dome_model_from_vertices` and
+     `_fillet_vertex_samples`.
+  2. Second, independent defect at the same place: the dome meets the barrel *tangentially*, so
+     `_fit_r2_quadratic`'s residual test always stops one station short of the shoulder and
+     `build_revolve_solid` bridged the last gap with a straight chord. On M8 that chord sat
+     0.66 mm inside a truth radius of exactly 1000 at z=500 — the part's worst point (0.859 mm
+     at z=493.2). `_dome_shoulder_z` locates the shoulder as the fitted parabola's own apex in
+     R^2 (`z0 - b/(2a)`, robust even though R(z) itself is tangent there) and the curved
+     B-spline window is carried out to it.
+  3. Effect per region (p99, gate 0.4): fore_dome 0.714 -> 0.187, aft_wall 0.419 -> 0.218,
+     aft_dome 0.406 -> 0.201, slot_zone 0.321 -> 0.238, fore_wall 0.216 -> 0.147.
+  4. **Regression sweep with BOTH changes in place (`out/regress_i54b.log`): M1/M2/M3/M4/M6/M7
+     all exit 0 / progress 1.0. M5 = 0.9899, unchanged** — it still
+     fails only `gmsh_tet` (min SICN 0.08173 vs 0.1), exactly as it did before this iteration
+     (0.08160).
+     That is the one thing standing between the loop and M9: the driver's regression gate will
+     demote M8 while M5 fails. **Next iteration should attack M5's gmsh sliver**, not M8.
 - **iter 53 (M8, ESCALATED) — the slot end windows are SOLVED. M8 0.7012 -> 0.828; M5 unchanged
   at 0.9898 (and correctly falls back to the old prism path).**
   1. Each M8 slot is a **filleted angular wedge**: constant angular half-width 0.2199 rad, and a
@@ -1773,6 +1802,22 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **Do not "add stations" to fix a `surface_deviation_*_by_region` failure on M8 (iter 54 —
+  this was the driver's own hint and it was wrong).** M8 already emits exactly 80 stations
+  against an `n_stations_max` of 80 and 10 dome stations against a `dome_stations_min` of 8:
+  there is no room, and more stations would not have helped anyway. The argmax was not at the
+  reported z=53.5 pinch but at z=493.2, the dome/barrel shoulder. Localise the argmax by
+  re-tessellating both STEPs at `chord_tol/2` and running `metrics.surface_deviation` yourself
+  before believing a region label.
+- **Do not fit any surface radius from plane SECTIONS of the STL when sub-mm accuracy matters
+  (iter 54, the generalisable lesson).** A plane section of a tessellated convex surface lies
+  systematically *inside* it — between circumferential facet rings the mesh is a conical band,
+  and the circumferential chords under-cut again. Measured on M8's fore dome: the section circle
+  fits are biased low by −0.2375 → −0.0782 mm across the dome even though their own max residual
+  is only 0.25–0.59 mm. The bias is one-signed, so averaging over stations cannot remove it, and
+  it is ~4× the whole p99 budget. Mesh **vertices** carry no such bias: use the section fit only
+  as the seed that selects which vertices belong to the surface (a `4*chord_tol` band), then
+  refit on the vertices. Same fix applied to the slot end-fillet radii (`_fillet_vertex_samples`).
 - **Iter 52's measured M8 lobe-growth table (r 530.2-680.1 at d=0.5, half-length growing like
   sqrt(d) from 75, "does NOT match a Minkowski dilation").** Re-measured in iter 53 straight off
   `harness/truth/M8.stl` and it does not reproduce: the real profile is
@@ -2071,6 +2116,70 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 54 — M8 — opus/high (escalated) — 2026-08-30T21:10
+- Score before: `progress=0.828`, stage `validate`, first failure
+  `surface_deviation_p99_by_region=0.7140` (gate 0.4) in `fore_dome`, global p99 0.3795.
+- **Score after: M8 PASSES, `progress` 1.0, every one of the 20 checks green.** max deviation
+  0.859 -> 0.2724, p99 0.3795 -> 0.2351, worst region 0.714 -> 0.2415, volume 0.0280 ->
+  0.0322 %, faces 76 (cap 300), gmsh min SICN 0.309.
+- **Diagnosis first (the escalated brief), and it overturned the driver's own hint.** The hint
+  said "the error is concentrated in this band — add stations there". That is wrong here and
+  would have failed: `n_stations_max` is 80 and the pipeline already uses exactly 80, with 10 in
+  the fore dome. Rather than add stations I measured what the existing ones produce.
+  - Re-ran the scorer's own deviation stack offline (`harness.score._mesh_from_step` on
+    `harness/truth/M8.step` + `out/M8.step`, then `metrics.surface_deviation`) — reproduced
+    max 0.8586 / p99 0.3795 / fore_dome 0.7140 bit for bit, so the whole diagnosis could be done
+    without re-running the pipeline. **argmax was z=493.2, not the pinch** — the first thing that
+    contradicted the "densify the dome" reading.
+  - Compared the *vertices* of the truth and result meshes against the closed-form capsule
+    R(z) = 1000*sqrt(1 - ((500-z)/500)^2). Truth: within 1e-4 mm everywhere. Result: a smooth,
+    entirely one-signed radius deficit of -0.29 mm at z=75 decaying to -0.096 mm at z=475, then
+    a -0.50 mm step in z=[500, 550].
+  - Traced the first term to its source by slicing `harness/truth/M8.stl` at the pipeline's own
+    station z's and circle-fitting: R_fit - R_true = -0.2375 (z=171.5), -0.1927, -0.1702,
+    -0.1921, -0.1481, -0.1412, -0.1226, -0.1296, -0.0782 (z=478.7), then -0.0023 on the
+    cylinder. Max circle-fit residual was only 0.25-0.59 mm, so the fits are *good*; they are
+    just biased. **Cause: between two circumferential facet rings a tessellated dome is a
+    conical band (R linear in z) that under-cuts the ellipse, and the circumferential chords
+    under-cut it again — a plane section of a tessellated convex surface is always inside it.**
+    Because the sign never flips, `_fit_r2_quadratic` averaging over 9 stations cannot help.
+  - Traced the second term to the dome/barrel shoulder: the validated window ended at z=478.7
+    (R=999.01) and the next station was z=542.3 (R=1000.0), so `build_revolve_solid` drew a
+    straight chord that sits 0.66 mm inside a truth radius of exactly 1000 at z=500.
+- Change 1 (`e57a8d9`): `_refine_dome_model_from_vertices` refits R^2 = quadratic(z) to the mesh
+  vertices lying within `4*chord_tol` of the station-fitted seed surface, over
+  [first fitted station, window_z]; `_dome_shoulder_z` returns the fitted parabola's apex
+  `z0 - b/(2a)` (guarded: must open downward, must lie between the window end and the next real
+  station, and must predict that station's radius to `circle_max_resid`) and the curved window
+  is extended to it. Both are wired through a new `_dome_model` helper so `_extrapolate_end`
+  and `_densify_dome_chords` share one model instead of each refitting.
+  Result: fore_dome 0.714 -> 0.187, global max 0.859 -> 0.476, argmax moved to z=9597 (aft).
+- Change 2 (`this commit`): the same bias, found again in the slot end fillets.
+  `_build_slot_wedges` fits one fillet radius per end on `lb[3]`, the max radius of each
+  *sliced* lobe outline — biased low for the same reason, and a 1-parameter fit amplifies it.
+  Measured on the aft end: result section r_max 829.38 at z=9575 and 811.12 at z=9600 vs an
+  analytic 829.90 / 811.80, which solves to f_hi ~= 151.2 mm for a true 150 mm.
+  `_fillet_vertex_samples` re-derives the (z, R) samples from mesh vertices (inside a lobe
+  sector, off the flanks at 0.6*theta_half, inside the fillet's axial band, within
+  `4*chord_tol` of the seed torus) and `_fit_end_fillet` is re-run on them; the refit is
+  accepted only within 25 % of the section fit. Result: aft_wall 0.448 -> 0.218, aft_dome
+  0.431 -> 0.201, slot_zone 0.405 -> 0.238, global max 0.476 -> 0.272.
+- Hypotheses this rules out (both were live going in): (a) that the fore_dome failure was a
+  *station density* problem — it is not, the stations were fine and there was no budget to add
+  any; (b) that the residual deviation was the 2:1-dome reconstruction error M2/M5 also carry
+  (iter 53's reading) — M2 passes on looser gates precisely because this bias is only ~0.2 mm,
+  and it is not intrinsic at all, just a consequence of fitting sections instead of vertices.
+- Learned, and it generalises past M8: **any radius the pipeline derives from a plane section of
+  the input STL is biased inward by up to the tessellation's chordal deflection, and the bias is
+  one-signed.** Wherever a fit's accuracy has to beat `chord_tol`, fit mesh vertices and use the
+  section fit only as the seed that selects them. This should also make M9/M13 easier, not
+  harder: vertex noise there is zero-mean and averages out over ~1e4 points, whereas the
+  faceting bias would not have.
+- **Next: M5's `gmsh_tet` (min SICN 0.0817, gate 0.1).** M8 cannot be banked while M5 fails —
+  the driver's regression gate demotes on it. M5 is otherwise at 0.9899 with every other check
+  green, so this is a single sliver/degenerate face in `out/M5.step`; find it via
+  `TopExp` face areas + shortest edge before touching the build path.
 
 ### iter 53 — M8 — opus/high (escalated) — 2026-08-30T22:05
 - Score before: `progress=0.7012`, stage `validate`, first failure
