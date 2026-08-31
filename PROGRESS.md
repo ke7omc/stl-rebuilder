@@ -2347,6 +2347,44 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 
+### iter 59 — M5 — opus/escalated — 2026-08-30T22:45 — DIAGNOSIS (written before the change)
+- **The last four iterations (55–58) all assumed M5's `gmsh_tet` = 0.0817 is an intrinsic
+  property of the fin-tip fillet that has to be fixed by improving the lobe outline (arcs,
+  dedup, decimation). That premise is FALSE and is why they all stalled.** M5 *passed*
+  `gmsh_tet` in Round 1 with a large margin. Evidence, from files already in the repo, no run
+  needed:
+  - `HANDOFF.md` §table row M5 (commit `1b4ff91`): **53 faces, gmsh min SICN 0.234** (gate 0.1),
+    dev max 0.3584, runtime 2.12 s. Every gate passed.
+  - `out/score.json` (HEAD, today): **205 faces, gmsh min SICN 0.08173**, dev max 0.4302.
+  - `logs/M5-final-report.json` vs `out/M5.report.json` — the ONLY structural difference is
+    `paths_used`: Round 1 `{outer: revolve, bore: mixed}`; now `{outer: revolve, bore: mixed,
+    slots: prism}`.
+- So this is a **Round-2 regression, not an unsolved Round-1 problem**. What changed: iter 51
+  replaced the M5/M8 "sandwich" bore's Round-1 three-cutter fuse (circ_fore ∪ merged-ring prism
+  ∪ circ_aft = ONE tool, one wire per station, 53 faces) with cavity decomposition
+  (`_build_slot_lobes`: full-length bore revolve + 8 independent per-lobe prisms, 205 faces).
+  That was done for **M8**, where the fuse is genuinely unfixable (iters 48–51, `## Do not
+  retry`) — but the replacement was made unconditional, so M5 inherited it even though M5's fuse
+  was known-good. The 8 lobe prisms are exactly the source of the needle slivers iters 57/58
+  measured at the fin tips (one ~6 mm edge against five 80–100 mm edges): the lobe outline is a
+  chorded polygon of the R=40 tip fillet, which the single merged-ring prism never had to
+  represent as a free-standing ribbon face because the bore arc carried it.
+- **What this rules out:** iters 55–58's whole family of fixes (arc recovery, dedup thresholds,
+  curved-run decimation) were trying to make the *decomposed* lobe mesh as well as the *fused*
+  tool already did. Best measured gain from any of them was 0.08173 → 0.08277. The fused tool is
+  0.234 — 2.9× the gate, versus 0.83× — so no amount of lobe-outline tuning is competitive.
+- **Hypothesis being tested this iteration:** the sandwich branch should *prefer* the Round-1
+  fuse and only decompose when the fuse actually fails. Note M8 does not reach this code at all
+  — it takes the `_build_slot_wedges` rung (`out/M8.report.json`: `slots: wedge`), and M4 takes
+  a different branch (`bore: mixed`, unaffected) — so restoring fuse-first is not a re-litigation
+  of the M8 finding. Make the choice *measured*, not milestone-keyed: build the fused tool, run
+  `BRepCheck_Analyzer` on it, use it when valid, fall back to `_build_slot_lobes` when not.
+  That is exactly the discriminator the iter-48–51 evidence describes (on M8 "BOTH bore fuses
+  return valid=False"; on M5 the fuse was valid and shipped).
+- **Expected result:** M5 `gmsh_tet` ≈ 0.234, `face_count_max` ≈ 53, dev max ≈ 0.358 — i.e. the
+  Round-1 numbers — and M8 bit-identical (different rung). Falsified if the fuse now validates
+  but meshes no better, or if it validates on M8 too and regresses it.
+
 ### iter 56 — M5 — sonnet/medium — 2026-08-30T21:59
 - Score before: `progress=0.9899`, stage `validate`, first failure `gmsh_tet=0.08173` (gate 0.1).
 - Change: implemented iter 55's suggested fix (arc-corrected target area for
