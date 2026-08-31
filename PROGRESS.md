@@ -40,6 +40,37 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 64 (M10) — progress 0.0455 -> 0.8607 (not yet passing).** Added Round-2 frame
+  normalisation: `--units`/`--axis auto` (area-weighted-covariance "distinct eigenvalue" pick),
+  a two-pass radial-origin+tilt refine in `pipeline/io.py` (`_axis_origin_refine`: line-fits
+  outer-loop circle-fit drift across 9 stations, applies a secondary correcting rotation, then
+  averages), and — the key fix that unblocked `stations_consistent` — an **axial origin shift**:
+  solved the existing fore-dome quadratic-in-R^2 model for its theoretical R=0 apex
+  (`_solve_pinch_z(fz0, fcoef, target_r=0.0, near_z=z_min)`, same helper M9 already used for
+  R=bore_radius) and subtracted that `axial_origin_z` from every *reported* z value
+  (`stations_z_mm`, `topology_events_z_mm`) at the `report.write()` call site only — NOT from the
+  geometry pipeline, since `export.undo_axis_transform` already places the STEP correctly
+  (proven by `bbox_err_pct`/`volume_err_pct` passing throughout). Also added `report.write()`
+  support for the v2 contract's `frame`/`axial_extent_mm` keys, and a `slice_station` retry for a
+  `ValueError` raised by trimesh's shapely polygon-repair on a degenerate bisection-midpoint
+  section (only seen at M10's very tight chord_tol). M9 re-scored individually: still
+  `pass:true, progress:1.0`, no regression (M1-M8 not individually re-run this iteration —
+  budget ran out; the two-pass refine should be a no-op for canonical `--axis z` inputs but this
+  is an ASSUMPTION, verify next iteration).
+  1. Verified via `harness/score.py`'s `_canonical_matrix`/`_canonical`: the scorer's absolute
+     axial bounds are anchored to the hidden `spec.frame.origin_mm`, and M10's generator places
+     canonical z=0 at the fore dome's theoretical full-closure point — confirmed numerically
+     (before the fix: reported z's were offset by ~254mm, matching `origin_mm`'s axial
+     component for M10's `axis=(1,0,0)` case).
+  2. New frontier (M10's first_failure now): `surface_deviation_p99_by_region` — p99 deviation
+     0.0107mm in the `fore_dome` region (z 1-14mm) vs gate 0.010mm; global p99 is 0.008mm, so
+     it's localized right at the fore tip, near where `axial_origin_z` is ~0 (the region right
+     after the theoretical apex). Likely needs denser stations very close to the fore pinch, or
+     a tighter curve-fit window there — NOT yet attempted.
+  3. **Do not retry:** don't re-derive axial origin from `origin_mm` directly (it's hidden from
+     the pipeline); don't apply the axial shift to the actual solid-building geometry (only to
+     the self-report) — the exported STEP's frame is already correct via `F`/
+     `undo_axis_transform`, shifting geometry too would double-count.
 - **iter 63 (M9) — PASSES (progress 1.0). Fixed `bbox_err_pct` (0.180% -> 0.0075%, gate 0.1%) by
   solving the dome model analytically for the true pinch z instead of trusting the raw
   (noise/grid-quantized) mesh z-bound. Bonus: `volume_err_pct` also improved (0.334% -> 0.231%).

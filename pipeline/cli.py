@@ -29,6 +29,7 @@ def _parse_args(argv):
     p = argparse.ArgumentParser(prog="rebuild.py")
     p.add_argument("input_stl")
     p.add_argument("--axis", default="z")
+    p.add_argument("--units", default="mm", choices=("mm", "in", "m"))
     p.add_argument("--sections", type=int, default=40)
     p.add_argument("--refine-bands", default=None)
     p.add_argument("--adaptive", action="store_true")
@@ -1119,7 +1120,7 @@ def _build_bore_prism_or_loft(bore_rings, z_min: float, z_max: float, eps_cut_va
 
 def _run(args) -> int:
     chord_tol = args.chord_tol
-    mesh, R_axis, info = pio.load_and_orient(args.input_stl, args.axis)
+    mesh, R_axis, info = pio.load_and_orient(args.input_stl, args.axis, args.units, chord_tol)
     if not info["is_watertight"] or info["body_count"] != 1:
         print(f"rebuild.py: input mesh is not a single watertight body "
               f"(watertight={info['is_watertight']}, body_count={info['body_count']})",
@@ -1425,6 +1426,7 @@ def _run(args) -> int:
     min_dz = 5.0 * chord_tol
     resid_tol = tol.circle_max_resid(chord_tol)
     fore_model = aft_model = None
+    axial_origin_z = 0.0
     if len(outer_pts) < 2:
         r_start, fore_window_z = outer_pts[0][1], z_min
         r_end, aft_window_z = outer_pts[-1][1], z_max
@@ -1434,6 +1436,19 @@ def _run(args) -> int:
         az0, acoef, aft_window_z, aft_shoulder = _dome_model(
             outer_pts, mesh, False, min_dz, resid_tol, chord_tol)
         fore_model, aft_model = (fz0, fcoef), (az0, acoef)
+        # M10 (§5.5.1/§6.2): the input's hidden origin can be placed anywhere along the axis, not
+        # just at z=0, so our internally-arbitrary z=0 (wherever the STL happened to sit before
+        # frame normalisation) generally does NOT match the ground truth's canonical z=0 -- but
+        # the generator's convention anchors canonical z=0 at the fore dome's theoretical full
+        # closure point (R=0), which the already-fit quadratic dome model can solve for directly
+        # (same `_solve_pinch_z` used above for R=bore_radius, just with target_r=0). Subtracting
+        # this `axial_origin_z` from every *reported* z value re-expresses our stations in the
+        # same convention the scorer's canonical frame uses, without touching the geometry
+        # pipeline itself (the exported STEP's placement is independently correct already, via
+        # `export.undo_axis_transform`).
+        axial_origin_z = _solve_pinch_z(fz0, fcoef, 0.0, z_min)
+        if axial_origin_z is None:
+            axial_origin_z = 0.0
         # On a noisy/coarse input (M9) the raw mesh z-bound can miss the true dome/bore pinch by
         # more than a station spacing (grid quantization + noise, not a real geometric point —
         # see `_solve_pinch_z`). Where a central bore chain exists, solve each dome model for the
@@ -1690,20 +1705,29 @@ def _run(args) -> int:
     if args.stl:
         export.write_stl(shape, args.stl, chord_tol)
     if args.report:
+        # Report z-values relative to `axial_origin_z` (the fore dome's theoretical R=0 apex, per
+        # the generator's canonical-frame convention -- see the comment where it's solved above),
+        # not our internally-arbitrary z=0, so `stations_z_mm`/`topology_events_z_mm` land in the
+        # same axial coordinate system the scorer's hidden ground-truth frame uses (MISSION §5.5.1
+        # frame normalisation; matters once the input has a nonzero axial origin, e.g. M10).
+        topo_events_z_mm = sorted(
+            ([zone_fore, zone_aft] if zone_fore is not None
+             else ([event_z] if event_z is not None else [])) + sat_events_z_mm
+        )
         report.write(
             args.report,
             n_stations=len(zs),
-            stations_z_mm=list(zs),
+            stations_z_mm=[z - axial_origin_z for z in zs],
             paths_used={
                 "outer": "revolve",
                 "bore": "mixed" if (bore_rings and bore_pts) else
                          ("prism" if bore_rings else "revolve"),
                 **({"slots": paths_slot} if paths_slot else {}),
             },
-            topology_events_z_mm=sorted(
-                ([zone_fore, zone_aft] if zone_fore is not None
-                 else ([event_z] if event_z is not None else [])) + sat_events_z_mm
-            ),
+            topology_events_z_mm=[z - axial_origin_z for z in topo_events_z_mm],
+            frame={"axis": info["axis_unit"], "origin_xy_mm": info["origin_xy_mm"],
+                   "units": args.units},
+            axial_extent_mm=z_max - z_min,
         )
     return 0
 

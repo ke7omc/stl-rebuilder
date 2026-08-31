@@ -38,8 +38,16 @@ def slice_station(mesh, z: float, chord_tol: float, retries: int = 3):
         sec = mesh.section(plane_origin=[0.0, 0.0, zz], plane_normal=[0.0, 0.0, 1.0])
         if sec is None:
             continue
-        planar, _ = sec.to_2D(to_2D=to_2D)
-        raw_polys = [p for p in planar.polygons_full if p is not None]
+        try:
+            planar, _ = sec.to_2D(to_2D=to_2D)
+            raw_polys = [p for p in planar.polygons_full if p is not None]
+        except ValueError:
+            # A degenerate/self-intersecting section (a tiny numerical-precision artefact right
+            # at a bisection midpoint, seen on M10's very small chord_tol) can make shapely's
+            # polygon repair give up entirely (trimesh raises instead of returning None) -- treat
+            # exactly like an unrecoverable section and retry with the jitter below, same as the
+            # `sec is None` / no-polygon cases this loop already handles.
+            continue
         polys = []
         for p in raw_polys:
             if _is_sliver(p.exterior.coords, a_min, thick_min):
