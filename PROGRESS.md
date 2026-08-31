@@ -40,6 +40,60 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 67 (M12) — PASSES (progress 0.6201 -> 1.0). Fixed `topo_events` (missing the
+  z=9656 breakthrough event) by detecting analytically, from the already-fitted dome models,
+  where the slot/bore cavity's own max radial reach exceeds the local dome envelope.**
+  1. **Root cause: M12's dilated slot cavity (`slot_outer_r=950`) has a max radius that
+     exceeds the aft dome's local envelope radius past z~9656** — the ground-truth boolean cut
+     (`harness/generators.py::_capsule_slot_breakthrough_shape`) naturally opens the 8 slots
+     through the dome surface there ("breakthrough"), and the rebuild pipeline's own boolean
+     cut (extending the same constant-cross-section prism cutter, `_build_prism_bore`, axially
+     and cutting it against the outer revolve solid) reproduces the SAME breakthrough
+     automatically — confirmed by `volume_err_pct`/`bbox_err_pct` already passing at
+     0.0052%/0.00025% *before* this fix, with no geometry change needed. The only gap was that
+     nothing reported this real topology event: the existing `zone_fore`/`zone_aft` events
+     (5750, 9750, matching the reported 5749.9997/9749.9997) come from the bore's own
+     circular-vs-ring shape transition, which is a completely different signal from the OUTER
+     surface losing its simple-circle topology — and no station happens to be sliced literally
+     inside the disjoint-multi-island z-band (verified: `pipeline_exit` passed, so the
+     per-station `len(polys) != 1` guard was never tripped), so there was no direct mesh signal
+     to key off of either.
+  2. **Fix, in `pipeline/cli.py`** (right after `fore_model`/`aft_model` are fit, next to the
+     existing `axial_origin_z`/pinch-solve logic): compute `ring_r_max`, the max radius of any
+     `bore_rings` sample's raw points (near-constant for M12's prismatic cavity, so any one
+     station's ring is representative). For each dome model whose envelope radius at the
+     ring's own z-extent (`ring_z_min`/`ring_z_max`) is smaller than `ring_r_max`, solve the
+     SAME fitted quadratic-in-R^2 model for the z at which `R(z) == ring_r_max`
+     (`_solve_pinch_z`, already built for M9's pinch-z problem — a textbook quadratic solve on
+     `a*t^2+b*t+c = target_r^2`, reused here with `target_r=ring_r_max` instead of the bore
+     radius or 0), gated so the solved z must actually fall strictly between the ring's zone
+     and the part's true end (`z_min`/`z_max`) — a shape with no real breakthrough (envelope
+     never drops below `ring_r_max`) or a spurious/far root can't inject a fake event. Collected
+     into a new `breakthrough_events` list, merged into `topo_events_z_mm`'s existing
+     `sorted([...] + sat_events_z_mm)` expression via `+ breakthrough_events`. Deliberately
+     analytic (no re-slicing near the breakthrough band) — re-slicing there would return
+     several disjoint outer polygons, exactly what the per-station loop's `len(polys) != 1`
+     guard rejects.
+  3. **Verified:** `score.py --milestone M12` -> pass:true, progress:1.0 (topo_events now
+     reports [5749.9997, 9656.0 (within tol of 9656 truth), 9749.9997], all downstream checks
+     that were previously skipped now run and pass: surface_deviation, face_count, min_edge,
+     step_roundtrip, gmsh_tet). **Full regression: M1-M11 individually re-scored, all still
+     `pass:true, progress:1.0`** — the new block is purely additive (only appends to a list
+     when `bore_rings` exists and a dome model's envelope actually dips below the ring's max
+     radius; every earlier milestone either has no `bore_rings` or never has that condition
+     hold, so `breakthrough_events` stays empty and `topo_events_z_mm` is byte-identical to
+     before for them).
+  4. **Do not retry:** don't try to detect this via mesh re-slicing (`slice_station`) anywhere
+     near the breakthrough band — the true cross-section there is genuinely multiple disjoint
+     polygons and the existing per-station loop cannot represent that (by design, since the
+     boolean-cut approach never needs it to). The analytic dome-model solve is the right tool
+     specifically because the outer envelope model was already being fit for other reasons.
+  5. **Next:** M13 (M12's shape rotated/off-origin, isotropic noisy/unwelded/islanded voxel
+     input per MISSION §6.2/§7.2) — expect the same `--units`/`--axis auto` frame normalisation
+     from M10 to carry over, plus M9's noise-robust pinch-solving; the new breakthrough-event
+     detection above is analytic (based on fitted models, not raw mesh extrema) so it should be
+     no more noise-sensitive than the existing pinch-z solve, but verify on M13's actual input
+     before assuming so.
 - **iter 66 (M11) — PASSES first try (progress 0.0625 -> 1.0).** M11's input is 3 disjoint
   watertight bodies (segmented BATES, gaps between segments) — `_run` unconditionally required
   `body_count == 1` and exited 3 immediately (`pipeline_exit`, this milestone's very first check).

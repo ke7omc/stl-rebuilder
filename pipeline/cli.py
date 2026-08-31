@@ -1461,6 +1461,7 @@ def _run(args) -> int:
     event_fore = event_aft = None
     zone_fore = zone_aft = None
     paths_slot = None
+    breakthrough_events = []
     if bore_rings and bore_pts:
         # M4: a plain circular bore fore of `fin_z_start`, fin slots (non-circular combined
         # bore+slot ring) aft of it (or vice versa) — a single topology event. M5 adds domes on
@@ -1563,6 +1564,34 @@ def _run(args) -> int:
             fore_window_z = fore_shoulder
         if aft_shoulder is not None:
             aft_window_z = aft_shoulder
+        # M12's dilated slot/bore cavity has a max radial reach (its prismatic ring's own max
+        # radius) that exceeds the dome's local envelope near the axial extremes -- the boolean
+        # cut naturally opens the cavity through the dome surface there (a real, separate
+        # topology event: the OUTER surface stops being a simple closed loop) even though every
+        # sampled station still sits outside that literal window band (so `bore_rings`/`bore_pts`
+        # themselves see nothing unusual -- see harness/generators.py's
+        # `_capsule_slot_breakthrough_shape` for the ground-truth construction this mirrors).
+        # Detected analytically from the already-fitted dome models rather than by re-slicing the
+        # mesh: re-slicing exactly inside the breakthrough band would itself return >1 disjoint
+        # polygons, which the per-station loop above cannot handle.
+        if bore_rings:
+            ring_z_min = min(z for z, _ in bore_rings)
+            ring_z_max = max(z for z, _ in bore_rings)
+            ring_r_max = max(
+                float(np.max(np.hypot(np.asarray(r.coords)[:, 0], np.asarray(r.coords)[:, 1])))
+                for _, r in bore_rings)
+            if fore_model is not None:
+                r_fore_env = _eval_r2_quadratic(fz0, fcoef, ring_z_min)
+                if r_fore_env < ring_r_max:
+                    z_bt = _solve_pinch_z(fz0, fcoef, ring_r_max, ring_z_min)
+                    if z_bt is not None and z_min < z_bt < ring_z_min:
+                        breakthrough_events.append(z_bt)
+            if aft_model is not None:
+                r_aft_env = _eval_r2_quadratic(az0, acoef, ring_z_max)
+                if r_aft_env < ring_r_max:
+                    z_bt = _solve_pinch_z(az0, acoef, ring_r_max, ring_z_max)
+                    if z_bt is not None and ring_z_max < z_bt < z_max:
+                        breakthrough_events.append(z_bt)
     # A dome that a straight bore breaks through (M2/M5) pinches to zero annular width exactly
     # at the true mesh extent, i.e. the outer radius there *equals* the bore radius (a bore fit
     # is far more reliable than the outer extrapolation, since it isn't near the dome's steep
@@ -1804,6 +1833,7 @@ def _run(args) -> int:
         topo_events_z_mm = sorted(
             ([zone_fore, zone_aft] if zone_fore is not None
              else ([event_z] if event_z is not None else [])) + sat_events_z_mm
+            + breakthrough_events
         )
         report.write(
             args.report,
