@@ -40,6 +40,22 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 72 (M13) IN PROGRESS — testing a fuse-validity+degeneracy-floor retry (NOT the
+  sequential-split fallback iter 71 tried and reverted).** Added `_fuse_ok` (BRepCheck_Analyzer
+  valid AND fused volume >= 0.9*max(circ_v, fin_v) — the same degeneracy floor iter 71
+  root-caused but never landed) and `_fuse_seam_bore` (retries the `circ_before`/`else`
+  single-seam fuse with a tapered clearance, 0 then `4*seam_eps`, reusing the exact rung
+  `_fuse_sandwich_bore`'s caller already proves works for the M5/M8 multi-cutter case — NOT a
+  new sequential-cut path, so it should not reproduce iter 71's `BRepCheck_UnorientableShape`
+  regression). Wired into both `circ_before` (line ~1808) and `else` (line ~1817) branches in
+  `pipeline/cli.py`. **Testing now**: direct `rebuild.py` run against `harness/truth/M13.stl`
+  with `REBUILD_DEBUG_M13=1`, args from `milestones.py` M13 (`--axis auto --units in --sections
+  120 --adaptive --chord-tol 8`). Expect the `DEBUG_M13: outer_solid volume=... bore_solid
+  volume=...` stderr line to show a sane (multi-billion mm^3, not ~-5770) bore_solid volume, and
+  `pipeline_exit=0`/`brep_valid=true`. If bore_solid still looks degenerate after this, revert
+  and try shrinking `fin_solid`'s reprojected `bore_radius` by a small clearance too (right now
+  only the circular cutter's radius tapers — the fin's own snapped arc, which is what actually
+  creates the coincident surface per iter 71's root cause #2, is untouched by this change).
 - **iter 71 (M13) — root-caused `volume_err_pct=96.3%` but reverted the fix attempt; NOT fixed,
   frontier unchanged at `volume_err_pct` (progress still 0.3046).** Confirmed via direct OCP
   volume comparison that the pipeline output ~= the plain outer envelope (cylinder + 2 dome caps,

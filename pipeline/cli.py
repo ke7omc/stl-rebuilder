@@ -741,6 +741,36 @@ def _fuse_sandwich_bore(bore_rings, pts_before, pts_after, z_min: float, z_max: 
     return booleans.fuse(fused, circ_aft_solid, seam_eps)
 
 
+def _fuse_ok(fused, circ_solid, fin_solid) -> bool:
+    """True only if `fused` is BOPAlgo-valid AND not silently degenerate.
+
+    A `BRepCheck_Analyzer`-valid fuse can still be near-empty on noisy real-STL input (measured
+    on M13: volume ~= -5770 mm^3 against multi-billion-mm^3 inputs) -- validity alone does not
+    catch a fuse that quietly dropped almost everything. Require the fused volume to be at least
+    90% of the larger input as a floor; see PROGRESS.md M13 iter 71."""
+    if not BRepCheck_Analyzer(fused).IsValid():
+        return False
+    floor = 0.9 * max(_solid_volume(circ_solid), _solid_volume(fin_solid))
+    return _solid_volume(fused) >= floor
+
+
+def _fuse_seam_bore(circ_pts_fn, fin_solid, seam_eps: float, chord_tol: float):
+    """Fuse a single-seam circular/fin bore pair, retrying with a seam clearance (same rung
+    `_fuse_sandwich_bore`'s caller already uses) when the zero-clearance fuse is invalid or
+    silently degenerate -- see `_fuse_ok`. `circ_pts_fn(clearance)` returns the circular
+    revolve's meridian points for a given clearance (the overlap-end radius tapered inward by
+    `clearance`, never a step -- same reasoning as `_fuse_sandwich_bore`)."""
+    fused = last_fused = last_circ = None
+    for clearance in (0.0, 4.0 * seam_eps):
+        circ_solid = solids.build_revolve_solid(circ_pts_fn(clearance), chord_tol)
+        last_circ = circ_solid
+        last_fused = booleans.fuse(circ_solid, fin_solid, seam_eps)
+        if _fuse_ok(last_fused, circ_solid, fin_solid):
+            fused = last_fused
+            break
+    return fused if fused is not None else last_fused
+
+
 def _sector_of_ring(xy):
     """(theta_c, theta_half, r_lo, r_hi) of a ring, read as an annular sector.
 
@@ -1776,21 +1806,21 @@ def _run(args) -> int:
             # intersection edge into a meshable band with zero effect on the final cut geometry.
             circ_overlap = 80.0 * seam_eps
             fin_overlap = 0.02 * seam_eps
-            circ_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
-                + [(event_z + circ_overlap, bore_pts[-1][1])]
             fin_solid = _build_prism_bore(bore_rings, event_z, z_max, fin_overlap, eps_cut_val,
                                            chord_tol, bore_radius=bore_pts[-1][1])
-            circ_solid = solids.build_revolve_solid(circ_full, chord_tol)
-            bore_solid = booleans.fuse(circ_solid, fin_solid, seam_eps)
+            bore_solid = _fuse_seam_bore(
+                lambda clearance: [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts
+                + [(event_z + circ_overlap, bore_pts[-1][1] - clearance)],
+                fin_solid, seam_eps, chord_tol)
         else:
             circ_overlap = 80.0 * seam_eps
             fin_overlap = 0.02 * seam_eps
-            circ_full = [(event_z - circ_overlap, bore_pts[0][1])] + bore_pts \
-                + [(z_max + eps_cut_val, bore_pts[-1][1])]
             fin_solid = _build_prism_bore(bore_rings, z_min, event_z, eps_cut_val, fin_overlap,
                                            chord_tol, bore_radius=bore_pts[0][1])
-            circ_solid = solids.build_revolve_solid(circ_full, chord_tol)
-            bore_solid = booleans.fuse(circ_solid, fin_solid, seam_eps)
+            bore_solid = _fuse_seam_bore(
+                lambda clearance: [(event_z - circ_overlap, bore_pts[0][1] - clearance)]
+                + bore_pts + [(z_max + eps_cut_val, bore_pts[-1][1])],
+                fin_solid, seam_eps, chord_tol)
     elif bore_rings:
         bore_solid = _build_bore_prism_or_loft(bore_rings, z_min, z_max, eps_cut_val, chord_tol)
     else:
