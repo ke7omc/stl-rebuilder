@@ -40,31 +40,55 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
-- **iter 71 (M13) — IN PROGRESS: diagnosing `volume_err_pct=96.3%`.** Direct volume comparison
-  (`out/M13.step` from iter 70's scorer run vs `harness/truth/M13.step`) shows pipeline volume
-  30174275755 mm^3 vs truth 15370275932 mm^3 (ratio 1.963x, matches the reported 96.3158% error
-  exactly) while the two bboxes match to within a few mm — so the outer envelope is right but the
-  bore/slot cavity is barely being cut at all: an analytic envelope-only volume (cylinder + 2
-  ellipsoidal dome caps, no cavity) for the M12/M13 params (L=10000,R_o=1000,dome_h=500) computes
-  to ~3.037e10 mm^3, matching the pipeline's 3.017e10 almost exactly. Added a temporary
-  `REBUILD_DEBUG_M13` env-gated debug block in `pipeline/cli.py` right before the `booleans.cut`
-  call (prints bore_pts/bore_rings/sat_rings counts+z-ranges, zone_fore/zone_aft, outer_solid and
-  bore_solid volumes) and kicked off a direct `python -m pipeline.cli` run on
-  `harness/truth/M13.stl` with M13's exact `rebuild_args` (`--axis auto --units in --sections 120
-  --adaptive --chord-tol 8`), logging to `out/dbg13/run.log` (PID in this session; ~800s expected
-  based on iter 69's 783s run). Expect the debug line to show `bore_solid volume` far smaller than
-  the true cavity volume (~1.5e10 mm^3 = envelope 3.037e10 minus truth 1.537e10) — if so, the next
-  step is `len(bore_rings)`/`z range` vs the expected slot zone z=[5750,9750]: prior analysis of
-  the (wrong) reported `topology_events_z_mm` (357/4241 in the pipe's own frame) roughly
-  mirror-matches the true zone bounds once you flip the axis direction (axial_extent - z gives
-  ~9486/5601 vs expected 9750/5750), consistent with the merged-ring/circular-bore classification
-  picking up the slot zone in roughly the right relative position but the `zone_fore`/`zone_aft`
-  bisection landing badly (150-260mm off) or `bore_rings` covering far too few of the 120
-  stations, so the sandwich-fuse cutter (`paths_used.bore="mixed"`, no `paths_slot` in the
-  report — meaning the fused-sandwich branch, not wedge/prism decomposition) ends up cutting a
-  cavity that's much smaller than the real slot zone. Do NOT trust this hypothesis until the
-  debug run's numbers are read — revert the debug block once done (or keep only if it becomes the
-  real fix's diagnostic).
+- **iter 71 (M13) — root-caused `volume_err_pct=96.3%` but reverted the fix attempt; NOT fixed,
+  frontier unchanged at `volume_err_pct` (progress still 0.3046).** Confirmed via direct OCP
+  volume comparison that the pipeline output ~= the plain outer envelope (cylinder + 2 dome caps,
+  no cavity) — the bore/slot cutter in the single-sided (`circ_before`/`else`) branches of
+  `_run()` (around `pipeline/cli.py:1813-1829`, used when the breakthrough event is near one end
+  of the mesh, `paths_used.bore="mixed"`) is silently degenerating.
+  1. **Confirmed root cause #1:** `booleans.fuse(circ_solid, fin_solid, seam_eps)` in those
+     branches returns a `BRepCheck_Analyzer`-VALID but near-empty shape (volume ≈ -5770 mm^3
+     against multi-billion-mm^3 inputs) on this noisy real-STL input — a silent BOPAlgo fuse
+     failure with no existing guard (unlike the M5/M8 sandwich path, `_fuse_sandwich_bore`, which
+     already retries on an INVALID fuse but does not check for a valid-but-degenerate one
+     either). `bore_solid` then removes almost nothing from `outer_solid`.
+  2. **Attempted fix:** added `_fuse_or_split_bore(circ_solid, fin_solid, seam_eps)` — computes
+     volumes of both inputs, and if the fuse is invalid OR `fused_v < 0.9*max(circ_v, fin_v)`,
+     falls back to using `circ_solid` and `fin_solid` as independent sequential cutters (append
+     `fin_solid` to `lobe_cutters`, same pattern already used for M7 satellites). This DID fix
+     root cause #1 — re-run confirmed a plausible non-degenerate `bore_solid volume=5767442679.5`
+     and the split path taken (`len(lobe_cutters)=1`).
+  3. **Confirmed root cause #2 (NEW, exposed by the fix above, NOT fixed):** the sequential
+     `fin_solid` cut then produces an INVALID result — `BRepCheck_Analyzer` reports
+     `BRepCheck_UnorientableShape` on one face and the solid splits into 2 (`SOLID total=2 bad=1`),
+     which would regress the pipeline from a `volume_err_pct` failure (progress 0.3046) to a
+     `pipeline_exit=5` failure (worse — validate-stage failures score lower than a
+     process-stage-5 failure would... check `score.py`'s fail-fast order before assuming which
+     way this cuts, but iter 70's own history shows `pipeline_exit=5` scored 0.0435, well below
+     0.3046). **Hypothesis (unverified, not implemented):** `circ_overlap = 80*seam_eps` (~320mm
+     at M13's `chord_tol=8`) is tuned as a wide "geometric no-op" overlap specifically for the
+     FUSE path; reused for a SEQUENTIAL cut, `fin_solid`'s bore-radius portion in that overlap
+     band is snapped to the exact same radius as `circ_solid` (`bore_radius=bore_pts[-1][1]` or
+     `bore_pts[0][1]`, both passed into `_build_prism_bore`), creating a literal face-tangency
+     BOPAlgo cannot resolve. Next iteration should try a NARROWER overlap (~`seam_eps`-sized, not
+     `80*seam_eps`) specifically for the split-fallback path — likely needs
+     `_fuse_or_split_bore` restructured to rebuild `circ_solid`/`fin_solid` with different overlap
+     params internally rather than receiving the wide-overlap versions built for the fuse attempt.
+  4. **Reverted `pipeline/cli.py` to the last good commit (`84384dc`)** rather than commit the
+     split-fallback fix: two live verification runs against the 265MB `harness/truth/M13.stl`
+     (~800s / ~13min each) plus a third to test the split fix left too little of the 1h30m
+     iteration budget (and $10 USD budget) to implement, test, and verify the narrow-overlap fix
+     with confidence — and leaving the split-fallback uncommitted-but-untested would have risked
+     the next iteration inheriting an unverified regression. Kept the `REBUILD_DEBUG_M13`
+     env-gated debug block (in the `84384dc` commit already) as-is for the next iteration to reuse
+     — do not need to re-derive the instrumentation.
+  5. **Do not retry:** don't reuse `circ_overlap`/`fin_overlap` (the fuse-tuned 80x/0.02x
+     `seam_eps` margins) verbatim for a sequential-cut fallback — they were sized for BOPAlgo's
+     fuse behavior specifically, and produce `BRepCheck_UnorientableShape` faces when used as
+     independent cut overlaps instead. Also: a `BRepCheck_Analyzer`-valid `booleans.fuse` result
+     can still be near-zero-volume (silently degenerate) on noisy real-STL input — always sanity-
+     check fuse output volume against a floor like `0.9*max(input_volumes)`, not just validity,
+     anywhere a fuse result feeds a subsequent cut.
 - **iter 70 (M13) — fixed `pipeline_exit=5` (final solid failed `BRepCheck_Analyzer`), frontier
   moves to `volume_err_pct` (96.3% off, gate 0.5%); progress 0.0435 -> 0.3046, verified with a
   fresh full scorer run (`harness/score.py --milestone M13`).**
