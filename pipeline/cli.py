@@ -99,6 +99,103 @@ def _eval_r2_quadratic(z0: float, coef, z: float) -> float:
     return math.sqrt(max(0.0, r2))
 
 
+def _refine_dome_model_from_vertices(mesh, z0: float, coef, z_lo: float, z_hi: float,
+                                      chord_tol: float):
+    """Refit the quadratic-in-R^2 dome model to the mesh's own outer-surface VERTICES inside
+    [z_lo, z_hi], seeded by the station fit `(z0, coef)`. Returns the refitted `coef`.
+
+    Why (iter 54, measured on M8): a planar section of a *tessellated* curved surface is
+    systematically INSIDE it. Between two circumferential facet rings the mesh is a conical
+    band, i.e. R linear in z, which under-cuts the true ellipse by up to the tessellation's
+    chordal deflection; the circumferential chords under-cut it again. So every station's
+    circle fit of the input STL is biased LOW, and the bias is one-signed, so averaging across
+    stations cannot remove it. Measured on `harness/truth/M8.stl` in the fore dome:
+    R_fit - R_true = -0.238 mm at z=171.5, -0.170 at z=244, -0.123 at z=396, -0.078 at z=479
+    (max circle-fit residual 0.25-0.59 mm, so this is bias, not fit failure). The built solid
+    reproduced that deficit almost exactly (-0.29 .. -0.09 mm over the same band), which with
+    both meshes re-tessellated at ct/2 is what pushed `surface_deviation_p99_by_region` to
+    0.714 mm in `fore_dome` against a 0.4 mm gate.
+
+    The mesh VERTICES, by contrast, lie exactly on the true surface (verified: the truth STL's
+    dome vertices are within 1e-4 mm of the analytic ellipse). Fitting R^2 vs z to them removes
+    the bias entirely and — unlike a per-station correction — degrades gracefully on a noisy
+    input (M9/M13), where the vertex noise is zero-mean and averages out over ~1e4 points while
+    the faceting bias would not.
+
+    The seed model is what makes vertex selection safe: only vertices within `4*chord_tol` of
+    the seed surface are used, so the bore wall, the slot walls and any interior geometry at a
+    different radius are excluded. `z_lo` should be the first *fitted station*, not the pinch —
+    near the pinch the outer radius meets the bore radius and the band would swallow bore
+    vertices. Extrapolating the refitted quadratic back to the pinch is exact anyway.
+
+    Refuses the refit (returns the seed unchanged) when too few vertices survive selection or
+    when the refit moves the surface by more than the selection band, which would mean the seed
+    was too wrong for the band to have selected the right vertices in the first place.
+    """
+    v = np.asarray(mesh.vertices, dtype=float)
+    if v.size == 0 or z_hi - z_lo <= 0.0:
+        return coef
+    z = v[:, 2]
+    in_band = (z >= z_lo) & (z <= z_hi)
+    if int(in_band.sum()) < 200:
+        return coef
+    zs = z[in_band]
+    rs = np.hypot(v[in_band, 0], v[in_band, 1])
+    band = 4.0 * chord_tol
+    r_pred = np.sqrt(np.maximum(0.0, np.polyval(coef, zs - z0)))
+    keep = np.abs(rs - r_pred) <= band
+    if int(keep.sum()) < 200:
+        return coef
+    zk = zs[keep] - z0
+    if float(zk.max() - zk.min()) < 1e-6:
+        return coef
+    try:
+        new_coef = np.polyfit(zk, rs[keep] ** 2, 2)
+    except Exception:
+        return coef
+    probe = np.linspace(z_lo, z_hi, 33) - z0
+    r_old = np.sqrt(np.maximum(0.0, np.polyval(coef, probe)))
+    r_new = np.sqrt(np.maximum(0.0, np.polyval(new_coef, probe)))
+    if not np.all(np.isfinite(r_new)) or float(np.max(np.abs(r_new - r_old))) > band:
+        return coef
+    return new_coef
+
+
+def _dome_shoulder_z(z0: float, coef, window_z: float, at_start: bool, next_z, next_r,
+                     resid_tol: float):
+    """z where the dome model stops growing — the apex of the fitted parabola in R^2,
+    `z0 - b/(2a)`. Returns None when the model has no usable maximum.
+
+    An ellipsoidal dome meets the barrel *tangentially*, so `_fit_r2_quadratic`'s residual test
+    stops the validated window one station short of the shoulder (the next station is already on
+    the flat cylinder and the model over-predicts it). `build_revolve_solid` then bridges that
+    last gap with a straight chord, which cuts the corner: measured on M8, the fore window ended
+    at z=478.7 (R=999.01) and the next station was z=542.3 (R=1000.0), so at z=500 the chord
+    sits 0.66 mm inside a truth radius of exactly 1000 — the part's single worst deviation
+    (0.859 mm at z=493.2). Extending the curved window to the shoulder removes it.
+
+    Guards: the parabola must open downward, its apex must lie beyond the validated window but
+    not past the next real station, and the radius it predicts there must agree with that
+    station's radius to `resid_tol` (otherwise the "shoulder" is an artefact of a bad fit and
+    the straight chord is the safer answer)."""
+    coef = np.asarray(coef, dtype=float)
+    if coef.size != 3:
+        return None
+    a, b, _c = float(coef[0]), float(coef[1]), float(coef[2])
+    if a >= 0.0 or abs(a) < 1e-12:
+        return None
+    z_s = z0 - b / (2.0 * a)
+    if at_start:
+        if not (window_z < z_s < next_z):
+            return None
+    else:
+        if not (next_z < z_s < window_z):
+            return None
+    if abs(_eval_r2_quadratic(z0, coef, z_s) - next_r) > resid_tol:
+        return None
+    return float(z_s)
+
+
 def _extrapolate_end(pts, target_z: float, at_start: bool, min_dz: float, resid_tol: float):
     """Extrapolate R at target_z from the nearest fitted stations, quadratic in R^2 vs z.
     Returns (R, window_z) — see `_fit_r2_quadratic` for what `window_z` means.
@@ -122,8 +219,26 @@ def _extrapolate_end(pts, target_z: float, at_start: bool, min_dz: float, resid_
     return _eval_r2_quadratic(z0, coef, target_z), window_z
 
 
+def _dome_model(outer_pts, mesh, at_start: bool, min_dz: float, resid_tol: float,
+                chord_tol: float):
+    """The dome meridian model for one end: the station-fitted quadratic in R^2, refined against
+    the mesh vertices (`_refine_dome_model_from_vertices`) and extended to the barrel shoulder
+    (`_dome_shoulder_z`) when one can be located. Returns (z0, coef, window_z, shoulder_z)."""
+    z0, coef, window_z = _fit_r2_quadratic(outer_pts, at_start, min_dz, resid_tol)
+    first_z = outer_pts[0][0] if at_start else outer_pts[-1][0]
+    v_lo, v_hi = (first_z, window_z) if at_start else (window_z, first_z)
+    if mesh is not None and v_hi > v_lo:
+        coef = _refine_dome_model_from_vertices(mesh, z0, coef, v_lo, v_hi, chord_tol)
+    beyond = [p for p in outer_pts if (p[0] > window_z if at_start else p[0] < window_z)]
+    shoulder_z = None
+    if beyond:
+        nxt = beyond[0] if at_start else beyond[-1]
+        shoulder_z = _dome_shoulder_z(z0, coef, window_z, at_start, nxt[0], nxt[1], resid_tol)
+    return z0, coef, window_z, shoulder_z
+
+
 def _densify_dome_chords(outer_pts, z_lo, z_hi, at_start: bool, min_dz: float, resid_tol: float,
-                          window_z: float, n_samples: int = 24):
+                          window_z: float, n_samples: int = 24, model=None):
     """Replace the real (noisy, unevenly-spaced) circle-fit stations inside the validated dome
     window — from the pinch endpoint through `window_z`, the last station the quadratic-in-R^2
     model actually fit — with a clean, evenly-spaced resample of that same model, including the
@@ -164,7 +279,10 @@ def _densify_dome_chords(outer_pts, z_lo, z_hi, at_start: bool, min_dz: float, r
     error is not concentrated only at the tip -- it is spread fairly evenly in curvature terms
     across the whole window, and a fixed n_samples budget has no slack to redistribute without
     starving somewhere else. Reverted to uniform-in-z; the real lever is n_samples itself."""
-    z0, coef, _ = _fit_r2_quadratic(outer_pts, at_start, min_dz, resid_tol)
+    if model is None:
+        z0, coef, _ = _fit_r2_quadratic(outer_pts, at_start, min_dz, resid_tol)
+    else:
+        z0, coef = model
     z_end = z_lo if at_start else z_hi
     lo, hi = (z_end, window_z) if at_start else (window_z, z_end)
     zs = np.linspace(lo, hi, n_samples)
@@ -1168,12 +1286,25 @@ def _run(args) -> int:
     # end (M2's domes, see `_extrapolate_end`).
     min_dz = 5.0 * chord_tol
     resid_tol = tol.circle_max_resid(chord_tol)
+    fore_model = aft_model = None
     if len(outer_pts) < 2:
         r_start, fore_window_z = outer_pts[0][1], z_min
         r_end, aft_window_z = outer_pts[-1][1], z_max
     else:
-        r_start, fore_window_z = _extrapolate_end(outer_pts, z_min, True, min_dz, resid_tol)
-        r_end, aft_window_z = _extrapolate_end(outer_pts, z_max, False, min_dz, resid_tol)
+        fz0, fcoef, fore_window_z, fore_shoulder = _dome_model(
+            outer_pts, mesh, True, min_dz, resid_tol, chord_tol)
+        az0, acoef, aft_window_z, aft_shoulder = _dome_model(
+            outer_pts, mesh, False, min_dz, resid_tol, chord_tol)
+        fore_model, aft_model = (fz0, fcoef), (az0, acoef)
+        r_start = _eval_r2_quadratic(fz0, fcoef, z_min)
+        r_end = _eval_r2_quadratic(az0, acoef, z_max)
+        # The curved window runs all the way to the barrel shoulder when one was located, so the
+        # dome's tangential meeting with the cylinder is modelled by the spline instead of by a
+        # corner-cutting straight chord (`_dome_shoulder_z`).
+        if fore_shoulder is not None:
+            fore_window_z = fore_shoulder
+        if aft_shoulder is not None:
+            aft_window_z = aft_shoulder
     # A dome that a straight bore breaks through (M2/M5) pinches to zero annular width exactly
     # at the true mesh extent, i.e. the outer radius there *equals* the bore radius (a bore fit
     # is far more reliable than the outer extrapolation, since it isn't near the dome's steep
@@ -1196,12 +1327,14 @@ def _run(args) -> int:
     fore_gap, aft_gap = [], []
     curve_windows = []
     if is_pinch_start:
-        fore_gap = _densify_dome_chords(outer_pts, z_min, None, True, min_dz, resid_tol, fore_window_z)
+        fore_gap = _densify_dome_chords(outer_pts, z_min, None, True, min_dz, resid_tol,
+                                        fore_window_z, model=fore_model)
         fore_gap[0] = (z_min, r_start)  # keep the bore-snapped value, not the model's own fit there
         middle_pts = [p for p in middle_pts if p[0] > fore_window_z]
         curve_windows.append((z_min, fore_window_z))
     if is_pinch_end:
-        aft_gap = _densify_dome_chords(outer_pts, None, z_max, False, min_dz, resid_tol, aft_window_z)
+        aft_gap = _densify_dome_chords(outer_pts, None, z_max, False, min_dz, resid_tol,
+                                       aft_window_z, model=aft_model)
         aft_gap[-1] = (z_max, r_end)
         middle_pts = [p for p in middle_pts if p[0] < aft_window_z]
         curve_windows.append((aft_window_z, z_max))
