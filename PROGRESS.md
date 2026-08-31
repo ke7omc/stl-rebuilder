@@ -40,6 +40,56 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **iter 51 (M8, ESCALATED) — replaced the M5/M8 fused-bore approach with cavity decomposition
+  (MISSION.md §5.5 item 3). `brep_valid` — the blocker for iters 48-51 — now PASSES. M8
+  0.30 -> 0.6526, and M5 0.7156 -> 0.9898 (its best ever; previous high was 0.7761).**
+  1. **Diagnosis (numbers).** Each of the two `booleans.fuse` calls returned a single solid of
+     the RIGHT volume (`V=9.223986e+09` = A+B) carrying exactly **ONE** bad face:
+     `type=GeomAbs_Cone ori=FWD area=5.7758e+04
+     bbox=[-449.97,-449.97,5884.28]..[449.97,449.97,5908.20]` with
+     `BRepCheck_BadOrientationOfSubshape` — i.e. the `bore_seam_clearance` taper cone added in
+     iter 50. `BRepAlgoAPI_Cut` then emitted **2 shells with 57 of 62 faces at
+     `TopAbs_INTERNAL`**, which `STEPControl_Writer` silently drops (only 5 `ADVANCED_FACE`
+     entities reached the file), so the re-read STEP failed `brep_valid`. Why the cone is bad:
+     `pts_before[-1][0]`=5884.28 and `event_fore + circ_overlap`=5908.20, so the taper only
+     reaches its full 1.0 mm clearance at 5908.20; at the prism's start plane the cone is at
+     r≈449.80 while the prism's snapped arcs sit at 449.976 and its straight bridges dip to
+     449.76 — the cone crosses the prism boundary with a ~0.04 mm intersection, far below the
+     0.25 mm fuzzy value. **Every tolerance-side remedy costs ~`clearance` mm of deviation at
+     the seam plane, which breaks M5's 0.6 mm `surface_deviation_max_mm` gate. So the fix had to
+     be structural, not a retune.**
+  2. **The change.** `cli._build_slot_lobes` + `_prism_from_ring` (new). The bore becomes ONE
+     full-length circular revolve (`pts_before + pts_after`, no seam and no taper anywhere), and
+     each slot becomes its own prism cutter, applied as a separate `booleans.cut` after it. No
+     `fuse` is performed at all on this path. Every cutter/target surface pair now meets
+     transversally. Result: all 9 M8 cuts `valid=True`, 1 solid, 1 shell, 69 faces.
+  3. **Three sub-bugs found and fixed inside that, each by measurement.**
+     - The splitting disc must be **larger** than the bore (`bore_radius + 4*chord_tol`).
+       Subtracting a smaller one leaves ONE polygon with an interior ring whose `.exterior` is
+       just the original merged outline again — the first attempt cut with the whole gear ring
+       and stayed invalid. Measured: disc factor 0.99/0.995 -> 1 component; 1.002 and above -> 8
+       components of equal area. **The 8 slots do NOT merge near the bore**, which is what makes
+       the decomposition possible at all.
+     - Each lobe then stops short of the bore cylinder, so a copy is translated inward along its
+       OWN centreline and unioned. Translation preserves the flank spacing exactly; a radial
+       scale would narrow the slot by ~0.76 mm.
+     - `build_prism_solid`'s arc fitting is wrong on these outlines in BOTH directions: on M5 one
+       of 8 congruent lobes (2-D area 31778.2 each) collapsed to `V=3.4e-11` while the other
+       seven built at 1.07e8 (a whole missing slot = +0.46 % volume, gate 0.2 %); on M8 all 8
+       lobes have area 116305.2 (=> 4.342e8) yet built at 4.255e8 .. **5.379e8**, some runs
+       clearly coming back as the MAJOR arc, over-cutting by 1.1e8 total. Since a prism's volume
+       must be `area * height`, that is an **exact** acceptance test — `_prism_from_ring` retries
+       from 8 rolled start vertices and, failing those, falls back to a straight-edge polygon
+       (`r_fillet_thresh=1e-9`) whose volume is exactly right by construction. M8 volume error
+       0.648 % -> **0.0015 %**; M5 -> 0.0069 %.
+  4. **Where each milestone now stops.** M8 `topo_events`: detected [5888.20, 9621.42] vs
+     expected [5850, 9650], tolerance 2 mm — a station/bisection-placement problem, NOT a
+     boolean one, and the obvious next target. M5 `gmsh_tet`: min SICN 0.0816 vs 0.1, caused by
+     the chorded (polyline) lobes; fixing the arc fitter so the lobes keep exact arcs is what
+     would make M5 pass outright.
+  5. M1-M4/M6/M7 cannot be affected: `_build_slot_lobes` is reachable only from the M5/M8
+     "sandwich" branch (M1/M2 use a plain revolve, M3 `_build_bore_prism_or_loft`, M4 the
+     `circ_before` branch, M6 a loft, M7 satellite cutters). Verified by sweep regardless.
 - **iter 50 (M8, ESCALATED) — root-caused and fixed the `BRepCheck_Analyzer` invalid-solid
   failure iter 49 flagged. M8 0.05 -> 0.30 (`pipeline_exit` 5 -> 0, `n_solids` 1,
   `step_readable` now pass). M1-M4/M6/M7 all still PASS (verified sequentially). M5 moved
@@ -1688,6 +1738,47 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   re-reading the spec before changing, but it looks like a typo and it drives M9's deviation gate.
 
 ## Do not retry
+- **Do not try to REPAIR the fused M5/M8 bore tool. The fuse is gone (iter 51 replaced it with
+  cavity decomposition) and every repair below was measured and failed. If a future change
+  reintroduces a fused bore cutter, that is the mistake.**
+  1. *Post-hoc `ShapeFix_Solid` on the fuse output.* "Fixes" validity by INVERTING the solid
+     (`V=-1.768613e+09`). Independently reproduced twice (iters 50, 51).
+  2. *`ShapeFix_Shell.FixFaceOrientation` on the fused tool's shell.* No change to validity.
+  3. *Surgical reversal of just the one BRepCheck-flagged face* (rebuild every shell, flip only
+     faces whose `StatusOnShape` is non-`NoError`). Still `valid=False`, and the volume moved by
+     1.54e7 (9.223986e+09 -> 9.208610e+09) — proving the cone carries real volume and the defect
+     is topological (non-manifold contact), not an orientation flip.
+  4. *Multi-tool `BRepAlgoAPI_Cut`* (`SetArguments`/`SetTools` with a `TopTools_ListOfShape` of
+     the 3 cutters, letting GFA union them internally, instead of Fuse-then-Cut). Returned the
+     TOOLS rather than the difference: `valid=True V=9.220825e+09 solids=3` where the correct
+     answer is ~2.09e10. **Not root-caused** — the identical API on a standalone box-minus-two-
+     overlapping-spheres gives the exactly-correct result in every variation (parallel on/off,
+     fuzzy 0.5, list reused across ops), and in the real run `args.Size()==1`, `tl.Size()==3`,
+     `outer` valid with `V=3.032781e+10`. Rebuilding the tool list with the `TopExp_Explorer`
+     still in scope (in case of a pybind11 reference-lifetime issue) gave the same wrong result.
+     Abandoned as a side quest; do not spend another iteration on it.
+- **Do not "clean up" the slot-lobe outlines before `build_prism_solid` (iter 51).** Both obvious
+  approaches make it much worse, measured on M5's 8 congruent lobes:
+  - *Deduping the micron-scale edges* left by the disc subtraction (min edge 0.00536 mm) at
+    0.05*chord_tol starves `detect_arc_runs` and collapses **all eight** lobes to ~0 volume
+    (they had been 7 good / 1 collapsed).
+  - *Douglas-Peucker* (`Polygon.simplify(0.05*chord_tol, preserve_topology=True)`) cuts every
+    lobe from 1.10e8 to 5.5e6.
+  - *Rolling the ring's start vertex* is harmless but on M8 changed nothing at all — the arc-fit
+    result is independent of the seam there, so the retry loop only ever helps via its final
+    straight-edge-polygon rung.
+  - *Passing the outer arc's averaged radius as `bore_radius`* (hoping to snap the outer run the
+    way M4/M5's bore arc is snapped) did essentially nothing: 4.317658e8 -> 4.318882e8 on one
+    lobe, no change on the other seven. The snap's 10 %-of-`bore_radius` test does not engage.
+  - *Reusing a congruent sibling lobe's solid* for one that fails to build does recover the
+    volume but misregisters it by ~6 mm (the centroid angle is not the true fin axis angle);
+    kept only as a last-resort rung behind the polygon fallback.
+- **Do not relax `_prism_from_ring`'s volume acceptance above 0.1 % (iter 51).** Tempting,
+  because chording every lobe is exactly what costs M5 its `gmsh_tet` gate (min SICN 0.0816 vs
+  0.1) and M5's arc-fitted lobes are only 0.81 % off on volume. Measured at 1 %: **M5 0.9898 ->
+  0.6722**, `surface_deviation_max_mm` 6.06 mm at z=6765 in the fin zone. An arc fit can be
+  within 0.81 % on volume and still 6 mm out of place — volume detects a grossly wrong arc, it
+  does not validate a plausible one. The real fix is in the arc fitter, not the threshold.
 - **M8 invalid-solid / `BRepCheck_SelfIntersectingWire` at the fore seam (iter 50): four
   hypotheses are now RULED OUT by measurement, do not retry any of them.**
   1. *Cutting the three bore cutters sequentially against the envelope instead of fusing them
@@ -1916,6 +2007,52 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 (newest first — one block per iteration, format in MISSION.md §8)
+
+### iter 51 — M8 — opus/high (escalated) — 2026-08-30T20:20
+- Score before: `progress=0.30`, stage `validate`, first failure `brep_valid=False`. 4
+  consecutive stalls, best 0.550.
+- **Score after: M8 0.30 -> 0.6526 (first failure now `topo_events`), M5 0.7156 -> 0.9898 (first
+  failure now `gmsh_tet`). M1/M2/M3/M4/M6/M7 all still PASS (sequential sweep).**
+- **The one change: stop fusing the bore cutters; decompose the cavity instead**
+  (MISSION.md §5.5 item 3). New `cli._build_slot_lobes` + `_prism_from_ring`; the M5-sandwich
+  branch now builds ONE full-length circular bore revolve and one independent prism per slot,
+  each applied as its own `booleans.cut`. No `fuse` on this path at all. The Round 1 fused path
+  survives only as a fallback when the ring does not decompose.
+- **Diagnosis (escalated-mode requirement), measured not assumed** (`out/dbg/exp9.py` ..
+  `exp15.py`). Each fuse returned a single solid of the right volume (`V=9.223986e+09` = A+B)
+  with exactly ONE bad face: `GeomAbs_Cone ori=FWD area=5.7758e+04
+  bbox=[-449.97,-449.97,5884.28]..[449.97,449.97,5908.20]`,
+  `BRepCheck_BadOrientationOfSubshape` — the iter-50 `bore_seam_clearance` taper cone. The cut
+  then produced **2 shells, 57/62 faces `TopAbs_INTERNAL`**, which `STEPControl_Writer` drops
+  (5 `ADVANCED_FACE` in the file) -> `brep_valid=False`. The cone reaches full 1.0 mm clearance
+  only at z=5908.20 but the prism starts at 5884.28, so it crosses the prism boundary with a
+  ~0.04 mm intersection against a 0.25 mm fuzzy value. Any tolerance-side remedy costs
+  ~`clearance` mm of deviation at the seam plane and breaks M5's 0.6 mm deviation gate — hence
+  a structural fix. Hypotheses ruled out this iteration and recorded in `## Do not retry`:
+  `ShapeFix_Shell.FixFaceOrientation`, surgical single-face reversal (volume moved 1.54e7, so
+  the defect is topological not orientational), and multi-tool `BRepAlgoAPI_Cut` (returned the
+  tools, `V=9.220825e+09 solids=3`; not root-caused, abandoned).
+- **Sub-findings that cost most of the iteration, all measured:**
+  - The splitting disc must be LARGER than the bore. At factor 0.99/0.995 the difference is ONE
+    polygon with an interior ring (its `.exterior` is the original merged outline, so the first
+    attempt silently cut with the whole gear again); at 1.002+ it is 8 equal components. The 8
+    slots do not merge near the bore — that is what makes decomposition possible.
+  - Lobes are extended inward by translating a copy along their own centreline (preserves flank
+    spacing exactly; a radial scale narrows the slot by ~0.76 mm).
+  - `build_prism_solid` mis-fits these outlines both ways: M5 collapsed 1 of 8 congruent lobes
+    to `V=3.4e-11`; M8 built 8 lobes of identical area 116305.2 (=> 4.342e8) at 4.255e8 ..
+    5.379e8 (major-arc over-fits), over-cutting 1.1e8. `_prism_from_ring` scores each build
+    against the exact `area * height`, retries 8 rolled start vertices, and finally falls back to
+    a straight-edge polygon. M8 volume 0.648 % -> 0.0015 %, M5 -> 0.0069 %.
+- **Reverted:** relaxing that acceptance from 0.1 % to 1 % (to keep exact arcs and rescue M5's
+  `gmsh_tet`). M5 0.9898 -> 0.6722, deviation 6.06 mm — an arc can be 0.81 % right on volume and
+  6 mm out of place. Recorded in `## Do not retry`.
+- **Next iteration:** M8 is now blocked on `topo_events` — detected [5888.20, 9621.42] vs
+  expected [5850, 9650] at 2 mm tolerance. That is `_bisect_topology_event`/station placement,
+  not booleans; M8's slot ends are filleted r=150, so the first station showing a merged ring is
+  necessarily well inside the true event and the bisection needs to extrapolate to where the
+  slot cross-section vanishes rather than report the first merged slice. Fixing the arc fitter so
+  lobes keep exact arcs instead of chords is the separate change that would make M5 pass.
 
 ### iter 50 — M8 — opus/high (escalated) — 2026-08-30T19:20
 - Score before: `progress=0.05`, stage `pipeline`, first failure `pipeline_exit=5`
