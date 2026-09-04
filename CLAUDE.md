@@ -1,6 +1,18 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-04 07:55 — ROUND 3 (GUI) STARTED.** Ladder G1→G2→G3→HANDOFFv3 (MISSION §6.3, §12
+  rewritten): G1 `pipeline/engine.py` API extraction, G2 PySide6 app (`python -m app`, pyvistaqt
+  3D viewport, offscreen smoke + screenshots), G3 polish with **Fable visual review** — the
+  driver stops at "awaiting visual review"; reviewer inspects `out/gui/*.png`, writes feedback
+  into PROGRESS.md `## Notes from Brady` or creates `state/G3_APPROVED`. **No packaging/.exe —
+  run-from-source on mac + Windows is the deliverable** (Brady can't run installers at work);
+  `WORK_SETUP.md` is the work-machine setup doc (written for the AI assistant there) and must
+  stay accurate. GUI deps installed in `.venv` (PySide6 6.11.2, pyvista 0.48.4, vtk 9.6.2,
+  pyqtgraph, qtawesome). Driver gates live in `loop.py::evaluate_gui`; G fragment
+  `driver/prompt_gui.md`. Lesson re-learned at launch: **re-tag `infra-frozen` BEFORE starting
+  the loop** — a stale tag makes preflight revert the new setup as "agent tampering" (cost two
+  false starts, fixed at `2ae0227`).
 - **2026-08-31 10:27 — ROUND 2 COMPLETE.** All 13 milestones + MR(skipped) + HANDOFF green;
   final regression sweep passed on the last commit; driver exited DONE at iteration 77.
   Round 2 ran 2026-08-30 04:29 → 08-31 10:27 (~30 h wall incl. Brady's token-limit pause),
