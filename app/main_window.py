@@ -6,6 +6,7 @@ import os
 
 import numpy as np
 import pyvista as pv
+import qtawesome as qta
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDockWidget, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import manifest as manifest_mod
+from app.theme import ACCENT, ERROR, SUCCESS, TEXT_SECONDARY
 from app.viewport import Viewport
 from app.worker import AnalyzeWorker, RebuildWorker, run_in_thread
 from pipeline.engine import RebuildOptions
@@ -25,6 +27,7 @@ class MainWindow(QMainWindow):
     def __init__(self, offscreen: bool = False):
         super().__init__()
         self.setWindowTitle("stl-rebuilder")
+        self.setWindowIcon(qta.icon("fa5s.cube", color=ACCENT))
         self.resize(1400, 900)
 
         self._analysis = None
@@ -52,6 +55,10 @@ class MainWindow(QMainWindow):
         self.node_detected = QTreeWidgetItem([NODE_DETECTED])
         self.node_stations = QTreeWidgetItem([NODE_STATIONS])
         self.node_output = QTreeWidgetItem([NODE_OUTPUT])
+        self.node_input.setIcon(0, qta.icon("fa5s.file-import", color=TEXT_SECONDARY))
+        self.node_detected.setIcon(0, qta.icon("fa5s.search-location", color=TEXT_SECONDARY))
+        self.node_stations.setIcon(0, qta.icon("fa5s.layer-group", color=TEXT_SECONDARY))
+        self.node_output.setIcon(0, qta.icon("fa5s.cube", color=TEXT_SECONDARY))
         self.outline.addTopLevelItems(
             [self.node_input, self.node_detected, self.node_stations, self.node_output])
         dock.setWidget(self.outline)
@@ -88,7 +95,7 @@ class MainWindow(QMainWindow):
         row_layout = QHBoxLayout(browse_row)
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.addWidget(self.input_path_edit)
-        browse_btn = QPushButton("Browse...")
+        browse_btn = QPushButton(qta.icon("fa5s.folder-open", color=TEXT_SECONDARY), "Browse...")
         browse_btn.clicked.connect(self._browse_input)
         row_layout.addWidget(browse_btn)
         form.addRow("Input STL", browse_row)
@@ -98,7 +105,7 @@ class MainWindow(QMainWindow):
         out_layout = QHBoxLayout(out_row)
         out_layout.setContentsMargins(0, 0, 0, 0)
         out_layout.addWidget(self.output_path_edit)
-        out_browse_btn = QPushButton("Browse...")
+        out_browse_btn = QPushButton(qta.icon("fa5s.folder-open", color=TEXT_SECONDARY), "Browse...")
         out_browse_btn.clicked.connect(self._browse_output)
         out_layout.addWidget(out_browse_btn)
         form.addRow("Output STEP", out_row)
@@ -136,11 +143,13 @@ class MainWindow(QMainWindow):
         btn_row = QWidget()
         btn_layout = QHBoxLayout(btn_row)
         btn_layout.setContentsMargins(0, 0, 0, 0)
-        self.analyze_btn = QPushButton("Analyze")
+        self.analyze_btn = QPushButton(qta.icon("fa5s.search", color=TEXT_SECONDARY), "Analyze")
         self.analyze_btn.clicked.connect(self.run_analyze)
-        self.run_btn = QPushButton("Run")
+        self.run_btn = QPushButton(qta.icon("fa5s.play", color="#ffffff"), "Run")
+        self.run_btn.setObjectName("primary")
         self.run_btn.clicked.connect(self.run_rebuild)
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton(qta.icon("fa5s.stop", color=ERROR), "Cancel")
+        self.cancel_btn.setObjectName("danger")
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self.cancel_rebuild)
         btn_layout.addWidget(self.analyze_btn)
@@ -153,10 +162,15 @@ class MainWindow(QMainWindow):
     def _build_output_page(self):
         w = QWidget()
         layout = QVBoxLayout(w)
+        self.error_banner = QLabel()
+        self.error_banner.setObjectName("errorBanner")
+        self.error_banner.setWordWrap(True)
+        self.error_banner.hide()
+        layout.addWidget(self.error_banner)
         self.manifest_text = QTextEdit()
         self.manifest_text.setReadOnly(True)
         layout.addWidget(self.manifest_text)
-        reveal_btn = QPushButton("Reveal file")
+        reveal_btn = QPushButton(qta.icon("fa5s.external-link-alt", color=TEXT_SECONDARY), "Reveal file")
         reveal_btn.clicked.connect(self._reveal_output)
         layout.addWidget(reveal_btn)
         return w
@@ -293,6 +307,7 @@ class MainWindow(QMainWindow):
         self._result = result
         self.run_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
+        self.error_banner.hide()
         self.status_label.setText("Done")
         self.log_line(f"rebuild done: {result.output_path}")
         man = manifest_mod.build(result, self._analysis)
@@ -319,7 +334,8 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(False)
         self.status_label.setText(f"Failed: {kind}")
         self.log_line(f"FAILED [{kind}] {message}")
-        self.page_output.manifest_text.setPlainText(message) if hasattr(self.page_output, "manifest_text") else None
+        self.error_banner.setText(f"{kind}: {message}")
+        self.error_banner.show()
         self.manifest_text.setPlainText(json.dumps({"ok": False, "error": kind, "message": message}, indent=2))
         self.outline.setCurrentItem(self.node_output)
 

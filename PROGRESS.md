@@ -53,6 +53,35 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **ROUND 3 (GUI) — G1/G2 done, G3 polish underway (iter 80).** Added `app/theme.py`: a
+  complete dark `QSS` stylesheet (Fusion base style + palette constants BG_DARKEST/BG_PANEL/
+  BG_RAISED/ACCENT/ERROR/etc.) covering QMainWindow, docks, tree/text views, form controls
+  (line edit/combo/spin/checkbox), buttons (`#primary`/`#danger` object-name variants),
+  progress bar, scrollbars, and an `#errorBanner` style; `apply_theme(app)` called from both
+  `app/__main__.py` (interactive launch) and `app/smoke.py` (offscreen smoke) so every code
+  path is themed. Added qtawesome icons (fa5s.*) to the window icon, all 4 outline nodes
+  (file-import/search-location/layer-group/cube), and every button (Browse/Analyze/Run/Cancel/
+  Reveal file); `Run` uses the `primary` (accent-filled) style, `Cancel` uses `danger`
+  (red-outlined). Fixed the failure-surface bug in `main_window.py::_on_failed`: removed dead
+  code (`self.page_output.manifest_text...` referenced an attribute that never existed, a no-op
+  every time) and replaced the raw-JSON-only surface with a visible `#errorBanner` QLabel on the
+  Output page showing `"{kind}: {message}"` (shown on failure, hidden again on the next
+  successful rebuild in `_on_rebuilt`). Regenerated `out/gui/*.png` and visually inspected all
+  3 — dark theme applied throughout, icons render, layout matches the Ansys-reference bar far
+  better than the previous default-grey Qt look. `pytest tests/gui -q` (7) and
+  `pytest tests/api -q` (7) both still green; full M1-M13 regression re-run this iteration
+  (see below).
+- **Next**: further G3 feedback will land in `## Notes from Brady` after this round's
+  screenshots are reviewed — do not create `state/G3_APPROVED` yourself. If unreviewed next
+  iteration, candidates for another polish pass: QComboBox has no visible dropdown affordance
+  (a CSS-triangle `::down-arrow` override rendered as a garbled box under Fusion and was
+  reverted rather than shipped broken — needs a real approach, e.g. a small SVG resource or
+  `QComboBox.setItemIcon`-based arrow), checkbox checked-state has no checkmark glyph (currently
+  just a solid-fill accent square, distinguishable but not a true check), and the rebuilt-solid
+  view in `03_rebuilt.png` doesn't visibly show the translucent input mesh or station-plane
+  discs (they're added to the scene per `viewport.py` but occluded/thin at this M2 geometry —
+  worth a deliberate camera angle or slight offset check).
+- Older note, kept for the record:
 - **ROUND 3 (GUI) — G1 done, G2 in progress (iter 79).** `app/` package built (see iter 79 log
   block for full detail): `main_window.py::MainWindow` (Outline/Details/Log docks, central
   `Viewport`, status bar), `worker.py` (QThread-wrapped `AnalyzeWorker`/`RebuildWorker`),

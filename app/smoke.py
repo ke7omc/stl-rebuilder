@@ -49,6 +49,8 @@ def run_smoke(outdir: str) -> int:
     screenshots = []
 
     app = QApplication.instance() or QApplication([])
+    from app.theme import apply_theme
+    apply_theme(app)
     try:
         truth_stl = os.path.join("harness", "truth", "M2.stl")
         if not os.path.exists(truth_stl):
