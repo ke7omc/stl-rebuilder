@@ -1,6 +1,19 @@
 # PROGRESS — lab notebook of the loop (agent-maintained)
 
 ## Notes from Brady (human, driver side) — 2026-08-29 11:45
+
+### 2026-09-04 — ROUND 3 (GUI) STARTED
+- Round 2 is done and pushed. The ladder continues at **G1 → G2 → G3 → HANDOFFv3** (MISSION
+  §6.3 and the rewritten §12). Read both before writing any code.
+- **No packaging, no .exe, ever** — Brady cannot run installers at work. `python -m app` from
+  a fresh clone + pip packages is the deliverable, on macOS and Windows alike. `WORK_SETUP.md`
+  documents the work-machine setup; keep its §6 truthful.
+- GUI deps are already installed in `.venv` (PySide6, pyvista, pyvistaqt, pyqtgraph,
+  qtawesome). Do not install anything else.
+- Test everything offscreen (`QT_QPA_PLATFORM=offscreen`) — there is no display attached.
+- At G3 the loop will stop for a human/Fable review of `out/gui/*.png`; polish feedback will
+  appear right here in this section. That review is the design bar — aim for "professional
+  engineering software" (Ansys-like), not "a Qt form".
 - The iteration-10/11 selftest deaths were **memory, not time**. Every M2 run since the review
   pass (`33e3257`) was SIGKILLed by macOS at ~11.5 min after the fine-tessellation step (RSS
   and 64 GB of swap exhausted). The driver's iter-11 run died at 686 s, well under its 1500 s cap.
