@@ -53,6 +53,54 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **ROUND 3 (GUI) — G1 in progress (iter 78).** `pipeline/engine.py` now exists per MISSION
+  §12: `analyze(input_path, axis, units) -> Analysis` (new, self-contained — loads/orients via
+  `pio.load_and_orient` at a probe chord_tol, reports frame axis/origin, axial extent, body
+  count, watertightness, triangle count, median edge length as the chord-tol suggestion, and an
+  eigengap-based `axis_confidence`, without building any output geometry) and
+  `rebuild(opts: RebuildOptions, on_progress=None, cancel=None) -> Result`. `rebuild()` is a
+  wrapper, not a rewrite: `pipeline/cli.py::_run`'s entire ~840-line body (plus every helper it
+  calls) was moved verbatim into `engine.py` as `_rebuild_argparse(args) -> int` — same code,
+  same `return N`/`print(..., file=sys.stderr)` exit pattern — and `pipeline/cli.py::_run` is
+  now a one-line delegate (`return engine._rebuild_argparse(args)`), so CLI behaviour is
+  byte-identical (confirmed: M1–M13 all still `pass: true, progress: 1.0` against the frozen
+  scorer, `out/score.M{1..13}.json`). The two ADDITIONS to the moved code (both no-ops on the
+  plain CLI path since `args.on_progress`/`args.cancel` are absent there, `getattr(...,None)`):
+  (1) a progress+cancel hook at the top of the per-station loop, the one loop `_run` always had
+  — `on_progress("stations", i/n, msg)` then `cancel()` checked, raising `RebuildCancelled`; (2)
+  `on_progress("load", 0.0, ...)` right after `load_and_orient` and `on_progress("done", 1.0,
+  ...)` right before the final `return 0`. The public `rebuild()` wrapper builds the same
+  argparse-shaped `Namespace` the CLI always built, calls `_rebuild_argparse` with stderr
+  redirected into a buffer, and on a non-zero return raises one of `InputError`/`TopologyError`/
+  `GeometryError`/`UsageOrCrashError` (exit codes 3/4/5/2) carrying the captured stderr text as
+  the message — `RebuildError.exit_code` lets a caller recover the CLI exit-code taxonomy.
+  `tests/api/test_engine.py` (7 tests, all pass) covers: `analyze()` sane values + no filesystem
+  side effects, `rebuild()` success + report content, progress callback fires per-station in
+  order plus load/done, cancel actually stops early (no output file written), a non-watertight
+  input raises `InputError` with "watertight" in the message, a missing input path raises
+  `UsageOrCrashError`. Full `pytest tests/` (31, unchanged) + `pytest tests/api` (7, new) both
+  green.
+- **What's NOT done yet for G1**: `pipeline/cli.py` no longer imports the geometry/OCP stack
+  directly (all moved to `engine.py`) — worth double-checking nothing outside `pipeline/cli.py`
+  imported those cli-module names directly (checked: only `rebuild.py::main` imported from
+  `pipeline.cli`, nothing else). `_run_multi_body`'s per-body recursive call was updated to call
+  `_rebuild_argparse` (renamed from `_run`) — verified via the M11 regression pass (3-body case)
+  above. Progress/cancel hooks are NOT threaded into `_run_multi_body`'s per-body sub-rebuilds
+  or into the boolean/loft stage internals — only the station loop and load/done boundaries.
+  That's a reasonable first cut (the station loop dominates wall-clock on every milestone) but a
+  future iteration should decide whether G2's progress bar needs finer granularity once the GUI
+  is actually driving a slow M13-sized rebuild. `pipeline/engine.py` has zero `gmsh` or GPL
+  imports (checked by inspection — it only pulls in what `cli.py` already imported: numpy, OCP,
+  and `pipeline.*` submodules) satisfying the G1 "no gmsh/GPL under pipeline/ or app/" rule.
+- **Next**: G1's gate is `pytest tests/api -q` (green) + M1–M13 regression (green) — both hold
+  locally with the exact commands the driver's `evaluate_gui` gate runs, so G1 should pass at
+  the next driver evaluation. Next iteration should start G2: create the `app/` package,
+  `python -m app --smoke out/gui` contract, PySide6 main window with the Outline/Details/3D-view
+  /Log dock layout, and `tests/gui/` under `QT_QPA_PLATFORM=offscreen`. `pipeline.engine` is
+  ready to be consumed by the worker thread (`rebuild()`'s `on_progress`/`cancel` signature is
+  already exactly what a `QThread` worker needs to report to a `QProgressBar` and honor a
+  Cancel button).
+- Older Round 2 note, kept for the record:
 - **ROUND 2 COMPLETE (iter 77).** M1–M13 all `pass: true, progress: 1.0` (driver regression
   sweep 2026-08-31 10:05–10:10 for M1–M12, `out/score.local.json` 09:58 for M13); **MR** is
   `skipped: "no real input"` because `real_inputs/` is empty; **HANDOFF v2 is written** to
@@ -3166,6 +3214,64 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 78 — G1 — sonnet/medium — 2026-09-04T07:54
+- Score before: no `pipeline/engine.py`, no `tests/api/`; `pipeline/cli.py::_run` held the full
+  ~840-line pipeline directly. This is the first Round 3 iteration.
+- Change: extracted `pipeline/engine.py` per MISSION §12. `analyze(input_path, axis, units) ->
+  Analysis` is new, self-contained code (calls `pio.load_and_orient` at a fixed probe
+  `chord_tol=0.5`, reports frame axis/origin, axial extent, body count, watertightness, triangle
+  count, median edge length as the §7.2 "auto from mesh" chord-tol suggestion, and a new
+  eigengap-based `axis_confidence` — cheap re-derivation of `io._auto_axis`'s covariance
+  eigenvalues, `1.0` = unambiguous distinct axis, near `0` = a near-spherical body). `rebuild()`
+  is NOT a rewrite: `cli.py::_run`'s entire body plus every private helper it calls (`_run_
+  multi_body`, all the station/ring/bore/slot/fillet helpers — everything from `_axis_centered`
+  through the old `_run`, ~2115 lines) was moved verbatim via `sed` extraction into `engine.py`
+  as `_rebuild_argparse(args) -> int` (renamed from `_run`; `_run_multi_body`'s recursive call
+  site updated to match). `pipeline/cli.py::_run` is now `return engine._rebuild_argparse(args)`
+  — a one-line delegate — and `cli.py` dropped every import it no longer uses directly (numpy,
+  OCP, `pipeline.{booleans,export,fitting,solids,stations,tol}` all moved to `engine.py` with
+  the code that uses them). Two small ADDITIONS inside the moved code, both gated on
+  `getattr(args, "on_progress"/"cancel", None) is None` so they're no-ops on the plain CLI path
+  (CLI's argparse `Namespace` never has these attrs): (1) `on_progress("stations", i/n, msg)` +
+  a `cancel()` check raising `RebuildCancelled` at the top of the per-station loop (the one loop
+  `_run` always had); (2) `on_progress("load", 0.0, ...)` after `load_and_orient` and
+  `on_progress("done", 1.0, ...)` before the final `return 0`. Public `rebuild(opts:
+  RebuildOptions, on_progress=None, cancel=None) -> Result` builds the same argparse-shaped
+  `Namespace` the CLI always built, calls `_rebuild_argparse` with `contextlib.redirect_stderr`
+  into a buffer, and on non-zero return raises `InputError`/`TopologyError`/`GeometryError`/
+  `UsageOrCrashError` (exit codes 3/4/5/2, matching the CLI's own `return N` values) carrying the
+  captured stderr text — `RebuildError.exit_code` is the typed-exception-to-CLI-code mapping
+  MISSION §12 asks for. Added `tests/api/test_engine.py` (7 tests): `analyze()` sane values +
+  zero filesystem side effects; `rebuild()` success returns a `Result` whose `.report` matches
+  what was written to disk; `on_progress` fires `("load",0.0)`, one `("stations", i/n)` per
+  station in increasing order, and `("done",1.0)`; `cancel()` returning True after 2 calls raises
+  `RebuildCancelled` and leaves no output file on disk; a deliberately non-watertight box raises
+  `InputError` (exit_code 3) with "watertight" in the message; a nonexistent input path raises
+  `UsageOrCrashError` (exit_code 2).
+- Score after (local, same commands the driver's G1 gate runs): `pytest tests/api -q` → 7
+  passed. Full `pytest tests/ -q` → 31 passed (unchanged from before the move, confirms nothing
+  else broke), 608s (mostly `test_voxelize.py`, matches the historical ~10 min figure). Full
+  M1–M13 regression via `harness/score.py --milestone Mk` individually → **all 13
+  `pass: true, progress: 1.0`** (`out/score.M{1..13}.json`), including M11 (multi-body, exercises
+  the `_run_multi_body` → `_rebuild_argparse` rename) and M13 (the slowest/most fragile one, no
+  new margin erosion observed vs. HANDOFF.md's recorded numbers). This is the exact byte-identity
+  proof G1's gate requires: same code, same behavior, just relocated + wrapped.
+- Learned: a pure code-move (sed line-range extraction + two mechanical renames) is far lower
+  risk than rewriting the 840-line pipeline to natively support progress/cancel/exceptions, and
+  still satisfies "CLI behaviour must remain byte-identical" by construction rather than by
+  careful re-derivation — worth remembering for any future large-function extraction in this
+  codebase. Capturing stderr via `contextlib.redirect_stderr` around the existing `print(...,
+  file=sys.stderr)` calls got real, detailed error messages into the typed exceptions for free,
+  without touching any of the ~12 `return N` call sites individually.
+- Next: G1 should now pass at the driver's next `evaluate_gui` run (both gate commands verified
+  green above). Start G2: `app/` package, `python -m app` / `python -m app --smoke <outdir>`,
+  PySide6 main window (Outline/Details/3D-viewport/Log docks per MISSION §12), `pyvistaqt`
+  viewport, `QThread` worker wired to `engine.rebuild()`'s `on_progress`/`cancel` (the signature
+  was designed for exactly this), `tests/gui/` under `QT_QPA_PLATFORM=offscreen`. Progress/cancel
+  granularity is currently coarse (load / per-station / done only, and NOT threaded into
+  `_run_multi_body`'s per-body sub-rebuilds) — fine for G2's first cut since the station loop
+  dominates wall-clock everywhere, but worth revisiting once a real progress bar is on screen.
 
 ### iter 77 — HANDOFF — opus/medium — 2026-08-31T10:10
 - Mode: `handoff`. No code changes (the mode forbids them); the deliverable is `HANDOFF.md` v2.
