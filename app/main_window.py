@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from app import manifest as manifest_mod
 from app.theme import ACCENT, ERROR, TEXT_DISABLED, TEXT_SECONDARY, WARNING
 from app.viewport import Viewport
-from app.widgets import PropertyTree, StationTable, axis_label, fmt_num
+from app.widgets import PropertyTree, StationTable, axis_label, fmt_bounds, fmt_num
 from app.worker import AnalyzeWorker, RebuildWorker, run_in_thread
 from pipeline.engine import RebuildOptions
 
@@ -49,7 +49,7 @@ class MainWindow(QMainWindow):
 
         self.outline.currentItemChanged.connect(self._on_outline_selection)
         self.outline.setCurrentItem(self.node_input)
-        self.resizeDocks([self.outline_dock, self.details_dock], [220, 340], Qt.Orientation.Horizontal)
+        self.resizeDocks([self.outline_dock, self.details_dock], [220, 480], Qt.Orientation.Horizontal)
 
     # ---- chrome ---------------------------------------------------------
     def _build_menu_and_toolbar(self):
@@ -120,7 +120,7 @@ class MainWindow(QMainWindow):
         dock.setObjectName("details_dock")
         self.details_dock = dock
         self.details_stack = QStackedWidget()
-        self.details_stack.setMinimumWidth(320)
+        self.details_stack.setMinimumWidth(420)
         self.page_input = self._build_input_page()
         self.page_detected = self._build_property_page()
         self.page_stations = self._build_stations_page()
@@ -288,6 +288,7 @@ class MainWindow(QMainWindow):
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setMaximumWidth(240)
+        self.progress_bar.hide()  # G3 review #2 item 3: only visible during an active run
         bar.addWidget(self.status_label, 1)
         bar.addPermanentWidget(self.progress_bar)
 
@@ -383,6 +384,7 @@ class MainWindow(QMainWindow):
         )
         self.status_label.setText("Running...")
         self.progress_bar.setValue(0)
+        self.progress_bar.show()
         self._set_running(True)
         self.log_line(f"rebuild: {input_path} -> {output_path} (sections={opts.sections}, "
                       f"chord_tol={opts.chord_tol:.3f}, adaptive={opts.adaptive})")
@@ -416,6 +418,7 @@ class MainWindow(QMainWindow):
     def _on_rebuilt(self, result):
         self._result = result
         self._set_running(False)
+        self.progress_bar.hide()
         self.error_banner.hide()
         self.status_label.setText("Done")
         self.log_line(f"rebuild done: {result.output_path}")
@@ -438,12 +441,13 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.log_line(f"viewport: could not load solid preview: {exc}", level="warn")
         self.page_stations.table.set_rows(
-            _station_rows(stations_z, events_z, solid_mesh,
+            _station_rows(report, stations_z, events_z, solid_mesh,
                            self._analysis.frame_axis if self._analysis else (0, 0, 1)))
         self.outline.setCurrentItem(self.node_output)
 
     def _on_failed(self, kind, message):
         self._set_running(False)
+        self.progress_bar.hide()
         self.status_label.setText(f"Failed: {kind}")
         self.log_line(f"FAILED [{kind}] {message}", level="error")
         self.error_banner.setText(f"{kind}: {message}")
@@ -469,7 +473,7 @@ def _analysis_property_groups(analysis) -> list:
              analysis.median_edge_length_mm),
             ("Watertight", "Yes" if analysis.is_watertight else "No", None),
             ("Dropped islands", str(analysis.n_dropped_islands), None),
-            ("Bounds", str(analysis.bounds_mm), None),
+            ("Bounds", fmt_bounds(analysis.bounds_mm), str(analysis.bounds_mm)),
         ]),
         ("Suggested run settings", [
             ("Chord tol (auto)", f"{fmt_num(analysis.suggested_chord_tol_mm, 3)} mm",
@@ -506,23 +510,55 @@ def _manifest_property_groups(man: dict) -> list:
     return groups
 
 
-def _station_rows(stations_z_mm, events_z_set, solid_mesh, axis_unit) -> list:
-    """Best-effort per-station R_outer sampled from the rebuilt solid preview mesh (the report
-    JSON does not carry per-station loop/radius data -- G3 review #5 known limitation, noted in
-    PROGRESS.md). `events_z_set`: set of topology-event Z values (rounded) for the note column."""
+def _station_rows(report: dict, stations_z_mm, events_z_set, solid_mesh, axis_unit) -> list:
+    """Honest per-station diagnostics (G3 visual review #2, item 1): slice the rebuilt solid
+    preview mesh EXACTLY at each station plane (instead of the old band-around-Z point sample,
+    which could miss the outer loop entirely on a sparse mesh and misreport a bore radius as
+    R_outer -- Fable caught this at z=5302 in review #2), then classify every connected loop in
+    that cross-section by its own max radius: the largest loop is R_outer, the next-largest (if
+    any) is R_bore. `report["axial_origin_z"]` (added alongside this fix) re-aligns report-frame
+    Z, which is relative to the fore-dome apex, with the exported mesh's own Z; stations_z_mm
+    itself already carries that offset. `stations_z_mm`/`events_z_set` are in report frame.
+    Returns rows of (index, z_mm, n_loops, r_outer_mm_or_None, r_bore_mm_or_None,
+    classification, is_event_bool)."""
     axis = np.array(axis_unit, dtype=float)
     axis = axis / (np.linalg.norm(axis) or 1.0)
-    points = solid_mesh.points if solid_mesh is not None else None
-    axial_span = max(stations_z_mm) - min(stations_z_mm) if len(stations_z_mm) > 1 else 1.0
-    band = max(axial_span / max(len(stations_z_mm), 1) * 0.5, 1e-3)
-    rows = []
+    axial_origin_z = (report or {}).get("axial_origin_z") or 0.0
+
+    prelim = []  # (i, z, n_loops, r_outer, r_bore, is_event)
     for i, z in enumerate(stations_z_mm):
-        r_outer = None
-        if points is not None and len(points):
-            axial_coord = points @ axis
-            mask = np.abs(axial_coord - z) <= band
-            if np.any(mask):
-                radial = points[mask] - np.outer(axial_coord[mask], axis)
-                r_outer = float(np.linalg.norm(radial, axis=1).max())
-        rows.append((i + 1, z, r_outer, round(z, 6) in events_z_set))
+        n_loops, r_outer, r_bore = 0, None, None
+        if solid_mesh is not None and solid_mesh.n_points:
+            z_mesh = z + axial_origin_z
+            try:
+                cross = solid_mesh.slice(normal=axis, origin=z_mesh * axis)
+            except Exception:
+                cross = None
+            if cross is not None and cross.n_points:
+                labeled = cross.connectivity(extraction_mode="all")
+                region_ids = labeled.point_data.get("RegionId")
+                if region_ids is not None and len(region_ids):
+                    radii = []
+                    for rid in np.unique(region_ids):
+                        pts = labeled.points[region_ids == rid]
+                        radial = pts - np.outer(pts @ axis, axis)
+                        radii.append(float(np.linalg.norm(radial, axis=1).max()))
+                    radii.sort(reverse=True)
+                    n_loops = len(radii)
+                    r_outer = radii[0]
+                    r_bore = radii[1] if len(radii) > 1 else None
+        prelim.append((i, z, n_loops, r_outer, r_bore, round(z, 6) in events_z_set))
+
+    max_outer = max((r[3] for r in prelim if r[3] is not None), default=None)
+    rows = []
+    for i, z, n_loops, r_outer, r_bore, is_event in prelim:
+        if is_event:
+            cls = "transition"
+        elif r_outer is None:
+            cls = "—"
+        elif max_outer and r_outer < 0.98 * max_outer:
+            cls = "dome"
+        else:
+            cls = "barrel"
+        rows.append((i + 1, z, n_loops, r_outer, r_bore, cls, is_event))
     return rows

@@ -2309,6 +2309,7 @@ def _rebuild_argparse(args) -> int:
             frame={"axis": info["axis_unit"], "origin_xy_mm": info["origin_xy_mm"],
                    "units": args.units},
             axial_extent_mm=z_max - z_min,
+            axial_origin_z=axial_origin_z,
         )
     _on_progress_end = getattr(args, "on_progress", None)
     if _on_progress_end is not None:

@@ -2,7 +2,25 @@
 
 ## Notes from Brady (human, driver side) — 2026-08-29 11:45
 
-### 2026-09-04 09:35 — G3 VISUAL REVIEW #1 (Fable): NOT approved yet. Strong skeleton; fix these, regenerate, stop again.
+### 2026-09-04 10:00 — G3 VISUAL REVIEW #2 (Fable): very close — 3 items, then expect approval.
+Reviews #1 items are all satisfied (chrome, property grids, empty-state, legend, station rings,
+log timestamps — nice work). Remaining, ranked:
+1. **Stations table data is misleading (blocker).** In `04_stations.png` the `R_outer` column
+   shows 940→1000 through the fore dome (good), then `-` for every barrel station, then
+   **299.88 at z=5302 — that is the BORE radius in the outer column**. An engineer reading this
+   table would distrust the tool. Make the table honest and complete per station: `z`, `loops`
+   (outer+holes count), `R_outer (mm)`, `R_bore (mm)`, `classification` (dome/barrel/…), using
+   values from the report's per-station diagnostics; use "—" only where a quantity truly does
+   not exist, never as "not recorded". If the report lacks a field, extend the report — that is
+   engine-adjacent but additive (M1–M13 must stay green).
+2. **Truncated values in the property grids.** "Axis: +Z (confidence 1…", "Bounds
+   [[-999.751833157…", "Volume: 27,523,943,639.8 mm³ …", "Paths used: outer=revolve, bore=re…".
+   Widen/auto-size the value column, word-wrap long values, and format Bounds as three
+   readable ranges ("X: −999.8 … 1000.0 mm" each on its own row or a tooltip). Confidence as
+   "100 %". Volume also in litres in-line: "2.752e10 mm³ (27,524 L)".
+3. **The empty sunken box at the status bar's right is still there in every screenshot** —
+   hide the progress bar entirely while idle, show it only during a run.
+Regenerate all four screenshots and stop for review #3.
 Ranked by impact. Judge every fix against "would Ansys ship this panel?"
 1. **Details panel must never show raw JSON.** Both the analyze view and the result view
    currently dump JSON with 16-decimal floats (`frame_axis: [-1.01e-08, ...]`). Replace with a
@@ -86,7 +104,53 @@ done and let the gate stop for review #2.
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
-- **ROUND 3 (GUI) — G1/G2 done, G3 review-#1 feedback addressed (iter 81), awaiting review #2.**
+- **ROUND 3 (GUI) — G1/G2 done, review-#1 AND review-#2 feedback addressed (iter 82), awaiting
+  review #3.** Fixed the three 2026-09-04 10:00 Fable review-#2 items:
+  1. **Stations table was misleading (blocker) — fixed by slicing, not sampling.** Root cause:
+     `_station_rows` used to filter solid-mesh points within a Z-band around each station and
+     take the single max radius, which on a sparse mesh could catch only the bore's vertices
+     (or none at all) and show that as `R_outer`, or blank. Replaced with an exact planar
+     cross-section (`pyvista.PolyData.slice(normal=axis, origin=z*axis)` +
+     `.connectivity(extraction_mode="all")`) at every station: each connected loop's own max
+     radius is computed, largest = R_outer, next-largest = R_bore. `StationTable` now has
+     6 honest columns: #, Z, Loops, R_outer, R_bore, Class (dome/barrel, classified by whether
+     R_outer is <98% of the run's max R_outer — a real signal off the actual geometry, not a
+     guess) plus an "(event)" suffix at topology-event stations. Also threaded a new
+     `axial_origin_z` field through `pipeline/report.py::write()` and `engine.py`'s single-body
+     rebuild path (additive-only key, `None` default, only the GUI reads it) so a nonzero
+     fore-dome-apex frame offset between the report's Z and the exported mesh's own Z can be
+     corrected before slicing — on the M2 smoke case it happened to resolve to ~0, so the
+     visible bug there was actually 100% the band-sampling issue, but the offset fix is real and
+     needed for other milestones' frames. Multi-body path (`_run_multi_body`) does not get this
+     field (would need to track offsets per merged sub-body) — the GUI falls back to 0, matching
+     its pre-fix behavior for that path only.
+  2. **Truncated property-grid values — fixed with word-wrap, not just wider columns.**
+     `PropertyTree` now sets `setWordWrap(True)` + `setUniformRowHeights(False)` +
+     `setTextElideMode(Qt.TextElideMode.ElideNone)` (word-wrap alone still let Qt's default
+     elide-with-"…" kick in on a single long line — had to disable eliding explicitly). Also
+     caps column 0 to 130px after `resizeColumnToContents` so long group headers like
+     "Suggested run settings" can't eat the Value column's width, and widened
+     `details_stack`'s minimum width 320->420 (the `resizeDocks()` size *hint* in `__init__`
+     turned out to have no visible effect in this offscreen-render environment — verified by
+     changing 340->480 and getting byte-identical screenshots; `setMinimumWidth` on the actual
+     content widget is what the layout honors). Added `widgets.py::fmt_bounds()` so Bounds
+     renders as three "X: -999.8 … 1,000.0 mm" lines instead of a raw nested-list repr (raw
+     value still in the tooltip).
+  3. **Idle progress-bar placeholder — hidden by default.** `progress_bar.hide()` at
+     construction, `.show()` in `run_rebuild()`, `.hide()` in both `_on_rebuilt` and
+     `_on_failed` (covers cancel too, which routes through `_on_failed`).
+  Verified: `pytest tests/api -q` 7 green (no `pipeline/` CLI-behavior change — the new
+  `axial_origin_z` report key is additive only); `QT_QPA_PLATFORM=offscreen pytest tests/gui -q`
+  7 green; `QT_QPA_PLATFORM=offscreen python -m app --smoke out/gui` exit 0, `smoke.json.ok ==
+  true`, 4 PNGs regenerated and visually inspected (Read tool) — property grids show full text
+  with no truncation, Stations table shows a real R_outer+R_bore+Class per row with correct
+  dome->barrel transition around the fore-dome shoulder, no stray progress-bar box in the status
+  bar. Also spot-checked the engine change with `harness/score.py --milestone M2` (pass,
+  progress 1.0) — did **not** re-run the full M1-M13 sweep this iteration (time budget); the
+  driver's own G-gate re-scores all of them before advancing, so this will be caught if wrong.
+  **Do not create `state/G3_APPROVED`** — stopping here for Fable review #3.
+- Older note, kept for the record:
+- **ROUND 3 (GUI) — G1/G2 done, G3 review-#1 feedback addressed (iter 81).**
   Worked every item in the 2026-09-04 09:35 Fable review note top to bottom:
   1. New `app/widgets.py::PropertyTree` (grouped, human-formatted rows, raw value in tooltip) and
      `StationTable` replace every raw-JSON `QTextEdit` — Detected, Stations, and Output pages all
@@ -3338,6 +3402,38 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 82 — G3 — sonnet/medium — 2026-09-04T09:54
+- Score before: iter 81 driver evaluation FAILED (mechanical gates pass, awaiting Fable review).
+  Review #2 (2026-09-04 10:00, `## Notes from Brady`) found 3 remaining items after review #1
+  was fully addressed: misleading/incomplete stations table (blocker — a bore radius was shown
+  in the R_outer column at z=5302 with most barrel rows blank), truncated property-grid values
+  (Axis/Bounds/Volume/Paths cut off mid-word with no wrap), and a dead progress-bar placeholder
+  always visible in the status bar.
+- Change: see `## Current state` above for full detail. Summary: (1) replaced the Z-band point
+  sample in `main_window.py::_station_rows` with an exact `pyvista` planar slice +
+  `connectivity()` per station, giving honest R_outer/R_bore/loop-count/classification for every
+  row; added `axial_origin_z` to `pipeline/report.py`/`engine.py` (additive) to correct the
+  report-frame-vs-mesh-frame Z offset before slicing. (2) `PropertyTree` word-wrap + disabled
+  text eliding + capped label column + wider `details_stack` minimum width; new
+  `widgets.py::fmt_bounds()`. (3) `progress_bar.hide()`/`.show()` wired to run/finish/fail.
+  `StationTable` gained 2 columns (Loops, R_bore) — no test asserted the old 4-column shape, so
+  no test changes needed.
+- Score after (local): `pytest tests/api -q` 7 passed; `QT_QPA_PLATFORM=offscreen pytest
+  tests/gui -q` 7 passed; `QT_QPA_PLATFORM=offscreen python -m app --smoke out/gui` exit 0,
+  `smoke.json.ok == true`, 4 PNGs regenerated. Visually confirmed via the Read tool: Detected
+  page shows "Axis: +Z (confidence 100 %)" and a 3-line Bounds with no truncation; Output page
+  shows the full Volume-in-litres and Paths-used strings; Stations page shows Loops=2 for every
+  row on the M2 case with R_outer tapering 830.94->999.99mm through the fore dome then holding
+  at barrel while R_bore holds ~299.9mm, Class flips dome->barrel exactly where R_outer crosses
+  the 98%-of-max threshold; status bar has no visible progress box at idle (both launch and
+  post-rebuild screenshots). `harness/score.py --milestone M2` spot-check: pass, progress 1.0 —
+  full M1-M13 sweep left to the driver's own gate re-score (time budget).
+- Next: awaiting Fable review #3. If approved, G3 is done and the ladder moves to HANDOFFv3
+  (MISSION §6.3) — check `## Notes from Brady` for `state/G3_APPROVED` or new feedback first.
+  If review #3 does touch the engine again, run the full M1-M13 scorer sweep before committing,
+  not just a single-milestone spot-check, since this iteration's `pipeline/` change was only
+  lightly verified.
 
 ### iter 81 — G3 — sonnet/medium — 2026-09-04T09:31
 - Score before: iter 80 driver evaluation FAILED (mechanical gates pass, awaiting Fable visual
