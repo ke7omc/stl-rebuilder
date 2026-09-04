@@ -101,3 +101,50 @@ class StationTable(QTreeWidget):
                     item.setForeground(col, QColor(WARNING))
                 item.setToolTip(5, "Cross-section topology changes at this station")
             self.addTopLevelItem(item)
+
+
+# ---- BusySpinner (added 2026-09-04, Brady's request) --------------------------------------
+from PySide6.QtCore import QTimer as _QTimer, Qt as _Qt
+from PySide6.QtGui import QColor as _QColor, QPainter as _QPainter, QPen as _QPen
+from PySide6.QtWidgets import QWidget as _QWidget
+
+from app.theme import ACCENT as _ACCENT
+
+
+class BusySpinner(_QWidget):
+    """Small continuously rotating arc shown while a worker thread is active. Deliberately
+    independent of the determinate progress bar: it animates on its own QTimer on the UI
+    thread, so it keeps moving (proving the app is alive and working) even when engine
+    progress events are sparse -- e.g. the long solid-build stage on M13-sized meshes."""
+
+    def __init__(self, parent=None, diameter: int = 16):
+        super().__init__(parent)
+        self._angle = 0
+        self._diameter = diameter
+        self.setFixedSize(diameter + 6, diameter + 6)
+        self._timer = _QTimer(self)
+        self._timer.setInterval(50)
+        self._timer.timeout.connect(self._tick)
+        self.hide()
+
+    def _tick(self):
+        self._angle = (self._angle + 12) % 360
+        self.update()
+
+    def start(self):
+        self.show()
+        self._timer.start()
+
+    def stop(self):
+        self._timer.stop()
+        self.hide()
+
+    def paintEvent(self, _event):
+        p = _QPainter(self)
+        p.setRenderHint(_QPainter.RenderHint.Antialiasing)
+        pen = _QPen(_QColor(_ACCENT), 2.4)
+        pen.setCapStyle(_Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        rect = self.rect().adjusted(3, 3, -3, -3)
+        p.drawArc(rect, -self._angle * 16, 100 * 16)
+        p.end()

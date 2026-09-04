@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from app import manifest as manifest_mod
 from app.theme import ACCENT, ERROR, TEXT_DISABLED, TEXT_SECONDARY, WARNING
 from app.viewport import Viewport
-from app.widgets import PropertyTree, StationTable, axis_label, fmt_bounds, fmt_num
+from app.widgets import BusySpinner, PropertyTree, StationTable, axis_label, fmt_bounds, fmt_num
 from app.worker import AnalyzeWorker, RebuildWorker, run_in_thread
 from pipeline.engine import RebuildOptions
 
@@ -64,6 +64,25 @@ class MainWindow(QMainWindow):
         file_menu.addAction(open_action)
         file_menu.addSeparator()
         file_menu.addAction(quit_action)
+
+        view_menu = menubar.addMenu("&View")
+        self._layer_actions = {}
+        for key, label in (("input", "Input mesh"), ("solid", "Rebuilt solid"),
+                           ("stations", "Station rings"), ("events", "Topology events"),
+                           ("axis", "Axis line")):
+            act = QAction(label, self)
+            act.setCheckable(True)
+            act.setChecked(True)
+            act.toggled.connect(lambda on, k=key: self.viewport.set_layer_visible(k, on))
+            view_menu.addAction(act)
+            self._layer_actions[key] = act
+        view_menu.addSeparator()
+        self.swap_action = QAction("Swap input ↔ rebuilt", self)
+        self.swap_action.setCheckable(True)
+        self.swap_action.setShortcut("B")
+        self.swap_action.setToolTip("A/B compare: show the input mesh near-opaque, hide the rebuilt solid")
+        self.swap_action.toggled.connect(self.viewport.set_swap)
+        view_menu.addAction(self.swap_action)
 
         help_menu = menubar.addMenu("&Help")
         about_action = QAction("&About stl-rebuilder", self)
@@ -289,8 +308,10 @@ class MainWindow(QMainWindow):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setMaximumWidth(240)
         self.progress_bar.hide()  # G3 review #2 item 3: only visible during an active run
+        self.spinner = BusySpinner()
         bar.addWidget(self.status_label, 1)
         bar.addPermanentWidget(self.progress_bar)
+        bar.addPermanentWidget(self.spinner)
 
     # ---- outline selection ----------------------------------------------
     def _on_outline_selection(self, current, _previous):
@@ -342,6 +363,7 @@ class MainWindow(QMainWindow):
         axis = self.axis_combo.currentText()
         units = self.units_combo.currentText()
         self.status_label.setText("Analyzing...")
+        self.spinner.start()
         self.log_line(f"analyze: {input_path} (axis={axis}, units={units})")
         worker = AnalyzeWorker(input_path, axis, units)
         worker.finished.connect(self._on_analyzed)
@@ -352,6 +374,7 @@ class MainWindow(QMainWindow):
 
     def _on_analyzed(self, analysis):
         self._analysis = analysis
+        self.spinner.stop()
         self.status_label.setText("Analyzed")
         self.log_line(f"analyze done: axis={analysis.frame_axis}, extent={analysis.axial_extent_mm:.2f}mm, "
                       f"bodies={analysis.body_count}, watertight={analysis.is_watertight}")
@@ -385,6 +408,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Running...")
         self.progress_bar.setValue(0)
         self.progress_bar.show()
+        self.spinner.start()
         self._set_running(True)
         self.log_line(f"rebuild: {input_path} -> {output_path} (sections={opts.sections}, "
                       f"chord_tol={opts.chord_tol:.3f}, adaptive={opts.adaptive})")
@@ -419,6 +443,7 @@ class MainWindow(QMainWindow):
         self._result = result
         self._set_running(False)
         self.progress_bar.hide()
+        self.spinner.stop()
         self.error_banner.hide()
         self.status_label.setText("Done")
         self.log_line(f"rebuild done: {result.output_path}")
@@ -448,6 +473,7 @@ class MainWindow(QMainWindow):
     def _on_failed(self, kind, message):
         self._set_running(False)
         self.progress_bar.hide()
+        self.spinner.stop()
         self.status_label.setText(f"Failed: {kind}")
         self.log_line(f"FAILED [{kind}] {message}", level="error")
         self.error_banner.setText(f"{kind}: {message}")
