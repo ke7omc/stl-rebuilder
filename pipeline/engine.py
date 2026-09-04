@@ -9,6 +9,7 @@ verbatim from `pipeline/cli.py::_run`) so CLI behaviour is byte-identical to bef
 import argparse
 import contextlib
 import io
+import json
 import math
 import os
 import sys
@@ -77,7 +78,9 @@ class Analysis:
     is_watertight: bool
     triangle_count: int
     median_edge_length_mm: float
-    suggested_chord_tol_mm: float  # == median_edge_length_mm; the §7.2 "auto from mesh" value
+    suggested_chord_tol_mm: float  # chordal-sag estimate (see _estimate_chord_tol); the §7.2
+                                   # "auto from mesh" value (was median edge length, which
+                                   # wildly overestimates on clean CAD tessellations)
     axis_confidence: float    # 0..1, relative separation of the auto-axis eigenvalue gap
     units: str
     n_dropped_islands: int
@@ -112,6 +115,60 @@ def _auto_axis_confidence(mesh) -> float:
     return float(min(1.0, max(gaps) / spread))
 
 
+def _estimate_chord_tol(mesh) -> float:
+    """Chordal-sag-based chord-tol estimate (the GUI's "auto from mesh" suggestion, and the
+    value quoted in coarse-chord-tol failure hints). Returns 0.0 when no estimate is possible.
+
+    The old suggestion was the median edge length, which wildly overestimates for clean
+    CAD-tessellated meshes: M8's median edge is 26.7 mm while its true chordal sag is ~0.5 mm,
+    and running at chord-tol 26.7 puts the boolean fuzzy value at real-feature scale (the
+    adaptive + coarse-ct failure regime this estimator exists to avoid suggesting).
+
+    Per adjacent-face pair the chordal sag of the tessellation is ~ extent x dihedral / 8
+    (exact for equal chords on a circle: dihedral = L/R, sag = L^2/8R). Two regimes, split by
+    how the dihedral angle is *distributed* (measured across every harness truth mesh):
+
+    - Clean CAD tessellation (p75 of dihedral < 0.08 rad — most facet pairs near-coplanar,
+      angle concentrated in a few real feature edges): use the extent ACROSS the shared edge
+      (2*(A1+A2)/|e|) — long skinny wall triangles otherwise multiply a tiny azimuthal angle by
+      a huge diagonal length (M1: 204 mm "sag" on a mesh whose true sag is <1 mm) — and EXCLUDE
+      real creases (dihedral > 0.5 rad ~ 29 deg): a 90-degree rim edge is a feature, not sag
+      (M1/M3's coarse prismatic meshes are 1/3 crease pairs; without the exclusion those pairs'
+      giant end-cap faces blow the across-edge extent up to metres). The across-edge extent is
+      deliberately NOT capped by the edge's own length: on dome-tessellated meshes (M2) the
+      larger extent is the honest chord, and the headroom it buys is needed in practice — the
+      GUI smoke rebuild of M2 at the capped estimate (0.32) failed its dome-adjacent station's
+      circle fit (resid 0.52 vs gate 1.5*ct), while the uncapped estimate (0.60) clears it.
+    - Scan/marching-cubes mesh (p75 of dihedral >= 0.08 rad — the surface bends at EVERY edge):
+      the big-dihedral pairs ARE the fidelity signal, not creases to exclude, and the edge's own
+      length is the right extent; use edge_length x dihedral / 8 over all pairs.
+
+    2x the p95 of that sag distribution, measured against the meshes the milestones validated:
+    M8 (clean, milestone ct 0.5) -> 0.94; M2 (clean domes, milestone ct 0.5) -> 0.60;
+    M9 (marching cubes, milestone ct 5) -> 4.93; M13 (marching cubes + noise, milestone ct 8)
+    -> 2.09; M1/M3 (very coarse prismatic, milestone ct 0.5) -> ~1.0; M10 (M8 scaled 1/40,
+    milestone ct 0.0125) -> 0.024."""
+    try:
+        ang = np.asarray(mesh.face_adjacency_angles, dtype=float)
+        if len(ang) == 0:
+            return 0.0
+        e0 = mesh.face_adjacency_edges[:, 0]
+        e1 = mesh.face_adjacency_edges[:, 1]
+        el = np.linalg.norm(mesh.vertices[e0] - mesh.vertices[e1], axis=1)
+        if float(np.percentile(ang, 75)) >= 0.08:  # scan-like: bends at every edge
+            sag = el * ang / 8.0
+        else:  # clean CAD tessellation
+            fa = mesh.area_faces[mesh.face_adjacency]
+            span = 2.0 * fa.sum(axis=1) / np.maximum(el, 1e-12)
+            keep = ang < 0.5
+            if not np.any(keep):
+                return 0.0
+            sag = span[keep] * ang[keep] / 8.0
+        return 2.0 * float(np.percentile(sag, 95))
+    except Exception:
+        return 0.0
+
+
 def analyze(input_path: str, axis: str = "auto", units: Optional[str] = None) -> Analysis:
     """Load and repair `input_path`, detect its frame, and report size/quality metrics —
     WITHOUT building any output geometry. MISSION.md §12 (G1)."""
@@ -121,6 +178,8 @@ def analyze(input_path: str, axis: str = "auto", units: Optional[str] = None) ->
     z_min, z_max = float(mesh.bounds[0][2]), float(mesh.bounds[1][2])
     edge_lengths = mesh.edges_unique_length
     median_edge = float(np.median(edge_lengths)) if len(edge_lengths) else 0.0
+    est = _estimate_chord_tol(mesh)
+    suggested = max(est if est > 0.0 else median_edge, 1e-3)
     return Analysis(
         frame_axis=list(info["axis_unit"]),
         origin_xy_mm=list(info["origin_xy_mm"]),
@@ -129,7 +188,7 @@ def analyze(input_path: str, axis: str = "auto", units: Optional[str] = None) ->
         is_watertight=info["is_watertight"],
         triangle_count=int(len(mesh.faces)),
         median_edge_length_mm=median_edge,
-        suggested_chord_tol_mm=median_edge,
+        suggested_chord_tol_mm=suggested,
         axis_confidence=_auto_axis_confidence(mesh),
         units=units_arg,
         n_dropped_islands=info["n_dropped_islands"],
@@ -1463,7 +1522,80 @@ def _load_report(path: str):
         return None
 
 
+class _StderrTee(io.TextIOBase):
+    """Duplicates stderr writes into a capture buffer while still forwarding them, so the
+    failure-report wrapper can record the pipeline's own printed failure reason without
+    changing what the CLI (or `rebuild()`'s stderr redirect) sees."""
+
+    def __init__(self, passthrough):
+        self.passthrough = passthrough
+        self.captured = io.StringIO()
+
+    def write(self, s):
+        self.captured.write(s)
+        return self.passthrough.write(s)
+
+    def flush(self):
+        self.passthrough.flush()
+
+
+def _write_failure_report(path: str, partial: dict, error: str, exit_code: int) -> None:
+    """Best-effort failure report (MISSION §5.2 step 8 / §7.2, score.py REPORT_KEYS_V2): status,
+    exit_code, error, stage_reached, plus whatever partial stations were sliced before the
+    failure. Must never raise — a broken report write must not mask the original failure."""
+    payload = {
+        "status": "failed",
+        "exit_code": int(exit_code),
+        "error": str(error),
+        "stage_reached": partial.get("stage_reached", "load"),
+        "n_stations": len(partial.get("stations_z_mm", [])),
+        "stations_z_mm": [float(z) for z in partial.get("stations_z_mm", [])],
+        "paths_used": {},
+        "topology_events_z_mm": [],
+        "warnings": [],
+    }
+    for key in ("frame", "axial_extent_mm"):
+        if key in partial:
+            payload[key] = partial[key]
+    try:
+        with open(path, "w") as f:
+            json.dump(payload, f, indent=2)
+    except Exception:
+        pass
+
+
 def _rebuild_argparse(args) -> int:
+    """Report-on-failure wrapper around `_rebuild_impl` (MISSION §5.2 step 8 / §7.2): when
+    `--report` is requested the JSON must exist on EVERY exit path — success, clean typed
+    failure (nonzero return code) and unexpected exception alike — so a crashed run still
+    explains itself to the GUI/scorer. The success path writes the full report inside
+    `_rebuild_impl` exactly as before, so exit-0 behaviour is byte-identical; this wrapper only
+    adds the failure-path write (and captures the impl's own printed stderr reason for the
+    report's `error` field). A user cancel (`RebuildCancelled`) is not a failure and writes
+    nothing."""
+    if not getattr(args, "report", None):
+        return _rebuild_impl(args)
+    partial = {"stage_reached": "load", "stations_z_mm": []}
+    args._partial = partial
+    tee = _StderrTee(sys.stderr)
+    try:
+        with contextlib.redirect_stderr(tee):
+            code = _rebuild_impl(args)
+    except RebuildCancelled:
+        raise
+    except Exception as exc:
+        _write_failure_report(args.report, partial,
+                              error=f"{type(exc).__name__}: {exc}", exit_code=2)
+        raise
+    if code != 0:
+        lines = [ln for ln in tee.captured.getvalue().splitlines() if ln.strip()]
+        _write_failure_report(args.report, partial,
+                              error=(lines[-1] if lines else f"failed with exit code {code}"),
+                              exit_code=code)
+    return code
+
+
+def _rebuild_impl(args) -> int:
     chord_tol = args.chord_tol
     _on_progress0 = getattr(args, "on_progress", None)
     if _on_progress0 is not None:
@@ -1479,6 +1611,12 @@ def _rebuild_argparse(args) -> int:
 
     z_min, z_max = float(mesh.bounds[0][2]), float(mesh.bounds[1][2])
     L = z_max - z_min
+    _partial = getattr(args, "_partial", None)  # failure-report progress (set by the wrapper)
+    if _partial is not None:
+        _partial["stage_reached"] = "stations"
+        _partial["frame"] = {"axis": info["axis_unit"], "origin_xy_mm": info["origin_xy_mm"],
+                             "units": args.units}
+        _partial["axial_extent_mm"] = z_max - z_min
     eps_end_val = tol.eps_end(chord_tol, L)
     eps_cut_val = tol.eps_cut(chord_tol)
 
@@ -1508,6 +1646,8 @@ def _rebuild_argparse(args) -> int:
                      # obround slots), any z -- R is the (possibly poor) Kasa-fit radius, kept
                      # only as a rough size estimate, not used for shape reconstruction
     all_zz = []      # every station z actually sliced, in order (for chain-edge neighbor lookup)
+    if _partial is not None:
+        _partial["stations_z_mm"] = all_zz  # same list object: grows as stations are sliced
     _dbg_stations = []
     _dbg_on = bool(__import__("os").environ.get("REBUILD_DEBUG_M13"))
     _on_progress = getattr(args, "on_progress", None)
@@ -1599,6 +1739,9 @@ def _rebuild_argparse(args) -> int:
         for _r in _dbg_stations:
             print("DEBUG_M13 st %9.2f %8.2f %2d %d %d %d %d" % _r, file=sys.stderr)
 
+    if _partial is not None:
+        _partial["stage_reached"] = "solids"
+
     # Group satellite samples into chains by nearest-center match to the previous station's
     # live chains — satellites are straight (M7), so a true match is ~0 mm apart while distinct
     # satellites are a full inter-hole spacing apart (no ambiguity at the 2x-radius threshold).
@@ -1642,6 +1785,13 @@ def _rebuild_argparse(args) -> int:
             z_hi = z_max + eps_cut_val
         else:
             z_hi = _bisect_hole_edge(mesh, z_last, all_zz[i_last + 1], chord_tol, cx0, cy0, R0)
+        if z_hi - z_lo < tol.sat_min_span(chord_tol):
+            # Sub-tolerance flicker window (see tol.sat_min_span): a cutter thinner than the
+            # boolean fuzzy regime it must survive breaks BRepAlgoAPI_Cut (observed on M8 at
+            # chord_tol 26.675 + --adaptive, where dense stations inside the slot end-fillet
+            # band produced 6.5-18 mm cylinder slivers "circular" only at that coarse resid
+            # gate). The merged bore/slot path covers this z range already; skip it.
+            continue
         sat_cutters.append((solids.build_cylinder_solid(cx0, cy0, z_lo, z_hi, R0), z_lo, z_hi))
 
     # Off-axis NON-circular satellite SLOT chains (M8's obround perforations): group by raw-point
@@ -1732,6 +1882,11 @@ def _rebuild_argparse(args) -> int:
         else:
             z_hi = _bisect_ring_edge(mesh, z_last, all_zz[i_last + 1], chord_tol, cx0, cy0,
                                       match_dist)
+        if z_hi - z_lo < tol.sat_min_span(chord_tol):
+            # Same sub-tolerance flicker guard as the circular satellite chains above
+            # (tol.sat_min_span): a prism sliver thinner than the boolean fuzzy regime breaks
+            # or corrupts the cut, and the merged-ring path already covers this z range.
+            continue
         sat_cutters.append((solids.build_prism_solid(rep_hole.tolist(), z_lo, z_hi), z_lo, z_hi))
 
     # The circular-bore run between the slot zone's axial end and the part's own end can be
@@ -2250,22 +2405,37 @@ def _rebuild_argparse(args) -> int:
                           f"{_pb2[5]:.1f}] volume={_pop.Mass():.1f} -> "
                           f"common(outer, probe)={_pcmp.Mass():.1f}", file=sys.stderr)
 
-    shape = booleans.cut(outer_solid, bore_solid, tol.fuzzy(chord_tol))
-    # Slot lobes of a decomposed merged bore+slot cavity: each overlaps the already-cut bore
-    # deeply and transversally, so independent sequential cuts are robust (same argument as the
-    # M7 satellites below).
-    for lobe in lobe_cutters:
-        shape = booleans.cut(shape, lobe, tol.fuzzy(chord_tol))
-    # Satellite perforations (M7) are geometrically disjoint from the main bore and from each
-    # other, so a sequence of independent cuts gives the same result as fusing them first and
-    # is simpler/more robust than a multi-solid fuse of disjoint cutters.
-    sat_events_raw = []
-    for sat_solid, z_lo, z_hi in sat_cutters:
-        shape = booleans.cut(shape, sat_solid, tol.fuzzy(chord_tol))
-        if z_lo > z_min + eps_cut_val:
-            sat_events_raw.append(z_lo)
-        if z_hi < z_max - eps_cut_val:
-            sat_events_raw.append(z_hi)
+    try:
+        shape = booleans.cut(outer_solid, bore_solid, tol.fuzzy(chord_tol))
+        # Slot lobes of a decomposed merged bore+slot cavity: each overlaps the already-cut bore
+        # deeply and transversally, so independent sequential cuts are robust (same argument as
+        # the M7 satellites below).
+        for lobe in lobe_cutters:
+            shape = booleans.cut(shape, lobe, tol.fuzzy(chord_tol))
+        # Satellite perforations (M7) are geometrically disjoint from the main bore and from
+        # each other, so a sequence of independent cuts gives the same result as fusing them
+        # first and is simpler/more robust than a multi-solid fuse of disjoint cutters.
+        sat_events_raw = []
+        for sat_solid, z_lo, z_hi in sat_cutters:
+            # The fuzzy value must stay well below the cutter's own axial span or BOPAlgo can't
+            # resolve the cutter's two end faces as distinct (tol.sat_min_span guarantees
+            # span >= 2*chord_tol, so this clamp only bites near that floor).
+            shape = booleans.cut(shape, sat_solid,
+                                 min(tol.fuzzy(chord_tol), 0.25 * (z_hi - z_lo)))
+            if z_lo > z_min + eps_cut_val:
+                sat_events_raw.append(z_lo)
+            if z_hi < z_max - eps_cut_val:
+                sat_events_raw.append(z_hi)
+    except RuntimeError as exc:
+        # A boolean failure here means the chord-tol regime is one the geometry cannot support
+        # (fuzzy value rivaling real feature sizes) — report it as a clean, actionable exit-5
+        # failure instead of a raw crash (typed GeometryError via the CLI/rebuild() mapping).
+        est = _estimate_chord_tol(mesh)
+        hint = (f"; the mesh's estimated chordal deviation is only ~{est:.3g} mm — retry with "
+                f"--chord-tol {est:.3g}") if est > 0.0 and chord_tol > 2.0 * est else ""
+        print(f"rebuild.py: boolean cut stage failed ({exc}) — --chord-tol {chord_tol:g} mm is "
+              f"too coarse for this geometry's features{hint}", file=sys.stderr)
+        return 5
     # Several satellite chains often die/are born at (numerically near-identical) the same
     # z-plane (M7: all 6 perforations end at z=7000) — report ONE event per distinct plane, not
     # one per chain, matching what score.py's `topo_events_max` anti-gaming check expects.
@@ -2275,9 +2445,16 @@ def _rebuild_argparse(args) -> int:
             sat_events_z_mm[-1] = 0.5 * (sat_events_z_mm[-1] + z)
         else:
             sat_events_z_mm.append(z)
+    if _partial is not None:
+        _partial["stage_reached"] = "export"
     shape, valid = export.finalize(shape, chord_tol)
     if not valid:
-        print("rebuild.py: final solid failed BRepCheck_Analyzer validity check", file=sys.stderr)
+        msg = "final solid failed BRepCheck_Analyzer validity check"
+        est = _estimate_chord_tol(mesh)
+        if est > 0.0 and chord_tol > 5.0 * est:
+            msg += (f" — --chord-tol {chord_tol:g} mm is far coarser than the mesh's estimated "
+                    f"chordal deviation (~{est:.3g} mm); retry with --chord-tol {est:.3g}")
+        print(f"rebuild.py: {msg}", file=sys.stderr)
         return 5
 
     shape = export.undo_axis_transform(shape, R_axis)

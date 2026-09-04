@@ -47,3 +47,16 @@ def rdp_profile_eps(chord_tol: float, r_ref: float) -> float:
     Volume error from a radial bias is 2*dR/R, so the bound has to be a fraction of the radius.
     """
     return min(0.5 * chord_tol, 2.0e-4 * r_ref) if r_ref > 0.0 else 0.5 * chord_tol
+
+
+def sat_min_span(chord_tol: float) -> float:
+    """Minimum axial span for a standalone satellite cutter (cylinder or prism). A chain whose
+    birth-to-death window is narrower than this is a sub-tolerance flicker: at the user's own
+    stated chord_tol the feature is inside the input's noise floor, and a cutter that thin is
+    thinner than (or comparable to) the boolean fuzzy value it must survive — BOPAlgo either
+    fails outright or 'succeeds' into a corrupt BRep (observed on M8 at chord_tol 26.675 with
+    --adaptive: 6.5-18 mm sliver windows vs fuzzy 26.675 -> RuntimeError from BRepAlgoAPI_Cut,
+    or a final solid failing BRepCheck_Analyzer). The surrounding merged-ring path already
+    covers the same z range as one combined hole, so dropping the sliver costs at most ~this
+    much un-cut axial span — the same argument as the <3-station ring-chain guard in engine."""
+    return 2.0 * chord_tol

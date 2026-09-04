@@ -228,6 +228,11 @@ class MainWindow(QMainWindow):
         form.addRow("Sections", self.sections_spin)
 
         self.chord_tol_auto = QCheckBox("auto from mesh")
+        self.chord_tol_auto.setToolTip(
+            "Estimate the chord tolerance from the mesh's own chordal sag (2x the p95 of "
+            "per-edge sag = extent x dihedral angle / 8), not the median edge length — a clean "
+            "CAD tessellation has edges far longer than its actual deviation from the true "
+            "surface.")
         self.chord_tol_auto.setChecked(True)
         self.chord_tol_spin = QDoubleSpinBox()
         self.chord_tol_spin.setRange(0.01, 100.0)

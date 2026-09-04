@@ -86,6 +86,12 @@ Follow `HANDOFF.md` §5 (the runbook). The short version for a typical Fluent-st
 
 - `--axis auto` detects the axis if unsure; `--units` must be stated explicitly (STL files
   carry no units; the STEP output is always written in mm).
+- `--chord-tol` should track the mesh's actual chordal deviation, not its edge length: a clean
+  CAD-tessellated mesh can have 25+ mm edges while sagging only ~0.5 mm from the true surface,
+  and running tens of mm coarse puts the boolean tolerances at real-feature scale (failures or
+  invalid solids, especially with `--adaptive`). The GUI's "auto from mesh" value (and
+  `engine.analyze().suggested_chord_tol_mm`) now estimates this sag directly — trust it over
+  the median edge length shown in the mesh stats.
 - Every run writes a report JSON next to the output — check `n_stations`, per-station
   diagnostics, `warnings`, and `topology_events_z_mm` before trusting the solid.
 - On failure the report is still written, with an `error` field and partial stations —
