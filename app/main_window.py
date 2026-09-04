@@ -454,6 +454,12 @@ class MainWindow(QMainWindow):
         events_z = set(round(z, 6) for z in report.get("topology_events_z_mm", []))
         solid_mesh = None
         try:
+            # Run without a prior Analyze: the input mesh was never loaded into the scene,
+            # which left the Input-mesh layer (and B-swap) empty (Brady, 2026-09-04)
+            if not self.viewport.has_input_mesh:
+                in_path = self.input_path_edit.text().strip()
+                if in_path and os.path.exists(in_path):
+                    self.viewport.show_input_mesh(pv.read(in_path))
             if result.stl_path and os.path.exists(result.stl_path):
                 solid_mesh = pv.read(result.stl_path)
                 self.viewport.show_solid_mesh(solid_mesh)

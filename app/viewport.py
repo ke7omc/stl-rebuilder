@@ -47,7 +47,7 @@ class Viewport(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         if self._offscreen:
-            self.plotter = pv.Plotter(off_screen=True, window_size=(900, 700))
+            self.plotter = pv.Plotter(off_screen=True, window_size=(900, 700), lighting="light kit")
             self._label = QLabel("3D viewport (offscreen)")
             self._label.setScaledContents(True)
             layout.addWidget(self._label)
@@ -100,6 +100,13 @@ class Viewport(QWidget):
 
     def reset_scene(self):
         self.plotter.clear()
+        try:
+            # Plotter.clear() removes the light kit; without it VTK falls back to a single
+            # camera headlight, which lights any camera-facing surface perfectly evenly and
+            # makes solids render flat (root cause of the "coin stack" look, 2026-09-04)
+            self.plotter.enable_lightkit()
+        except Exception:
+            pass
         self.plotter.set_background("#1e1e1e")
         self._input_actor = None
         self._solid_actor = None
@@ -158,6 +165,10 @@ class Viewport(QWidget):
             except Exception:
                 pass
 
+    @property
+    def has_input_mesh(self) -> bool:
+        return self._input_actor is not None
+
     # ---- scene building --------------------------------------------------
     def show_input_mesh(self, mesh: pv.PolyData):
         self._empty_hint.hide()
@@ -167,22 +178,34 @@ class Viewport(QWidget):
             mesh, color=INPUT_MESH_COLOR, opacity=INPUT_MESH_OPACITY_ONLY, show_edges=False,
             name="input_mesh", label="Input mesh")
         self._apply_visibility()
-        self.plotter.reset_camera()
+        self._iso_camera()
         self.render()
 
     def show_solid_mesh(self, mesh: pv.PolyData):
         self._empty_hint.hide()
         if self._solid_actor is not None:
             self.plotter.remove_actor(self._solid_actor)
+        # smooth shading, no edge lines: on a finely tessellated preview the edge wires read
+        # as an STL mesh, defeating the point of showing a *solid* (Brady, 2026-09-04)
         self._solid_actor = self.plotter.add_mesh(
-            mesh, color=SOLID_MESH_COLOR, opacity=1.0, show_edges=True, edge_color="#0d3a57",
+            mesh, color=SOLID_MESH_COLOR, opacity=1.0, show_edges=False, smooth_shading=True,
+            specular=0.5, ambient=0.12, diffuse=0.9,
             name="solid_mesh", label="Rebuilt solid")
         # once the rebuilt solid is present, the input mesh fades to a reference overlay
         # (G3 review #4); _apply_visibility owns the opacity/visibility rules incl. swap.
         self._apply_visibility()
-        self.plotter.reset_camera()
+        self._iso_camera()
         self._update_legend()
         self.render()
+
+    def _iso_camera(self):
+        """Isometric default view: a straight-on camera flattens cylinders under the light
+        kit; iso gives the shading gradient that makes a solid read as a solid."""
+        try:
+            self.plotter.camera_position = "iso"
+        except Exception:
+            pass
+        self.plotter.reset_camera()
 
     def _update_legend(self):
         entries = []
