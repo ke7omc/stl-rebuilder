@@ -135,7 +135,8 @@ class Viewport(QWidget):
     def _input_opacity(self) -> float:
         if self._swap:
             return INPUT_MESH_OPACITY_SWAP
-        return INPUT_MESH_OPACITY_OVER_SOLID if self._solid_actor is not None else INPUT_MESH_OPACITY_ONLY
+        solid_shown = self._solid_actor is not None and self._layer_visible["solid"]
+        return INPUT_MESH_OPACITY_OVER_SOLID if solid_shown else INPUT_MESH_OPACITY_ONLY
 
     def _apply_visibility(self):
         pairs = (("input", self._input_actor), ("solid", self._solid_actor),
