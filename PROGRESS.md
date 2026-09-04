@@ -53,6 +53,25 @@
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **ROUND 3 (GUI) — G1 done, G2 in progress (iter 79).** `app/` package built (see iter 79 log
+  block for full detail): `main_window.py::MainWindow` (Outline/Details/Log docks, central
+  `Viewport`, status bar), `worker.py` (QThread-wrapped `AnalyzeWorker`/`RebuildWorker`),
+  `viewport.py` (real `pyvistaqt.QtInteractor` normally, off-screen `pv.Plotter` composited into
+  a `QLabel` when `offscreen=True` — the offscreen Qt platform can't create a `QOpenGLWidget`
+  GL context on this Mac, confirmed live), `manifest.py` (Output-node manifest via
+  `engine._read_step_shape` + OCP), `smoke.py`/`__main__.py` (`--smoke OUTDIR` contract).
+  `tests/gui/` (7 tests, pytest-qt) all green; `python -m app --smoke out/gui` exits 0 with a
+  valid `smoke.json` and 3 screenshots (visually inspected — dock layout, translucent input
+  mesh, solid + station planes + manifest all render correctly after fixing a bounds-radius bug
+  found by looking at the first screenshot). `pytest tests/api` still green (G1 untouched).
+  M1-M12 individually rescored `pass:true, progress:1.0` (M13 running in the background as this
+  was written; nothing under `pipeline/`/`harness/` changed this iteration so regression is
+  implausible — the driver's gate reruns the full sweep regardless).
+- **Next**: confirm M11-M13 explicitly if the driver hasn't already advanced past G2, then start
+  G3 polish per MISSION §12's design bar — dark QSS throughout (today only the viewport
+  background is dark), qtawesome icons, and better failure surfaces (`_on_failed` currently
+  shows the raw exception message, not "the report's error + partial stations").
+- Older note, kept for the record:
 - **ROUND 3 (GUI) — G1 in progress (iter 78).** `pipeline/engine.py` now exists per MISSION
   §12: `analyze(input_path, axis, units) -> Analysis` (new, self-contained — loads/orients via
   `pio.load_and_orient` at a probe chord_tol, reports frame axis/origin, axial extent, body
@@ -3214,6 +3233,86 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 79 — G2 — sonnet/medium — 2026-09-04T08:33
+- Score before: G1 gate passed at iter 78 (`pipeline/engine.py` exists, `pytest tests/api` +
+  M1-M13 regression both green). No `app/` package, no `tests/gui/` yet — this is the first G2
+  iteration.
+- Change: built the `app/` PySide6 application per MISSION §12. `app/viewport.py::Viewport`
+  wraps a pyvistaqt `QtInteractor` for the real interactive window, but swaps in a plain
+  `pyvista.Plotter(off_screen=True)` composited into a `QLabel` when `offscreen=True` — verified
+  live that `QOpenGLWidget` (what `QtInteractor` embeds) cannot create a GL context under
+  `QT_QPA_PLATFORM=offscreen` on this Mac (`RenderWindowUnavailable`), while a bare
+  `pv.Plotter(off_screen=True)` renders fine (VTK's own offscreen context, no Qt GL widget
+  involved) — so the smoke path never touches the broken code path, and both branches share
+  identical scene-building code since `QtInteractor` is itself a `pv.Plotter` subclass.
+  `app/main_window.py::MainWindow` builds the Outline dock (Input/Detected/Stations/Output
+  `QTreeWidget`, selection swaps a `QStackedWidget` in the Details dock), the Details dock (Input
+  page = the actual controls: file pickers, axis/units combos, sections spin, chord-tol
+  auto-or-manual, adaptive checkbox, Analyze/Run/Cancel buttons; Detected/Stations/Output pages =
+  read-only JSON dumps of `Analysis`/report/manifest), the central `Viewport`, a bottom Log dock
+  (`QPlainTextEdit`), and a status bar with a progress bar. `app/worker.py` wraps
+  `engine.analyze`/`engine.rebuild` in `QObject`s moved to a `QThread` (`run_in_thread` helper
+  wires `started`/`finished`/`failed` -> `thread.quit` + `deleteLater`) so the UI thread is never
+  blocked; `RebuildWorker.cancel()` flips a flag the `cancel()` callback polls, matching
+  `engine.rebuild`'s cancellation contract exactly. `app/manifest.py` builds the Output-node
+  result manifest by reading the produced STEP directly via OCP (`TopExp`/`BRepGProp`, same
+  dependency-light approach `engine._read_step_shape` already uses) since the current report JSON
+  has no body/face/volume counts (a documented HANDOFF gap) — reused `engine._read_step_shape`
+  rather than reimplementing a STEP reader. `app/smoke.py::run_smoke(outdir)` generates
+  `harness/truth/M2.stl` if missing, drives `MainWindow(offscreen=True)` through
+  Analyze->Rebuild via the real `AnalyzeWorker`/`RebuildWorker` classes (pumped synchronously
+  with a `QEventLoop` per step, not faked), grabs the whole window after each stage
+  (`window.grab().save(...)`, which works fine offscreen for ordinary raster widgets — only the
+  embedded GL viewport needed the swap above), and writes `smoke.json` +
+  `{ok,screenshots,report}` exactly per the §12 contract. `app/__main__.py` is the `--smoke
+  OUTDIR` / plain-launch dispatcher. Requesting an STL preview via `RebuildOptions.stl` (already
+  a field, previously unused by the CLI path in ordinary runs) gets the GUI a tessellated
+  preview mesh of the final solid for free — no STEP-tessellation code needed in `app/`.
+  Fixed one real bug found by *looking at* the smoke screenshots, not just checking exit codes:
+  the station-plane disc radius in `main_window.py::_on_rebuilt` was computed from
+  `np.max(np.abs(solid_mesh.bounds))`, which includes the mesh's *axial* (Z) bounds — for M2's
+  ~10000mm-long motor this produced discs ~10x the actual outer radius, flooding the whole
+  render yellow. Fixed to take only the X/Y components of `bounds`.
+  Installed `pytest-qt==4.5.0` into `.venv` (network was available; not previously installed)
+  and added it to `WORK_SETUP.md` §7's dev-extras line. `tests/gui/test_main_window.py` (6
+  pytest-qt tests: docks present, outline nodes/labels, outline selection swaps Details pages,
+  central widget is the viewport, Run-with-no-input warns, status bar widgets exist) +
+  `tests/gui/test_smoke.py` (1 test: `run_smoke` into a tmp dir returns 0, `smoke.json` has
+  `ok:true` and >=3 screenshot paths, >=3 PNGs on disk are each >=20KB) — 7 tests total, all
+  green.
+- Score after (local): `QT_QPA_PLATFORM=offscreen pytest tests/gui -q` -> 7 passed in 3.7s.
+  `QT_QPA_PLATFORM=offscreen python -m app --smoke out/gui` -> exit 0; `out/gui/smoke.json`
+  `ok:true`, 3 screenshots (36KB/80KB/128KB, all >=20KB); visually inspected all three PNGs —
+  launch screen shows the Outline/Details/Log dock layout, the analyzed screenshot shows the
+  translucent input mesh with the Detected-node JSON, the rebuilt screenshot shows the solid
+  (blue, edges shown) with yellow station-plane rings correctly sized after the bounds fix, red
+  topology-event rings, axis triad, and the Output manifest (`bodies:1, faces:7,
+  volume_mm3:2.75e10`). `pytest tests/api -q` -> 7 passed (unchanged, G1 untouched).
+  Regression: re-ran `harness/score.py --milestone Mk` individually for M1-M12 — all
+  `pass:true, progress:1.0`, matching their G1-era scores exactly (M13 was still running in the
+  background as this was written; nothing under `pipeline/` or `harness/` was touched this
+  iteration — only `app/` + `tests/gui/` were added — so there is no plausible mechanism for M13
+  to have regressed; the driver's own gate re-runs the full M1-M13 sweep regardless).
+- Learned: `QWidget.grab()` (whole-window screenshot) works normally under
+  `QT_QPA_PLATFORM=offscreen` for ordinary widgets (QSS-styled raster rendering, `QTreeWidget`,
+  `QTextEdit`, etc) — the offscreen platform plugin's actual limitation is narrowly
+  `QOpenGLWidget`'s GL context creation, not rendering in general. This means the "compose a real
+  off-screen VTK render into a QLabel, screenshot the whole window normally" pattern in
+  `viewport.py` is the right one, not a workaround to remove later — G3 can keep using it as-is
+  for the interactive `QtInteractor` path staying real and unchanged.
+- Next: G2's gate needs `pytest tests/gui -q` (green) + smoke contract (green) + the full
+  M1-M13 regression, which should hold since nothing under `pipeline/`/`harness/` changed this
+  iteration — confirm M11-M13 explicitly next iteration if the driver's gate hasn't already
+  advanced past G2. Then start G3 polish: the design bar in MISSION §12 wants dark QSS
+  throughout (today only the viewport background is dark — `#1e1e1e` — the rest is default Qt
+  grey), qtawesome icons on the toolbar buttons and Outline nodes, and better empty/error states
+  (`_on_failed` currently just dumps the raw exception message into the manifest text box —
+  MISSION §12 wants "the report's `error` + partial stations, not a traceback"). Also worth
+  reconsidering for G3: `_on_rebuilt`'s per-run STL preview path
+  (`os.path.splitext(output_path)[0] + ".preview.stl"`) collides if Brady reruns with the same
+  output path — harmless (overwritten each run) but worth a comment or a temp-dir instead if it
+  ever causes confusion.
 
 ### iter 78 — G1 — sonnet/medium — 2026-09-04T07:54
 - Score before: no `pipeline/engine.py`, no `tests/api/`; `pipeline/cli.py::_run` held the full

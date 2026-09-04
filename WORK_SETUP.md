@@ -107,14 +107,15 @@ window). Headless self-check: `python -m app --smoke out\gui` renders screenshot
 ## 7. Optional extras (only for re-running the scoring harness)
 
 ```bat
-.venv\Scripts\pip install gmsh scikit-image pytest
+.venv\Scripts\pip install gmsh scikit-image pytest pytest-qt
 ```
 
 Then:
 - `python harness\selftest.py` — the harness's own test suite (~10 min warm).
 - `python harness\score.py --milestone M2 --out score.json` — score the current pipeline
   against a milestone exactly as the build loop did.
-- `python -m pytest tests\ -q` — unit tests.
+- `python -m pytest tests\ -q` — unit tests (`tests\gui` needs `pytest-qt` and
+  `QT_QPA_PLATFORM=offscreen` set in the environment).
 None of this is needed to *use* the converter.
 
 ## 8. Troubleshooting
