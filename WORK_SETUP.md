@@ -97,7 +97,9 @@ Follow `HANDOFF.md` §5 (the runbook). The short version for a typical Fluent-st
 .venv\Scripts\python -m app
 ```
 
-Requires the GUI packages from §3. Features: input STL picker, output path/name, motor axis
+On mac/Linux the command is `.venv/bin/python -m app`. Both must be run with the repo folder as
+the working directory (`app` and `pipeline` are packages in the repo root, not installed
+distributions). Requires the GUI packages from §3. Features: input STL picker, output path/name, motor axis
 (auto-detected, x/y/z/custom override), explicit units, detected axial extent, slice-fidelity
 controls, adaptive refinement toggle, built-in 3D viewport (input mesh over the rebuilt
 solid), progress + cancel, and a result manifest. A desktop shortcut can point at

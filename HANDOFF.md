@@ -12,6 +12,14 @@ last confirmed green at iteration 82 (`SELFTEST PASSED`, 102/102 checks, 0 failu
 `pipeline/` or `app/` has changed since that sweep ran. Nothing below is estimated; where a
 number could not be measured it says so.
 
+Iteration 84 re-verified this document's own instructions rather than the engine: the §8 launch
+command was re-run from a clean directory (`--smoke out/gui_verify`, exit 0, `smoke.json.ok ==
+true`, the same four PNGs at 54/65/163/209 KB, matching the §8 inventory), and the §7 scripted
+example was executed verbatim (`paths_used == {'outer': 'revolve', 'bore': 'revolve'}`). Three
+documentation defects found and fixed: the example needed the repo-root-on-`sys.path` note
+(§7), `suggested_chord_tol_mm` was used by the example but missing from the `Analysis` field
+list, and two cross-references pointed at a non-existent `§4.2`.
+
 ---
 
 ## 1. Summary
@@ -251,7 +259,7 @@ The report contains exactly these keys: `n_stations`, `stations_z_mm`, `paths_us
   matches your expectation (e.g. `[1,0,0]` for an x-aligned part). Its sign is canonicalised so
   the largest-magnitude component is positive; if that convention disagrees with your part's
   fore→aft direction, every z in the report is measured from the other end. **Recount before you
-  conclude anything is misplaced** (see §4.2 item 9).
+  conclude anything is misplaced** (see §4 item 9).
 - **`frame.origin_xy_mm`** — the axis's off-origin offset. Large unexpected values mean the axis
   fit latched onto the wrong principal direction, usually because the part is nearly isotropic or
   because noise islands dragged the inertia tensor.
@@ -344,7 +352,7 @@ useful for eyeballing the result against the input in a mesh viewer).
 7. **`--axis auto` sign is a convention, not a measurement.** It canonicalises to
    "largest-magnitude component positive". That is *a* rule, and it may disagree with your part's
    fore→aft sense; the scorer does not implement MISSION §7.2's dot<0 flip, so the pipeline owns
-   the convention. See §4.2 item 9.
+   the convention. See §4 item 9.
 8. **Station count is capped by what was tested.** No milestone exceeds 120 sections.
 
 ### What to try next (engine)
@@ -369,8 +377,9 @@ extraction).
 
 **`analyze(input_path, axis="auto", units=None) -> Analysis`** — loads/repairs the mesh and
 reports the frame WITHOUT building geometry: `frame_axis`, `origin_xy_mm`, `axial_extent_mm`,
-`body_count`, `is_watertight`, `triangle_count`, `median_edge_length_mm` (== the §7.2 "auto from
-mesh" chord-tol suggestion), `axis_confidence` (0..1), `units`, `n_dropped_islands`,
+`body_count`, `is_watertight`, `triangle_count`, `median_edge_length_mm`, `suggested_chord_tol_mm`
+(== `median_edge_length_mm`; the §5.1 "auto from mesh" chord-tol suggestion, and what the GUI's
+"auto from mesh" checkbox fills in), `axis_confidence` (0..1), `units`, `n_dropped_islands`,
 `bounds_mm`. Cheap — this is what fills the GUI's Detected node before a Run is committed to.
 
 **`rebuild(opts, on_progress=None, cancel=None) -> Result`** — runs the full pipeline.
@@ -384,7 +393,12 @@ each carrying `.exit_code` matching the CLI's exit-code taxonomy (§5.4): `Usage
 (2), `InputError` (3), `TopologyError` (4), `GeometryError` (5) — replacing "parse stderr text"
 with real exception types and messages.
 
-**Minimal scripted-use example** (no GUI, no subprocess):
+**Minimal scripted-use example** (no GUI, no subprocess). `pipeline` is a plain package in the
+repo root, not an installed distribution, so the repo root must be on `sys.path`: run the script
+with the repo root as the working directory (or set `PYTHONPATH=/path/to/stl-rebuilder`).
+Relative paths like `harness/truth/M2.stl` below are likewise relative to the repo root — from
+anywhere else, `from pipeline import engine` fails with `ModuleNotFoundError`. Verified verbatim
+at iteration 84.
 
 ```python
 from pipeline import engine

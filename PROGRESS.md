@@ -113,6 +113,18 @@ done and let the gate stop for review #2.
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **ROUND 3 COMPLETE — every gate green and HANDOFF v3 verified by execution (iter 84).** Iter 84
+  ran the handoff's *own instructions* rather than re-running the gates it cites: §8's launch
+  command into a clean dir (`--smoke out/gui_verify` → exit 0, `smoke.json.ok`, 4 PNGs
+  54/65/163/209 KB, matching the documented inventory) and §7's scripted example verbatim
+  (`paths_used == {'outer': 'revolve', 'bore': 'revolve'}`). Three doc defects found and fixed:
+  the §7 example needed the repo-root-on-`sys.path`/cwd note (it raises `ModuleNotFoundError`
+  from anywhere else), `suggested_chord_tol_mm` was used by the example but missing from the
+  documented `Analysis` fields, and two cross-refs pointed at a non-existent `§4.2` (→ `§4`).
+  `WORK_SETUP.md` §6 gained the mac/Linux command + working-directory requirement, which HANDOFF
+  §8 had been claiming on its behalf. **Nothing is left in the ladder; the remaining work is
+  Brady's** — `git push`, the SpaceClaim checklist (HANDOFF §4), and a real burnback STL through
+  the §5 runbook (MR remains the one milestone never exercised, so every number is synthetic).
 - **ROUND 3 (GUI) — G1/G2/G3 all PASSED. G3 approved by Fable 2026-09-04 10:30
   (`state/G3_APPROVED` present). HANDOFF.md rewritten to v3 (iter 83)**: added §7 (the real
   `pipeline.engine` API — `analyze()`/`rebuild()`/`RebuildOptions`/`Result`, typed exceptions,
@@ -3422,6 +3434,50 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 84 — HANDOFF — opus/medium — 2026-09-04T10:38
+- Score before: iter 83's driver evaluation PASSED (g3-gate, all checks). `HANDOFF.md` v3 already
+  written and committed at `3521ee4`; working tree clean. So the marginal-value question for this
+  iteration was not "write the handoff" but "does the handoff actually work when a human follows
+  it?" — iter 83 verified the *gates* it cited but executed none of the *instructions* it wrote.
+- Change: documentation only, no `pipeline/`/`app/` code touched. Executed HANDOFF v3's own
+  instructions verbatim and fixed the three defects that surfaced:
+  1. **§7's scripted example fails from anywhere but the repo root.** `pipeline` is a plain
+     in-repo package, not an installed distribution, so `from pipeline import engine` raises
+     `ModuleNotFoundError` unless the repo root is on `sys.path` — and the example's relative
+     paths (`harness/truth/M2.stl`) assume the same cwd. Neither was stated. Added the note.
+     This is exactly the trap a human copy-pasting into a scratch script hits first.
+  2. **§7's `Analysis` field list omitted `suggested_chord_tol_mm`** while the example printed
+     it. Added it, and noted it equals `median_edge_length_mm` and is what the GUI's "auto from
+     mesh" checkbox fills in. Also fixed a stale `§7.2` cross-reference there → `§5.1` (the
+     chord-tol estimation section; `§7.2` was v2 numbering that §7's rewrite didn't catch).
+  3. **Two `§4.2 item 9` cross-references point at a section that does not exist** — §4 is a flat
+     numbered list with no subsections. → `§4 item 9` (the "Not mirrored" check, correct content,
+     wrong label).
+  Also `WORK_SETUP.md` §6: added the mac/Linux launch command and the working-directory
+  requirement. HANDOFF §8 calls that section "the authoritative, tested launch contract" for both
+  OSes, but it listed only the Windows invocation — so the claim was ahead of the file.
+- Verification (all fresh this iteration, nothing trusted from iter 83):
+  - `QT_QPA_PLATFORM=offscreen .venv/bin/python -m app --smoke out/gui_verify` → exit 0,
+    `smoke.json.ok == true`, and the four PNGs at 53 986 / 65 430 / 162 910 / 208 847 B, i.e. the
+    53–208 KB range §8 claims and all far above the 20 KB not-a-blank-frame gate. Ran into a
+    fresh directory, not the pre-existing `out/gui`, so the artifacts are genuinely regenerated
+    rather than left over. §8's screenshot inventory is accurate as written.
+  - §7's example run verbatim from the repo root → `paths_used == {'outer': 'revolve', 'bore':
+    'revolve'}`, STEP written (293 entities). The API signatures documented in §7
+    (`RebuildOptions` fields/defaults, `Analysis` fields, `Result`) were diffed against
+    `pipeline/engine.py` and match.
+  - `WORK_SETUP.md` §6's feature list checked against `app/main_window.py`: sections spinbox,
+    chord-tol with "auto from mesh" checkbox, adaptive-stations checkbox, axis/units combos,
+    cancel button all present as described. §3's GUI pip line is correct.
+  - No scorer/selftest run: this iteration changed no code that either exercises, and the header
+    records the M1–M13 sweep as green on the unchanged `pipeline/` state.
+- Learned: a handoff document's gate table can be fully honest and its instructions still be
+  unrunnable — the failure modes live in the implicit context the author had (cwd, sys.path) and
+  the reader doesn't. Executing the doc is a different test from re-running the gates it cites.
+- Next: nothing left in the ladder; Round 3 is complete. The highest-value remaining action is
+  still Brady's, unchanged: `git push`, then the SpaceClaim import checklist (§4) and a real
+  burnback STL through the §5 runbook (MR is the one milestone never exercised).
 
 ### iter 83 — HANDOFF — sonnet/medium — 2026-09-04T10:23
 - Score before: iter 82's driver evaluation FAILED (mechanical gates pass, awaiting Fable visual
