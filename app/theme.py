@@ -206,6 +206,68 @@ QPushButton#danger:hover {{
     color: #ffffff;
 }}
 
+QPushButton#danger:disabled {{
+    background-color: {BG_DARK};
+    border: 1px solid {BG_DARK};
+    color: {TEXT_DISABLED};
+}}
+
+QMenuBar {{
+    padding: 2px;
+}}
+
+QMenuBar::item {{
+    background: transparent;
+    padding: 4px 10px;
+    border-radius: 3px;
+}}
+
+QMenuBar::item:selected {{
+    background-color: {BG_RAISED};
+}}
+
+QMenu {{
+    background-color: {BG_PANEL};
+    border: 1px solid {BORDER};
+}}
+
+QMenu::item {{
+    padding: 5px 20px;
+}}
+
+QMenu::item:selected {{
+    background-color: {ACCENT};
+    color: #ffffff;
+}}
+
+QToolBar {{
+    background-color: {BG_DARKEST};
+    border: none;
+    border-bottom: 1px solid {BORDER};
+    padding: 3px;
+    spacing: 4px;
+}}
+
+QToolButton {{
+    background: transparent;
+    border-radius: 4px;
+    padding: 5px;
+}}
+
+QToolButton:hover {{
+    background-color: {BG_RAISED};
+}}
+
+#emptyHint {{
+    color: {TEXT_SECONDARY};
+    font-size: 14px;
+}}
+
+#logConsole {{
+    font-family: "SF Mono", "Consolas", "Menlo", monospace;
+    font-size: 12px;
+}}
+
 QProgressBar {{
     background-color: {BG_DARKEST};
     border: 1px solid {BORDER};

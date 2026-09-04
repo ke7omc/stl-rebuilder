@@ -101,6 +101,12 @@ def run_smoke(outdir: str) -> int:
         window.grab().save(shot3)
         screenshots.append(shot3)
 
+        window.outline.setCurrentItem(window.node_stations)
+        app.processEvents()
+        shot4 = os.path.join(outdir, "04_stations.png")
+        window.grab().save(shot4)
+        screenshots.append(shot4)
+
         for path in screenshots:
             size = os.path.getsize(path)
             if size < MIN_SCREENSHOT_BYTES:
