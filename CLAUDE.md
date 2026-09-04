@@ -1,6 +1,18 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-04 10:52 — ROUND 3 COMPLETE. ALL THREE ROUNDS DONE.** G1 (engine API) and G2
+  (PySide6 app) each passed on their first iteration; G3 took three Fable visual-review rounds
+  (feedback via PROGRESS Notes → `state/G3_APPROVED`); HANDOFF v3 written and verified against
+  the code. Round 3: 7 iterations, ≈$29, 3 hours. Project totals: 84 iterations, ≈$469,
+  Aug 29 → Sep 4. The deliverables: `rebuild.py` CLI (13/13 milestones), `pipeline/engine.py`
+  API (`analyze`/`rebuild` w/ progress+cancel), `python -m app` GUI (dark theme, 3D viewport,
+  station table; screenshots in `out/gui/`), `WORK_SETUP.md` (work-machine setup, written for
+  an AI assistant), `HANDOFF.md` v3 (484 lines). **Remaining items are all human:** (1) `git
+  push` done through Sep 4 by Claude-via-script when Brady asks; (2) SpaceClaim checklist
+  (HANDOFF §4); (3) THE big one — a real burnback STL through the §5 runbook / MR slot:
+  everything so far is proven only on synthetic meshes; (4) try `python -m app` on the Mac and
+  take the repo to work per WORK_SETUP.md.
 - **2026-09-04 07:55 — ROUND 3 (GUI) STARTED.** Ladder G1→G2→G3→HANDOFFv3 (MISSION §6.3, §12
   rewritten): G1 `pipeline/engine.py` API extraction, G2 PySide6 app (`python -m app`, pyvistaqt
   3D viewport, offscreen smoke + screenshots), G3 polish with **Fable visual review** — the
