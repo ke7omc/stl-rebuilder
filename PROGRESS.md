@@ -3429,6 +3429,11 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   the 98%-of-max threshold; status bar has no visible progress box at idle (both launch and
   post-rebuild screenshots). `harness/score.py --milestone M2` spot-check: pass, progress 1.0 —
   full M1-M13 sweep left to the driver's own gate re-score (time budget).
+- **Follow-up (same iteration, after the commit above): ran the full sweep anyway** —
+  `.venv/bin/python harness/selftest.py --skip-gmsh` in the background while starting the next
+  review pass. Result: `SELFTEST PASSED`, 102/102 `[PASS]`, 0 `[FAIL]`, all of M1-M13 exercised
+  (`total 494.9s`), confirming the `axial_origin_z` report-schema addition and the GUI-layer
+  changes are fully regression-safe, not just spot-checked on M2.
 - Next: awaiting Fable review #3. If approved, G3 is done and the ladder moves to HANDOFFv3
   (MISSION §6.3) — check `## Notes from Brady` for `state/G3_APPROVED` or new feedback first.
   If review #3 does touch the engine again, run the full M1-M13 scorer sweep before committing,
