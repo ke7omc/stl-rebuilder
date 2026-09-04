@@ -101,7 +101,6 @@ INFRA_PATHS = ["loop.py", "loop.sh", "driver", "PROMPT.md", "MISSION.md", "CLAUD
 INFRA_TAG, HARNESS_TAG = "infra-frozen", "harness-frozen"
 MILESTONES = ["M0", "M1", "M2", "M3", "M4", "M5",                       # Round 1 (frozen 2026-08-29)
               "M6", "M7", "M8", "M9", "M10", "M11", "M12", "M13", "MR",  # Round 2 (MISSION §6.2)
-              "G1", "G2", "G3",                                          # Round 3 GUI (MISSION §6.3)
               "HANDOFF", "DONE"]
 SCORED = [m for m in MILESTONES if m.startswith("M") and m != "M0"]   # milestones the frozen scorer grades
 REQUIRED_FLAGS = ["--effort", "--max-budget-usd", "--permission-mode", "--output-format",
@@ -901,8 +900,6 @@ def compose_prompt(st: dict, mode: dict, iteration: int) -> str:
     if st["milestone"] == "M0" and mode["mode"] != "review-harness":
         # Round 1 builds the harness from nothing; Round 2+ extends an already-frozen one
         frag = "driver/prompt_m0_round2.md" if tag_exists(HARNESS_TAG) else "driver/prompt_m0.md"
-    if st["milestone"].startswith("G") and mode["mode"] in ("normal", "escalated", "tournament"):
-        frag = "driver/prompt_gui.md"
     if frag:
         parts.append((ROOT / frag).read_text())
     return "\n\n".join(parts)
@@ -950,76 +947,8 @@ def set_last_eval(st: dict, iteration: int, kind: str, ok: bool, summary: str, t
                        "tail": tail[-900:], "ts": ts()}
 
 
-def _gui_smoke_ok() -> tuple[bool, str]:
-    """Validate the artifacts of a `python -m app --smoke out/gui` run (MISSION §12 contract)."""
-    gui_dir = ROOT / "out" / "gui"
-    sj = gui_dir / "smoke.json"
-    if not sj.exists():
-        return False, "out/gui/smoke.json missing"
-    try:
-        data = json.loads(sj.read_text())
-    except Exception as e:
-        return False, f"smoke.json unreadable: {e}"
-    if not data.get("ok"):
-        return False, f"smoke.json ok != true: {str(data)[:200]}"
-    pngs = [p for p in gui_dir.glob("*.png") if p.stat().st_size >= 20_000]
-    if len(pngs) < 3:
-        return False, f"need >= 3 screenshots >= 20 KB in out/gui/, found {len(pngs)}"
-    return True, f"{len(pngs)} screenshots + smoke.json ok"
-
-
-def evaluate_gui(st: dict, iteration: int) -> None:
-    """Driver gates for the Round 3 GUI milestones (MISSION §6.3). pytest/smoke exit codes stand
-    in for the scorer; G3 additionally requires human/Fable visual approval of the screenshots."""
-    ms = st["milestone"]
-    py = ".venv/bin/python"
-    off = ["/usr/bin/env", "QT_QPA_PLATFORM=offscreen"]
-
-    def tail_of(r: dict) -> str:
-        return ((r.get("stdout") or "")[-700:] + "\n" + (r.get("stderr") or "")[-300:]).strip()
-
-    def fail(kind: str, r: dict, extra: str = "") -> None:
-        summary = f"exit {r.get('code')}" + (f"; {r.get('note')}" if r.get("note") else "") + (f"; {extra}" if extra else "")
-        set_last_eval(st, iteration, kind, False, summary, tail_of(r))
-        log(f"{ms}: {kind} FAILED — {summary}")
-        update_stall(st, 0.3)
-
-    if ms == "G1":
-        r = run_guarded([py, "-m", "pytest", "tests/api", "-q"], 900, f"{ms} pytest-api")
-        if r.get("code") != 0:
-            return fail("pytest-api", r)
-    elif ms in ("G2", "G3"):
-        if ms == "G2":
-            r = run_guarded(off + [py, "-m", "pytest", "tests/gui", "-q"], 1800, f"{ms} pytest-gui")
-            if r.get("code") != 0:
-                return fail("pytest-gui", r)
-        r = run_guarded(off + [py, "-m", "app", "--smoke", "out/gui"], 900, f"{ms} gui-smoke")
-        if r.get("code") != 0:
-            return fail("gui-smoke", r)
-        ok, why = _gui_smoke_ok()
-        if not ok:
-            return fail("gui-smoke-contract", r, why)
-    failing = check_regressions(ms, iteration)
-    if failing:
-        demote(st, failing, iteration, f"at {ms}")
-        return
-    if ms == "G3" and not (STATE_DIR / "G3_APPROVED").exists():
-        set_last_eval(st, iteration, "g3-visual", False,
-                      "mechanical gates pass — awaiting human/Fable visual review of out/gui/*.png; "
-                      "feedback goes in PROGRESS.md '## Notes from Brady', approval = create state/G3_APPROVED", "")
-        log("G3: mechanical gates pass — stopping for visual review (out/gui/*.png; "
-            "create state/G3_APPROVED to advance, then rerun ./loop.sh)")
-        STOP_FILE.touch()
-        return
-    set_last_eval(st, iteration, f"{ms.lower()}-gate", True, "all gate checks pass", "")
-    advance(st, f"{ms} gate pass at iteration {iteration}")
-
-
 def evaluate(st: dict, iteration: int, mode: str) -> None:
     ms = st["milestone"]
-    if ms in ("G1", "G2", "G3"):
-        evaluate_gui(st, iteration)
-        return
     if ms == "M0":
         r = run_selftest()
         (LOGS_DIR / f"iter-{iteration:04d}.selftest.log").write_text(r["tail"])
@@ -1067,7 +996,7 @@ def evaluate(st: dict, iteration: int, mode: str) -> None:
     if ms == "HANDOFF":
         h = ROOT / "HANDOFF.md"
         text = h.read_text() if h.exists() else ""
-        ok = len(text) > 1500 and all(m in text for m in SCORED + ["G1", "G2", "G3", "WORK_SETUP"])
+        ok = len(text) > 1500 and all(m in text for m in SCORED)
         failing = check_regressions("HANDOFF", iteration)
         if failing:
             demote(st, failing, iteration, "at HANDOFF")

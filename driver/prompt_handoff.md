@@ -20,9 +20,5 @@ Include, in this order:
 6. **Known limitations** and **what to try next** (from PROGRESS.md `## Current state`).
 7. *(Round 2)* The extra items in MISSION §9 "HANDOFF v2": per-body and inch/x-axis checklist
    entries, the real-STL runbook v2, and "what Round 3 (GUI) needs from the engine".
-8. *(Round 3)* The extra items in MISSION §9 "HANDOFF v3": GUI launch instructions for
-   Windows + macOS (verify `WORK_SETUP.md` §6 is accurate — fix it if not), the `--smoke`
-   self-check, the screenshot inventory, the `pipeline.engine` API with a minimal scripted
-   example, and the G1–G3 gate results.
 
 Commit `HANDOFF.md`. Print its path as your final line.

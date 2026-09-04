@@ -61,10 +61,8 @@ loop.sh loop.py driver/                                  (frozen driver + prompt
 docs/research/                                           (verified API research — read these)
 rebuild.py                                               (thin CLI entry → pipeline.cli.main)
 pipeline/                                                (YOUR PRODUCT — agent-owned)
-  __init__.py  cli.py  engine.py  io.py  stations.py  slicing.py  loops.py  fitting.py
+  __init__.py  cli.py  io.py  stations.py  slicing.py  loops.py  fitting.py
   solids.py  booleans.py  export.py  report.py  tol.py
-app/                                                     (Round 3 GUI — agent-owned; `python -m app`)
-WORK_SETUP.md                                            (work-machine setup doc — keep §6 accurate)
 harness/                                                 (built in M0, then FROZEN)
   milestones.py  generators.py  metrics.py  meshcheck.py  score.py  selftest.py  truth/
 tests/                                                   (your unit tests, pytest — not frozen)
@@ -285,19 +283,6 @@ integrates everything. Why cosine end-clustering cannot pass M8: at n=80 the Rou
 mid-barrel stations ≈ 310 mm apart, so a 300 mm feature band gets 0–1 stations, and reaching ≥ 10
 with uniform spacing needs n ≈ 500 ≫ `n_stations_max`.
 
-### 6.3 Round 3 — desktop GUI (driver-gated; the geometry scorer does not grade these)
-
-The driver runs the gate commands itself and its verdict arrives in your header like a scorer
-verdict. Full GUI spec: §12. No packaging/.exe anywhere in this round — the app runs from
-source (`python -m app`) on macOS and Windows.
-
-| G | Deliverable | Driver gate (all must hold) |
-|---|---|---|
-| **G1** | `pipeline/engine.py` — `analyze()` / `rebuild()` per §12; `pipeline/cli.py` refactored to consume it; `tests/api/` | `.venv/bin/python -m pytest tests/api -q` exit 0; **every M1–M13 still passes the frozen scorer** (engine extraction must not change CLI behaviour) |
-| **G2** | `app/` PySide6 application per §12 (3D viewport, worker thread, `--smoke`); `tests/gui/` | offscreen `pytest tests/gui -q` exit 0; offscreen `python -m app --smoke out/gui` exit 0 with valid `out/gui/smoke.json` and ≥ 3 PNG screenshots ≥ 20 KB; M1–M13 regression sweep |
-| **G3** | visual polish to the §12 design bar; screenshots regenerated every iteration | G2's smoke gate re-run fresh; **manual visual approval** — the driver stops with "awaiting visual review", a human/Fable reviewer inspects `out/gui/*.png` and either writes feedback into PROGRESS.md `## Notes from Brady` (iterate) or creates `state/G3_APPROVED` (advance). Never create that file yourself. M1–M13 sweep |
-| **HANDOFF** | HANDOFF v3 (§9) | v2 checks, plus G1–G3 and `WORK_SETUP.md` covered |
-
 ## 7. Harness contract (M0 builds this; it is then frozen)
 
 `harness/milestones.py` — one dict per milestone: parameters, expected topology, region
@@ -448,11 +433,6 @@ runbook v2 (`--units`, `--axis auto`, how to read `frame`/`axial_extent_mm`/`bod
 report, what a `status: failed` report tells you); and a section "what Round 3 (GUI) needs from
 the engine" listing the `pipeline.engine` API and `--progress-json`.
 
-**HANDOFF v3 (Round 3)**: everything in v2, plus: how to launch the GUI from source on
-Windows and macOS (mirroring `WORK_SETUP.md` §6, which must be verified accurate), the
-`--smoke` self-check, a screenshot inventory (`out/gui/*.png`), the `pipeline.engine` API
-summary with a minimal scripted-use example, and the G1–G3 gate results.
-
 ## 10. Known failure modes → mitigations (read before debugging)
 
 1. Non-watertight input → merge vertices, fix normals, `fill_holes` (only 1-tri/1-quad holes);
@@ -492,50 +472,14 @@ summary with a minimal scripted-use example, and the G1–G3 gate results.
 18. Blind bores / stepped bores / slots breaking through a dome → cavity decomposition (§5.5 3):
     zero-hole and multi-outer-polygon stations are ordinary cases, not errors.
 
-## 12. Round 3 (GUI) — the desktop app (milestones G1–G3, §6.3)
+## 12. Round 3 (GUI) — what the engine must already provide
 
-**Delivery model: run from source, both OSes, no packaging.** Brady cannot run installers or
-.exe files at work; he CAN install Python + pip packages. So the deliverable is `python -m app`
-working from a fresh clone with the pip packages in `WORK_SETUP.md` (§3/§6 there) — PySide6,
-pyvista, pyvistaqt, pyqtgraph, qtawesome (all already installed in `.venv` here). No
-PyInstaller, no installers, no OS-specific code paths (use `pathlib`, `QStandardPaths`).
-Keep `WORK_SETUP.md` §6 accurate whenever the launch contract changes.
-
-**G1 — engine API.** `pipeline/engine.py` exposes:
-- `analyze(input_path, axis="auto", units=None) -> Analysis` — loads/repairs the mesh and
-  returns frame (detected axis + confidence), axial extent, body count, triangle count, median
-  edge length (the chord-tol suggestion), units plausibility hints — WITHOUT building geometry.
-- `rebuild(opts, on_progress=None, cancel=None) -> Result` — the full pipeline;
-  `on_progress(stage, frac, message)` called per station/stage; `cancel` is a zero-arg callable
-  checked between stations; returns the report dict + output path. Raises typed exceptions
-  mirroring CLI exit codes 2–5.
-- `rebuild.py`/`pipeline/cli.py` become thin consumers of this API. CLI behaviour must remain
-  byte-identical — the driver re-scores M1–M13 at every G gate.
-- No `gmsh` or GPL imports anywhere under `pipeline/` or `app/` (LGPL/BSD/MIT only).
-
-**G2 — the application.** `app/` is a package; `python -m app` launches the window,
-`python -m app --smoke <outdir>` runs headless (works under `QT_QPA_PLATFORM=offscreen`):
-load `harness/truth/M2.stl` (generate via `harness.generators.make("M2")` if missing),
-run `analyze` + `rebuild` through the real worker path, write `<outdir>/smoke.json`
-(`{"ok": true, "screenshots": [...], "report": {...}}`) and ≥ 3 PNG screenshots ≥ 20 KB
-(main window at launch, after analyze with the mesh in the viewport, after rebuild with the
-solid + manifest), exit 0 on success / non-zero with `ok:false` + `error` on failure.
-Layout (Ansys Mechanical reference): left **Outline** dock (Input → Detected → Stations →
-Output), **Details** dock for the selected node, central **3D viewport** (pyvistaqt
-`QtInteractor`: input STL translucent over the rebuilt solid, station planes, topology-event
-markers, axis triad), bottom **Log** dock, status bar with progress + cancel. Controls:
-input STL picker; output folder + file name; axis (auto-detected value shown, x/y/z/custom
-override — default expectation is x for Fluent); explicit units (auto-suggest, never silent);
-detected axial ends (shown, editable); slice fidelity (`--sections` + chord tol with "auto
-from mesh"); adaptive toggle; Run/Cancel; result manifest (bodies, faces, volume, min edge,
-warnings) with "reveal file". Engine runs in a `QThread` worker — the UI never blocks;
-progress and cancel are real. `tests/gui/` uses pytest-qt offscreen.
-
-**G3 — polish.** Professional engineering-software look: dark theme by default (complete QSS,
-no default-grey Qt), qtawesome icons, consistent spacing/typography, sensible empty states and
-error surfaces (a failed rebuild shows the report's `error` + partial stations, not a
-traceback). The gate is human/Fable review of the regenerated screenshots (§6.3) — expect
-feedback rounds via PROGRESS.md `## Notes from Brady`.
+Round 3 wraps the engine in a PySide6 desktop app (built-in 3D viewport, macOS + Windows,
+PyInstaller `--onedir`). It is specified when Round 2's HANDOFF is done, but the engine must be
+ready for it now: `pipeline.engine.analyze(opts)` (frame, units plausibility, extent, median edge
+length, body count — without building anything) and `pipeline.engine.rebuild(opts,
+on_progress, cancel)` returning the report dict; no logic that lives only in the CLI; no `gmsh`
+or GPL imports inside `pipeline/`; LGPL/BSD/MIT dependencies only in the shipped package.
 
 ## 11. Loop modes you may be run in (the driver tells you in the prompt header)
 
