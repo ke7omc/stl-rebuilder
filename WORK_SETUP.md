@@ -94,6 +94,17 @@ Follow `HANDOFF.md` §5 (the runbook). The short version for a typical Fluent-st
   the median edge length shown in the mesh stats.
 - Every run writes a report JSON next to the output — check `n_stations`, per-station
   diagnostics, `warnings`, and `topology_events_z_mm` before trusting the solid.
+- Every **successful** run additionally embeds a `verification` block in that report (and
+  prints a `verify ...` line per check, mirrored in the GUI's Output page): input vs produced
+  STEP **volume** (tolerance 0.5 %), per-axis **X/Y/Z bounds** (tolerance
+  max(2 × chord-tol, 0.1 % of the axial extent) — chord-tol covers the tessellation's own sag,
+  the length term covers legitimate end-pinch solving), **body count** (bodies the engine
+  actually processed vs solids in the STEP), and an **approximate sampled surface deviation**
+  (subsampled input vertices vs the solid's tessellation, tolerance 2 × chord-tol, pass gated
+  on p95). All values are mm/mm³ in the input's own frame, comparing the units-converted
+  *repaired* input mesh against the output. These checks are informational — a failing check
+  never blocks the run or changes the exit code; it flags where the solid disagrees with the
+  input beyond tolerance so you know to look before trusting it.
 - On failure the report is still written, with an `error` field and partial stations —
   read it (and HANDOFF §5's failure-mode table) before retrying with different flags.
 

@@ -4,7 +4,7 @@ import json
 
 def write(path: str, n_stations: int, stations_z_mm, paths_used: dict,
           topology_events_z_mm=None, frame: dict = None, axial_extent_mm=None,
-          axial_origin_z: float = None) -> None:
+          axial_origin_z: float = None, verification: dict = None) -> None:
     payload = {
         "n_stations": int(n_stations),
         "stations_z_mm": [float(z) for z in stations_z_mm],
@@ -23,5 +23,10 @@ def write(path: str, n_stations: int, stations_z_mm, paths_used: dict,
         # #2 found the GUI's station table was sampling the solid mesh at the wrong Z because it
         # compared report-frame Z directly against mesh-frame Z without this offset.
         payload["axial_origin_z"] = float(axial_origin_z)
+    if verification is not None:
+        # Additive end-user verification block (input mesh vs produced solid: volume, per-axis
+        # bounds, body count, approximate sampled deviation — see
+        # `pipeline.engine._compute_verification`). Not read by the frozen scorer.
+        payload["verification"] = verification
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)

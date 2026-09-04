@@ -23,7 +23,11 @@ class PropertyTree(QTreeWidget):
         self.setTextElideMode(Qt.TextElideMode.ElideNone)
 
     def set_groups(self, groups):
-        """`groups`: list of (group_title, [(label, value_str, tooltip_str_or_None), ...])."""
+        """`groups`: list of (group_title, [(label, value_str, tooltip_str_or_None), ...]).
+        A row tuple may carry an optional 4th element: a color string (e.g. "#4caf6f") applied
+        to the value column's foreground (Qt.ForegroundRole) — used by the Output page's
+        Verification group for its pass/fail/n-a glyph rows."""
+        from PySide6.QtGui import QColor
         self.clear()
         for title, rows in groups:
             group_item = QTreeWidgetItem([title, ""])
@@ -32,9 +36,13 @@ class PropertyTree(QTreeWidget):
             group_item.setFont(0, font)
             group_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             self.addTopLevelItem(group_item)
-            for label, value, tooltip in rows:
+            for row_tuple in rows:
+                label, value, tooltip = row_tuple[:3]
+                color = row_tuple[3] if len(row_tuple) > 3 else None
                 row = QTreeWidgetItem([label, str(value)])
                 row.setToolTip(1, str(tooltip) if tooltip else str(value))
+                if color:
+                    row.setForeground(1, QColor(color))
                 group_item.addChild(row)
             group_item.setExpanded(True)
         self.resizeColumnToContents(0)

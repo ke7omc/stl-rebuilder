@@ -1482,6 +1482,7 @@ def _run_multi_body(mesh, info, args, chord_tol) -> int:
         sub_args.output = os.path.join(tmpdir, f"body{i}.step")
         sub_args.report = os.path.join(tmpdir, f"body{i}.report.json")
         sub_args.stl = None
+        sub_args._skip_verification = True  # one verification block for the whole compound
         rc = _rebuild_argparse(sub_args)
         if rc != 0:
             return rc
@@ -1499,6 +1500,15 @@ def _run_multi_body(mesh, info, args, chord_tol) -> int:
     export.write_step(compound, args.output, chord_tol)
     if args.stl:
         export.write_stl(compound, args.stl, chord_tol)
+    # The compound was assembled from the already-normalised bodies, so it lives in the same
+    # frame as `mesh` — compare directly (identity transform), one block for all bodies.
+    verification = None
+    if not getattr(args, "_skip_verification", False):
+        verification = _compute_verification(
+            mesh, np.eye(4), compound, chord_tol,
+            float(mesh.bounds[1][2] - mesh.bounds[0][2]),
+            expected_bodies=len(bodies), preview_stl=args.stl)
+        _print_verification(verification)
     if args.report:
         report.write(
             args.report,
@@ -1509,6 +1519,7 @@ def _run_multi_body(mesh, info, args, chord_tol) -> int:
             frame={"axis": info["axis_unit"], "origin_xy_mm": info["origin_xy_mm"],
                    "units": args.units},
             axial_extent_mm=float(mesh.bounds[1][2] - mesh.bounds[0][2]),
+            verification=verification,
         )
     return 0
 
@@ -1520,6 +1531,202 @@ def _load_report(path: str):
             return json.load(f)
     except (OSError, ValueError):
         return None
+
+
+def _solid_tessellation(shape, preview_stl, chord_tol):
+    """Triangle mesh of the produced solid, in the solid's own (exported) frame: reuse the
+    preview STL when the run already wrote one, else tessellate to a temp file. Returns a
+    trimesh mesh or None (verification then falls back to OCP bounding boxes and skips the
+    sampled deviation check)."""
+    import trimesh
+    try:
+        if preview_stl and os.path.exists(preview_stl):
+            m = trimesh.load(preview_stl, process=False, force="mesh")
+            if len(m.faces):
+                return m
+        fd, tmp = tempfile.mkstemp(suffix=".stl", prefix="rebuild_verify_")
+        os.close(fd)
+        try:
+            export.write_stl(shape, tmp, chord_tol)
+            m = trimesh.load(tmp, process=False, force="mesh")
+        finally:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        return m if len(m.faces) else None
+    except Exception:
+        return None
+
+
+def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm: float,
+                          expected_bodies: int, preview_stl=None) -> dict:
+    """End-user verification block (report key `verification`, additive — the frozen scorer
+    only requires its known keys): compare the units-converted, repaired input mesh against the
+    produced solid, both in the ORIGINAL output frame (the STEP is exported back in the input's
+    frame via `export.undo_axis_transform`; `R_axis` is the forward transform applied to
+    `mesh`, so its inverse maps the repaired input back into that same frame). All values
+    mm / mm³. Informational only — never raises, and a failing check never changes the run's
+    exit code; on internal error the block carries an `"error"` key instead."""
+    import time
+    t0 = time.perf_counter()
+    out = {}
+    try:
+        from OCP.Bnd import Bnd_Box
+        from OCP.BRepBndLib import BRepBndLib
+        from OCP.BRepGProp import BRepGProp
+        from OCP.GProp import GProp_GProps
+        from OCP.TopAbs import TopAbs_SOLID
+        from OCP.TopExp import TopExp
+        from OCP.TopTools import TopTools_IndexedMapOfShape
+
+        if np.allclose(R_axis, np.eye(4)):
+            mesh_out = mesh
+        else:
+            mesh_out = mesh.copy()
+            mesh_out.apply_transform(np.linalg.inv(np.asarray(R_axis, dtype=float)))
+
+        # --- volume (exact BRep volume vs the repaired watertight input mesh) --------------
+        props = GProp_GProps()
+        BRepGProp.VolumeProperties_s(shape, props)
+        solid_mm3 = float(props.Mass())
+        vol_tol_pct = 0.5
+        if mesh.is_volume:
+            input_mm3 = float(abs(mesh.volume))
+            delta_pct = (abs(solid_mm3 - input_mm3) / input_mm3 * 100.0
+                         if input_mm3 > 0.0 else float("inf"))
+            out["volume"] = {"input_mm3": input_mm3, "solid_mm3": solid_mm3,
+                             "delta_pct": delta_pct, "tol_pct": vol_tol_pct,
+                             "pass": bool(delta_pct <= vol_tol_pct)}
+        else:
+            out["volume"] = {"input_mm3": None, "solid_mm3": solid_mm3, "delta_pct": None,
+                             "tol_pct": vol_tol_pct, "pass": None,
+                             "note": "input mesh not watertight — volume comparison unavailable"}
+
+        # --- bodies (post island-dropping: what the engine actually processed) -------------
+        solid_map = TopTools_IndexedMapOfShape()
+        TopExp.MapShapes_s(shape, TopAbs_SOLID, solid_map)
+        out["bodies"] = {"expected": int(expected_bodies), "solid_bodies": int(solid_map.Size()),
+                         "pass": bool(solid_map.Size() == int(expected_bodies))}
+
+        # --- bounds, per axis, in the output frame -----------------------------------------
+        solid_mesh = _solid_tessellation(shape, preview_stl, chord_tol)
+        bounds_tol_mm = max(2.0 * chord_tol, 1e-3 * float(axial_extent_mm))
+        in_b = np.asarray(mesh_out.bounds, dtype=float)
+        if solid_mesh is not None:
+            sol_b = np.asarray(solid_mesh.bounds, dtype=float)
+        else:
+            box = Bnd_Box()
+            try:
+                BRepBndLib.AddOptimal_s(shape, box, True, False)
+            except Exception:
+                BRepBndLib.Add_s(shape, box)
+            x0, y0, z0, x1, y1, z1 = box.Get()
+            sol_b = np.array([[x0, y0, z0], [x1, y1, z1]], dtype=float)
+        bounds = {}
+        for ai, ax_name in enumerate("xyz"):
+            lo_i, hi_i = float(in_b[0][ai]), float(in_b[1][ai])
+            lo_s, hi_s = float(sol_b[0][ai]), float(sol_b[1][ai])
+            max_dev = max(abs(lo_i - lo_s), abs(hi_i - hi_s))
+            bounds[ax_name] = {"input_mm": [lo_i, hi_i], "solid_mm": [lo_s, hi_s],
+                               "max_dev_mm": max_dev, "tol_mm": bounds_tol_mm,
+                               "pass": bool(max_dev <= bounds_tol_mm)}
+        out["bounds"] = bounds
+
+        # --- approximate sampled deviation (input vertices -> solid tessellation) ----------
+        # Deliberately APPROXIMATE and cheap: subsample <= 20k input vertices, KD-tree over the
+        # solid tessellation's triangle centroids for candidates, then exact point-to-triangle
+        # distance over the k nearest candidate triangles (a pure point-to-point distance would
+        # measure the tessellation's own sampling density — ~half an edge length, tens of mm on
+        # coarse CAD meshes — not deviation). Both sides carry their own chordal sag (up to
+        # ~chord_tol each), hence the 2x chord_tol tolerance and the `approx_` key names. The
+        # pass verdict gates p95, not max: the max legitimately spikes at seams/rims where the
+        # k-nearest-centroid candidate set can miss the true nearest facet.
+        if solid_mesh is not None:
+            try:
+                import trimesh as _trimesh
+                from scipy.spatial import cKDTree
+                pts = np.asarray(mesh_out.vertices, dtype=float)
+                if len(pts) > 20000:
+                    rng = np.random.default_rng(20260904)
+                    pts = pts[rng.choice(len(pts), 20000, replace=False)]
+                # BRepMesh tessellates zero-curvature directions with full-length edges (a
+                # barrel face can be a single axial-span triangle), which makes raw triangle
+                # centroids a useless candidate index: every centroid sits mid-span, so points
+                # near the ends match distant small-feature facets instead (measured on M13:
+                # p95 451 mm on a solid whose volume/bounds agree to 0.09 % / 5 mm). Subdivide
+                # long edges first so centroid spacing tracks the query scale; exactness still
+                # comes from the point-to-triangle distance over the candidates.
+                sol = solid_mesh
+                try:
+                    diag = float(np.linalg.norm(sol.extents))
+                    max_edge = max(16.0 * chord_tol, 0.01 * diag)
+                    if float(sol.edges_unique_length.max()) > max_edge:
+                        sol = sol.subdivide_to_size(max_edge, max_iter=8)
+                except Exception:
+                    sol = solid_mesh
+                centers = np.asarray(sol.triangles_center, dtype=float)
+                k = int(min(8, len(centers)))
+                _, idx = cKDTree(centers).query(pts, k=k)
+                idx = np.asarray(idx).reshape(len(pts), k)
+                rep_pts = np.repeat(pts, k, axis=0)
+                cand_tris = np.asarray(sol.triangles, dtype=float)[idx.reshape(-1)]
+                closest = _trimesh.triangles.closest_point(cand_tris, rep_pts)
+                d = np.linalg.norm(closest - rep_pts, axis=1).reshape(len(pts), k).min(axis=1)
+                dev_tol = 2.0 * chord_tol
+                p95 = float(np.percentile(d, 95))
+                out["deviation"] = {
+                    "approx_p95_mm": p95, "approx_max_mm": float(d.max()),
+                    "n_samples": int(len(pts)), "tol_mm": dev_tol,
+                    "pass": bool(p95 <= dev_tol),
+                    "note": "approximate: subsampled input vertices vs the solid's preview "
+                            "tessellation (KD-tree candidates + point-to-triangle); pass gates p95",
+                }
+            except Exception as exc:
+                out["deviation"] = {"pass": None, "error": f"{type(exc).__name__}: {exc}"}
+    except Exception as exc:
+        out["error"] = f"{type(exc).__name__}: {exc}"
+    out["elapsed_s"] = round(time.perf_counter() - t0, 3)
+    return out
+
+
+def _print_verification(v) -> None:
+    """Compact one-line-per-check stdout summary of the `verification` block. Best-effort —
+    a formatting problem must never break a successful run."""
+    try:
+        if not isinstance(v, dict):
+            return
+
+        def _status(p):
+            return "OK" if p is True else ("FAIL" if p is False else "n/a")
+
+        vol = v.get("volume")
+        if vol:
+            if vol.get("pass") is None:
+                print(f"verify volume: n/a ({vol.get('note', 'unavailable')})")
+            else:
+                print(f"verify volume: input {vol['input_mm3']:.5g} mm3 vs solid "
+                      f"{vol['solid_mm3']:.5g} mm3 (d {vol['delta_pct']:.3g}% <= "
+                      f"{vol['tol_pct']:g}%) {_status(vol['pass'])}")
+        for ax in ("x", "y", "z"):
+            b = (v.get("bounds") or {}).get(ax)
+            if b:
+                print(f"verify bounds {ax.upper()}: [{b['input_mm'][0]:.2f}, {b['input_mm'][1]:.2f}] "
+                      f"vs [{b['solid_mm'][0]:.2f}, {b['solid_mm'][1]:.2f}] mm "
+                      f"(max d {b['max_dev_mm']:.3g} <= {b['tol_mm']:.3g} mm) {_status(b['pass'])}")
+        bod = v.get("bodies")
+        if bod:
+            print(f"verify bodies: expected {bod['expected']} vs solid {bod['solid_bodies']} "
+                  f"{_status(bod['pass'])}")
+        dev = v.get("deviation")
+        if dev and dev.get("pass") is not None:
+            print(f"verify deviation (approx): p95 {dev['approx_p95_mm']:.3g} mm, max "
+                  f"{dev['approx_max_mm']:.3g} mm (p95 <= {dev['tol_mm']:.3g} mm) "
+                  f"{_status(dev['pass'])}")
+        if "error" in v:
+            print(f"verify: incomplete ({v['error']})")
+    except Exception:
+        pass
 
 
 class _StderrTee(io.TextIOBase):
@@ -2461,6 +2668,11 @@ def _rebuild_impl(args) -> int:
     export.write_step(shape, args.output, chord_tol)
     if args.stl:
         export.write_stl(shape, args.stl, chord_tol)
+    verification = None
+    if not getattr(args, "_skip_verification", False):
+        verification = _compute_verification(mesh, R_axis, shape, chord_tol, z_max - z_min,
+                                             expected_bodies=1, preview_stl=args.stl)
+        _print_verification(verification)
     if args.report:
         # Report z-values relative to `axial_origin_z` (the fore dome's theoretical R=0 apex, per
         # the generator's canonical-frame convention -- see the comment where it's solved above),
@@ -2487,6 +2699,7 @@ def _rebuild_impl(args) -> int:
                    "units": args.units},
             axial_extent_mm=z_max - z_min,
             axial_origin_z=axial_origin_z,
+            verification=verification,
         )
     _on_progress_end = getattr(args, "on_progress", None)
     if _on_progress_end is not None:

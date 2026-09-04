@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import manifest as manifest_mod
-from app.theme import ACCENT, ERROR, TEXT_DISABLED, TEXT_SECONDARY, WARNING
+from app.theme import ACCENT, ERROR, SUCCESS, TEXT_DISABLED, TEXT_SECONDARY, WARNING
 from app.viewport import Viewport
 from app.widgets import BusySpinner, PropertyTree, StationTable, axis_label, fmt_bounds, fmt_num
 from app.worker import AnalyzeWorker, RebuildWorker, run_in_thread
@@ -519,8 +519,69 @@ def _analysis_property_groups(analysis) -> list:
     ]
 
 
+def _verification_glyph(passed):
+    """(glyph, color) for a verification verdict: green check for pass, amber cross for fail,
+    grey dash for null/not-available. Failed checks are informational only — amber, not ERROR
+    red, and nothing is blocked."""
+    if passed is True:
+        return "✓", SUCCESS
+    if passed is False:
+        return "✗", WARNING
+    return "–", TEXT_DISABLED
+
+
+def _verification_group(verif: dict):
+    """The Output page's "Verification" group (engine-computed `report["verification"]`,
+    input mesh vs produced solid): one row per check, value text leading with a colored glyph
+    followed by the two measured values, the delta, and the tolerance in-line."""
+    rows = []
+    vol = verif.get("volume")
+    if vol:
+        glyph, color = _verification_glyph(vol.get("pass"))
+        if vol.get("pass") is None or vol.get("input_mm3") is None:
+            text = f"{glyph}  {vol.get('note', 'volume comparison unavailable')}"
+        else:
+            text = (f"{glyph}  {fmt_num(vol['input_mm3'] / 1e6, 3)} L vs "
+                    f"{fmt_num(vol['solid_mm3'] / 1e6, 3)} L "
+                    f"(Δ {vol['delta_pct']:.4g} % ≤ {vol['tol_pct']:g} %)")
+        rows.append(("Volume", text, str(vol), color))
+    for ax in ("x", "y", "z"):
+        b = (verif.get("bounds") or {}).get(ax)
+        if not b:
+            continue
+        glyph, color = _verification_glyph(b.get("pass"))
+        text = (f"{glyph}  {ax.upper()}: {fmt_num(b['input_mm'][0])}…{fmt_num(b['input_mm'][1])}"
+                f" vs {fmt_num(b['solid_mm'][0])}…{fmt_num(b['solid_mm'][1])} mm "
+                f"(max Δ {b['max_dev_mm']:.3g} ≤ {b['tol_mm']:.3g} mm)")
+        rows.append((f"Bounds {ax.upper()}", text, str(b), color))
+    bod = verif.get("bodies")
+    if bod:
+        glyph, color = _verification_glyph(bod.get("pass"))
+        rows.append(("Bodies",
+                     f"{glyph}  {bod['expected']} expected vs {bod['solid_bodies']} in STEP",
+                     str(bod), color))
+    dev = verif.get("deviation")
+    if dev:
+        glyph, color = _verification_glyph(dev.get("pass"))
+        if dev.get("pass") is None:
+            text = f"{glyph}  approx. deviation unavailable ({dev.get('error', 'n/a')})"
+        else:
+            text = (f"{glyph}  p95 {dev['approx_p95_mm']:.3g} mm, max "
+                    f"{dev['approx_max_mm']:.3g} mm (p95 ≤ {dev['tol_mm']:.3g} mm, approx.)")
+        rows.append(("Deviation", text, str(dev), color))
+    if "error" in verif:
+        glyph, color = _verification_glyph(None)
+        rows.append(("Note", f"{glyph}  verification incomplete: {verif['error']}",
+                     verif["error"], color))
+    return ("Verification", rows)
+
+
 def _manifest_property_groups(man: dict) -> list:
-    groups = [
+    groups = []
+    verif = man.get("verification")
+    if verif:
+        groups.append(_verification_group(verif))
+    groups += [
         ("Output", [
             ("STEP file", man.get("output_path", "-"), man.get("output_path")),
             ("Preview STL", man.get("stl_path") or "-", man.get("stl_path")),

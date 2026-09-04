@@ -21,6 +21,7 @@ def build(result, analysis=None) -> dict:
     manifest["n_stations"] = report.get("n_stations")
     manifest["topology_events_z_mm"] = report.get("topology_events_z_mm", [])
     manifest["paths_used"] = report.get("paths_used", {})
+    manifest["verification"] = report.get("verification")
     if analysis is not None:
         manifest["median_edge_length_mm"] = analysis.median_edge_length_mm
 
