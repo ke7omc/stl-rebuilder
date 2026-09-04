@@ -156,5 +156,16 @@ def write_step(shape: TopoDS_Shape, path: str, chord_tol: float = None) -> None:
 
 
 def write_stl(shape: TopoDS_Shape, path: str, chord_tol: float) -> None:
-    BRepMesh_IncrementalMesh(shape, chord_tol, False, 0.3, True).Perform()
+    """This STL is a visualization sidecar only (CLI `--stl`, the GUI's 3D preview) -- never
+    consumed by the scorer, which re-tessellates the STEP itself at its own fixed settings
+    (harness/score.py). So its angular deflection can (and should) be tuned for a clean look
+    rather than reused from `chord_tol`'s 0.3 rad: on a small-radius feature (a fillet, a
+    throat) the linear deflection `chord_tol` alone -- calibrated for the whole part's
+    engineering accuracy at large-part scale -- permits very few facets around the
+    circumference (angle-per-facet = 2*acos(1 - chord_tol/R) grows as R shrinks), which under
+    smooth-shaded specular lighting reads as a "pinwheel of fins" radiating from that feature's
+    center (Brady, 2026-09-04). A tight absolute angular cap fixes this at any radius without
+    needing to know feature sizes ahead of time.
+    """
+    BRepMesh_IncrementalMesh(shape, chord_tol, False, 0.05, True).Perform()
     StlAPI_Writer().Write(shape, str(path))

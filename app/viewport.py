@@ -185,11 +185,23 @@ class Viewport(QWidget):
         self._empty_hint.hide()
         if self._solid_actor is not None:
             self.plotter.remove_actor(self._solid_actor)
-        # smooth shading, no edge lines: on a finely tessellated preview the edge wires read
-        # as an STL mesh, defeating the point of showing a *solid* (Brady, 2026-09-04)
+        # FLAT shading, not smooth: `smooth_shading=True` makes VTK average per-vertex normals
+        # across adjacent facets (Gouraud/Phong interpolation) -- fine on the gently-curved
+        # outer wall, but at ANY bore/hole (where the mesh's radial facets all converge toward
+        # a small circle) that per-vertex normal averaging creates a spurious pinwheel of
+        # bright/dark spokes radiating from the hole under specular lighting. On a milestone
+        # whose bore already has real fin/slot geometry (e.g. M9) this reads as literally "a
+        # second set of fins" superimposed on the real ones (Brady, 2026-09-04) -- confirmed by
+        # rendering the same STL both ways: `smooth_shading=True` reproduces the pinwheel at
+        # ANY tessellation fidelity tested (0.3 down to 0.015 rad angular deflection, i.e. up
+        # to 250k triangles -- more resolution only sharpens the spokes, it doesn't remove
+        # them, since the artifact is the shading model, not facet size); flat shading (each
+        # triangle lit by its own true normal, no interpolation) removes it completely at the
+        # same tessellation `pipeline/export.py::write_stl` already produces, while the outer
+        # wall still reads as smoothly curved at that facet density.
         self._solid_actor = self.plotter.add_mesh(
-            mesh, color=SOLID_MESH_COLOR, opacity=1.0, show_edges=False, smooth_shading=True,
-            specular=0.5, ambient=0.12, diffuse=0.9,
+            mesh, color=SOLID_MESH_COLOR, opacity=1.0, show_edges=False, smooth_shading=False,
+            specular=0.1, ambient=0.25, diffuse=0.8,
             name="solid_mesh", label="Rebuilt solid")
         # once the rebuilt solid is present, the input mesh fades to a reference overlay
         # (G3 review #4); _apply_visibility owns the opacity/visibility rules incl. swap.
