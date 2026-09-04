@@ -1,10 +1,16 @@
-# HANDOFF v2 — STL → STEP rebuilder (M1–M13 PASS, MR skipped)
+# HANDOFF v3 — STL → STEP rebuilder + desktop GUI (M1–M13 PASS, MR skipped, G1–G3 PASS)
 
-Written at iteration 77 on commit `039291b`. Every number in §2 is read out of a scorer JSON on
-disk — `out/score.M1.json` … `out/score.M12.json` (the driver's iteration-76 regression sweep,
+Round 2 numbers (§2) were written at iteration 77 on commit `039291b` and are unchanged since —
+`out/score.M1.json` … `out/score.M12.json` (driver's iteration-76 regression sweep,
 2026-08-31 10:05–10:10) and `out/score.local.json` for M13 (2026-08-31 09:58). All fourteen
-report `pass: true, progress: 1.0`. Nothing below is estimated; where a number could not be
-measured it says so.
+report `pass: true, progress: 1.0`. Round 3 (§7/§8) was written at iteration 83 on commit
+`4198be5`: `tests/api -q` and `QT_QPA_PLATFORM=offscreen pytest tests/gui -q` both re-run clean
+(7/7 passed each), a fresh `QT_QPA_PLATFORM=offscreen python -m app --smoke out/gui` exited 0
+with 4 PNGs (53–208 KB) and `smoke.json.ok == true`, and the full M1–M13 selftest sweep was
+last confirmed green at iteration 82 (`SELFTEST PASSED`, 102/102 checks, 0 failures,
+`harness/selftest.py --skip-gmsh`, 494.9 s) on the same commit's `pipeline/` state — nothing in
+`pipeline/` or `app/` has changed since that sweep ran. Nothing below is estimated; where a
+number could not be measured it says so.
 
 ---
 
@@ -352,43 +358,113 @@ useful for eyeballing the result against the input in a mesh viewer).
 
 ---
 
-## 7. What Round 3 (the PySide6 GUI) needs from the engine
+## 7. `pipeline.engine` — the callable API the GUI uses (built in Round 3, G1)
 
-**There is no `pipeline.engine` module today, and no `--progress-json` flag.** MISSION §9 asks
-this section to list them; what follows is the honest gap analysis rather than a description of
-something that exists.
+Round 2's gap analysis (below the line) asked for this module; it now exists at
+`pipeline/engine.py` and is what `app/` calls. `rebuild.py`/`pipeline/cli.py` are unchanged in
+behaviour — `pipeline/cli.py::_run` is now a thin wrapper that builds the same `argparse`
+namespace `engine._rebuild_argparse` has always executed, so every number in §2 still applies
+byte-for-byte (re-verified: iteration-82's full 102/102 selftest sweep ran *after* the G1
+extraction).
 
-**Current programmatic surface.** `rebuild.py` is a four-line shim over
-`pipeline.cli.main(argv) -> int`. All orchestration lives in `pipeline/cli.py::_run(args)` — a
-~840-line function reached only through an `argparse.Namespace`, printing to stdout/stderr and
-returning an exit code. The supporting modules are importable and reasonably clean
-(`io`, `slicing`, `stations`, `fitting`, `solids`, `booleans`, `export`, `report`, `tol`), but
-the sequencing that turns a mesh into a solid is not callable except as a process.
+**`analyze(input_path, axis="auto", units=None) -> Analysis`** — loads/repairs the mesh and
+reports the frame WITHOUT building geometry: `frame_axis`, `origin_xy_mm`, `axial_extent_mm`,
+`body_count`, `is_watertight`, `triangle_count`, `median_edge_length_mm` (== the §7.2 "auto from
+mesh" chord-tol suggestion), `axis_confidence` (0..1), `units`, `n_dropped_islands`,
+`bounds_mm`. Cheap — this is what fills the GUI's Detected node before a Run is committed to.
 
-**What the GUI needs, in dependency order:**
+**`rebuild(opts, on_progress=None, cancel=None) -> Result`** — runs the full pipeline.
+`opts` is a `RebuildOptions` dataclass mirroring the CLI's argparse fields exactly (`input_stl`,
+`output`, `axis="z"`, `units="mm"`, `sections=40`, `refine_bands=None`, `adaptive=False`,
+`chord_tol=0.5`, `report=None`, `stl=None`). `on_progress(stage: str, frac: float, message: str)`
+fires at coarse stage boundaries and once per station. `cancel()` is polled between stations; if
+it returns `True`, `RebuildCancelled` is raised. On success, returns `Result(report: dict,
+output_path: str, stl_path: str | None)`. On failure it raises one of four typed exceptions,
+each carrying `.exit_code` matching the CLI's exit-code taxonomy (§5.4): `UsageOrCrashError`
+(2), `InputError` (3), `TopologyError` (4), `GeometryError` (5) — replacing "parse stderr text"
+with real exception types and messages.
 
-1. **`pipeline/engine.py` — a callable API.** Extract from `_run`:
-   `run(input_stl, *, axis, units, sections, adaptive, refine_bands, chord_tol, output, stl,
-   progress=None) -> Result`, where `Result` carries the report dict, the output paths, the exit
-   code and the collected diagnostics. The CLI then becomes a thin adapter over it. Without this
-   the GUI is stuck shelling out and scraping stdout.
-2. **`--progress-json` (and the `progress=` callback behind it).** Emit one JSON object per line
-   to a chosen stream: `{"stage": ..., "frac": 0.0–1.0, "msg": ...}` at each of the pipeline's
-   real stages — load/repair, frame resolution, station placement, slicing, loop
-   classification, event bisection, solid build, booleans, export. M13 takes 279.6 s; a GUI with
-   no progress signal over that window is unusable. The CLI flag and the in-process callback
-   should be the same mechanism.
-3. **Structured errors instead of exit codes.** Today §5.4's taxonomy is stderr text plus an
-   `int`. The GUI needs the exit code *and* the failing z, the loop counts found vs expected, and
-   the stage name, as data — i.e. always write a report, with `status: "failed"` and a
-   `failure: {code, stage, z_mm, detail}` block (limitation 4).
-4. **Cancellation.** A cooperative cancel token checked at station boundaries and before each
-   boolean. There is no way to stop a run today short of killing the process.
-5. **Intermediate geometry for preview.** The GUI will want to show stations and section polygons
-   before the (slow) solid build. `slicing`/`stations` already produce these; the engine API
-   should expose them as a first-class intermediate result rather than discarding them inside
-   `_run`.
-6. **In-process determinism.** `_run` currently assumes a fresh process (module-level caches,
-   OCP global state, `REBUILD_DEBUG_*` env flags). Before the GUI calls it repeatedly in one
-   process, verify two consecutive `engine.run()` calls on the same input produce byte-identical
-   STEPs.
+**Minimal scripted-use example** (no GUI, no subprocess):
+
+```python
+from pipeline import engine
+
+a = engine.analyze("harness/truth/M2.stl")
+print(a.frame_axis, a.axial_extent_mm, a.suggested_chord_tol_mm)
+
+opts = engine.RebuildOptions(
+    input_stl="harness/truth/M2.stl", output="/tmp/out.step",
+    axis="z", sections=40, chord_tol=0.5, report="/tmp/out.report.json",
+)
+result = engine.rebuild(
+    opts,
+    on_progress=lambda stage, frac, msg: print(f"{stage} {frac:.0%} {msg}"),
+)
+print(result.report["paths_used"], result.output_path)
+```
+
+**What is still NOT built** (honest gaps, unchanged from the Round 2 analysis, listed here so a
+future round doesn't have to re-derive them): no `--progress-json` CLI flag (the callback is
+in-process only — `app/` doesn't need a subprocess, so this was never built); the report has no
+`status`/`failure` block for a failed run (limitation 4 below still applies — a raised exception
+carries the detail, but nothing is written to disk on failure); no first-class intermediate
+result exposing pre-solid section polygons for preview (the GUI's viewport draws the *input*
+mesh and station rings from the analysis/report instead, which turned out to be sufficient for
+the G3 design bar); in-process repeat-call determinism was not explicitly tested (each `--smoke`
+run and each GUI session so far has only called `rebuild()` once per process).
+
+---
+
+## 8. Round 3 — the desktop GUI (`app/`)
+
+**Launch, from source, either OS — no packaging, no .exe.** Full setup is `WORK_SETUP.md`,
+whose §6 is the authoritative, tested launch contract; the short version:
+
+```
+.venv/bin/pip install PySide6 pyvista pyvistaqt pyqtgraph qtawesome   # (.venv\Scripts\pip on Windows)
+.venv/bin/python -m app                       # launches the window
+.venv/bin/python -m app --smoke out/gui       # headless self-check: screenshots + smoke.json, exit 0
+```
+
+`--smoke` works under `QT_QPA_PLATFORM=offscreen` (what the driver and CI-style checks use; no
+display attached, e.g. a headless machine) and without it (a real desktop). It generates
+`harness/truth/M2.stl` on demand if missing, runs `analyze()` then `rebuild()` through the real
+`QThread` worker path (`app/worker.py`), and writes:
+
+| File | What it is |
+|---|---|
+| `out/gui/smoke.json` | `{"ok": true, "screenshots": [...], "report": {...}}` — the M2 rebuild report |
+| `out/gui/01_launch.png` | Main window at launch — empty-state viewport, Input panel visible |
+| `out/gui/02_analyzed.png` | After Analyze — input mesh in the viewport, Detected node populated |
+| `out/gui/03_rebuilt.png` | After Run — rebuilt solid over the faded input mesh, legend, result manifest |
+| `out/gui/04_stations.png` | Stations node selected — per-station table (z, loops, R_outer, R_bore, class) |
+| `out/gui/M2_rebuilt.{step,report.json,preview.stl}` | The actual rebuild output from the smoke run |
+
+All four PNGs are 53–208 KB (gate: ≥ 20 KB, i.e. not a blank/black frame). Re-run the command
+above any time to regenerate them for review.
+
+**Layout** (Ansys Mechanical reference, dark QSS theme, qtawesome icons): left **Outline** dock
+(Input → Detected → Stations → Output tree), **Details** dock showing a formatted property grid
+for whatever node is selected (never raw JSON), central **3D viewport** (`pyvistaqt.QtInteractor`
+— input STL translucent over the rebuilt solid, station-plane rings, axis triad), bottom **Log**
+dock (timestamped, level-coloured), status bar with a progress bar that is hidden while idle.
+Engine calls run in `AnalyzeWorker`/`RebuildWorker` (`app/worker.py`) on a `QThread` — the main
+window's controls stay responsive during a run, and Cancel is real (cooperative, polled between
+stations via `engine.rebuild(..., cancel=...)`).
+
+**G-ladder gate results (re-run at iteration 83, commit `4198be5`):**
+
+| Gate | Command | Result |
+|---|---|---|
+| G1 | `.venv/bin/python -m pytest tests/api -q` | 7 passed |
+| G1 | full M1–M13 scorer sweep | still green (see header note above — engine extraction, byte-identical CLI) |
+| G2 | `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/gui -q` | 7 passed |
+| G2 | `QT_QPA_PLATFORM=offscreen .venv/bin/python -m app --smoke out/gui` | exit 0, `smoke.json.ok: true`, 4 PNGs ≥ 20 KB |
+| G3 | human/Fable visual review | **APPROVED** 2026-09-04 10:30 (three rounds of feedback, all addressed — see `PROGRESS.md` `## Notes from Brady`); `state/G3_APPROVED` present |
+
+**Known GUI limitation:** a failed rebuild surfaces the raised exception's message and type in
+the Log dock and a result-panel error state, but — matching engine limitation above — there is
+no on-disk `status: "failed"` report for a failed run, so a crash mid-run leaves no artifact to
+inspect afterward beyond the log text. Not exercised by any milestone or smoke run: a *very*
+long-running rebuild's Cancel button under real user timing (only the cooperative-poll code path
+is unit-tested, offscreen, with a synthetic instant cancel).

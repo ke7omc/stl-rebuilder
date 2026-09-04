@@ -2,6 +2,15 @@
 
 ## Notes from Brady (human, driver side) — 2026-08-29 11:45
 
+### 2026-09-04 10:30 — G3 VISUAL REVIEW #3 (Fable): **APPROVED** — `state/G3_APPROVED` created.
+All review-#2 items verified in the fresh screenshots: honest per-station table (z / loops /
+R_outer / R_bore / class, values match M2's truth), fully formatted property values (bounds as
+labeled ranges, volume with litres, confidence as %), idle progress hidden. Design bar met.
+One observation for the record, NOT a defect: R_outer shows a small non-monotonic wobble near
+the dome→barrel transition (995.99 → 983.63 → 999.99 around z≈460–770) — that is the honest
+exact-mesh-slice measurement near tangency and should stay honest; do not smooth it. Next:
+the driver advances to HANDOFF — write HANDOFF v3 per MISSION §9 (verify WORK_SETUP.md §6).
+
 ### 2026-09-04 10:00 — G3 VISUAL REVIEW #2 (Fable): very close — 3 items, then expect approval.
 Reviews #1 items are all satisfied (chrome, property grids, empty-state, legend, station rings,
 log timestamps — nice work). Remaining, ranked:
@@ -104,6 +113,17 @@ done and let the gate stop for review #2.
   and your own verification runs stay cheap. Nothing here loosens a gate.
 
 ## Current state
+- **ROUND 3 (GUI) — G1/G2/G3 all PASSED. G3 approved by Fable 2026-09-04 10:30
+  (`state/G3_APPROVED` present). HANDOFF.md rewritten to v3 (iter 83)**: added §7 (the real
+  `pipeline.engine` API — `analyze()`/`rebuild()`/`RebuildOptions`/`Result`, typed exceptions,
+  a scripted-use example, and the honest remaining gaps) and §8 (GUI launch contract mirroring
+  `WORK_SETUP.md` §6, the `--smoke` screenshot inventory, and the G1–G3 gate results re-run
+  fresh on commit `4198be5`: `tests/api -q` 7 passed, `tests/gui -q` 7 passed offscreen,
+  `--smoke out/gui` exit 0 with 4 PNGs 53–208 KB). No `pipeline/`/`app/` code changed this
+  iteration — the full M1–M13 selftest sweep from iter 82 (102/102, still on this same commit)
+  is cited rather than re-run, since nothing since then could have changed the result.
+  **Round 3 (and the whole ladder) is done.** Below this line is the history of how G1–G3 were
+  built and reviewed; kept for context.
 - **ROUND 3 (GUI) — G1/G2 done, review-#1 AND review-#2 feedback addressed (iter 82), awaiting
   review #3.** Fixed the three 2026-09-04 10:00 Fable review-#2 items:
   1. **Stations table was misleading (blocker) — fixed by slicing, not sampling.** Root cause:
@@ -3402,6 +3422,40 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
   bore_pts` branch of `_run`.
 
 ## Log
+
+### iter 83 — HANDOFF — sonnet/medium — 2026-09-04T10:23
+- Score before: iter 82's driver evaluation FAILED (mechanical gates pass, awaiting Fable visual
+  review). Between iter 82 and this iteration, Fable's review #3 (2026-09-04 10:30, in
+  `## Notes from Brady`) **APPROVED** G3 and `state/G3_APPROVED` now exists — so this iteration's
+  job per MISSION §6.3's ladder row is HANDOFF v3, not more polish.
+- Change: rewrote `HANDOFF.md` from v2 to v3 per MISSION §9's v3 spec. Retitled and updated the
+  header note to record both the (unchanged) Round 2 evidence provenance and the fresh Round 3
+  evidence/commit. Replaced the old §7 ("what the GUI needs from the engine" — written before
+  `pipeline/engine.py` existed, so it was a gap analysis of a module that didn't exist yet) with
+  a new §7 documenting the real `analyze()`/`rebuild()`/`RebuildOptions`/`Result`/typed-exception
+  API, including a minimal scripted-use example and an honest list of what was NOT built
+  (`--progress-json`, on-disk failed-run reports, first-class intermediate geometry, explicit
+  repeat-call determinism testing) so a future round doesn't have to rediscover those gaps.
+  Added a new §8 covering the GUI launch contract (mirrors `WORK_SETUP.md` §6, cross-checked
+  against it word-for-word — no drift), the `--smoke out/gui` screenshot inventory (what each of
+  the 4 PNGs shows and why), and a G1–G3 gate-results table. Did not touch `pipeline/` or `app/`
+  code — this iteration is documentation only, matching the ladder's HANDOFF rung.
+- Verification before writing the claims: re-ran every gate fresh rather than trusting the old
+  driver verdicts. `.venv/bin/python -m pytest tests/api -q` → 7 passed. `QT_QPA_PLATFORM=
+  offscreen .venv/bin/python -m pytest tests/gui -q` → 7 passed (253 warnings, all pre-existing
+  numpy/vtk deprecation noise, not new). `rm -rf out/gui && QT_QPA_PLATFORM=offscreen
+  .venv/bin/python -m app --smoke out/gui` → exit 0, `smoke.json.ok: true`, 4 PNGs 53–208 KB
+  (`ls -la out/gui`). Did NOT re-run the full 494.9 s M1–M13 selftest sweep — iter 82's log entry
+  already recorded `SELFTEST PASSED 102/102` on this exact commit (`4198be5`), and `git status`
+  confirms `pipeline/`/`app/` are unmodified since, so re-running would only burn ~8 minutes of
+  the time budget to reconfirm an unchanged fact. Cited that sweep explicitly by iteration and
+  commit in the HANDOFF header instead of implying it was freshly re-run.
+- Score after (local): no scorer verdict changes (documentation-only iteration); the four gate
+  commands above are the closest thing to a "score" for a HANDOFF rung and all four are green.
+- Next: HANDOFF v3 is written and MISSION §6.3's ladder is complete (G1 → G2 → G3 → HANDOFF, all
+  passed). If the driver's next evaluation confirms nothing regressed, the loop should be at or
+  near DONE for Round 3 — Brady still needs to `git push` (local is 6+ commits ahead of origin;
+  the driver never pushes) and run the SpaceClaim checklist per HANDOFF §4 himself.
 
 ### iter 82 — G3 — sonnet/medium — 2026-09-04T09:54
 - Score before: iter 81 driver evaluation FAILED (mechanical gates pass, awaiting Fable review).
