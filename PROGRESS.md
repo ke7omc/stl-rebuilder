@@ -3435,6 +3435,84 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 
+### Brady's live testing, 2026-09-05 (part 4) — Part A shipped (anchor guarantee), Gate 0 run,
+### Part B (verify-and-refine) implemented, default OFF pending final rollout
+- Brady asked for the most robust fix, said "I want the tool to be impressive," and approved a
+  full plan (`/Users/bradyhales/.claude/plans/serialized-percolating-bachman.md`, via plan mode)
+  for two pieces: Part A (deterministic anchor guarantee in `adaptive_stations`/
+  `uniform_stations`) and Part B (a verify-and-refine retry loop in `pipeline/engine.py`). Full
+  design rationale, rejected alternatives, and the station-count-gate constraints that shaped it
+  are in that plan file and in a Plan-agent design review folded into it — not re-derived here.
+- **Gate 0 measurement** (run before writing Part B, per the plan): every milestone's OWN
+  prescribed `rebuild_args`, `verification.deviation.pass` recorded fresh (nobody had checked
+  before — every existing `out/`/`logs/` report predates the `verification` feature). Result:
+  **M13 (the tightest runtime budget, 900s cap) already PASSES** (p95 2.16mm vs 16mm tol) — the
+  retry loop is a complete no-op there regardless of default. **M6 FAILS** (p95 15.3mm vs 1mm
+  tol) despite M6 passing the real frozen scorer cleanly (confirmed via today's regression) —
+  the `verification` block's own approximate KD-tree deviation measurement appears to have a
+  real precision gap on M6's lofted-star geometry (different methodology than the scorer's own
+  `surface_deviation_p99_mm`, which passes). M6 has a comfortable 300s cap and a normally-fast
+  single-pass runtime, so a wasted-but-harmless retry there is an acceptable, bounded cost, not
+  a blocker — flagged here as a separate, pre-existing measurement-precision issue worth a look
+  someday, NOT something this session's fix touches. Every other milestone already passes
+  verification. Conclusion: **safe to default `refine_passes` to 1** once Part B plumbing is
+  verified inert at default 0 — no tight-budget milestone is at real risk.
+- **Part A implemented** (`pipeline/stations.py`): `apply_anchor_stations` (move-only, never
+  insert/remove, so `n_stations_max`/`station_bands`/`dome_stations_min` gates are structurally
+  untouched) + `_detect_topology_anchors` (ranks candidate anchors by `|Δarea|`, not `|Δnloops|`,
+  so a noisy mesh's sub-mm loop-count noise bursts — confirmed on M9's real geometry — can't
+  outrank a genuine transition) + `_merge_anchors`. Wired into both `adaptive_stations` and
+  `uniform_stations` via new `chord_tol=`/`anchor_zs=`/`anchor_per_side=` parameters, all
+  defaulting to inert. `tests/test_stations.py` (13 tests) added, including a headline test on
+  M7's real ground-truth mesh (a genuine, precisely-known loop-count transition at z=7000)
+  sweeping n=20..80 and asserting the nearest station stays within `pad` at every count —
+  fails on pre-Part-A code at low n, passes now.
+- **Real regression caught and fixed during Part A verification — worth recording precisely,
+  since it's exactly the failure mode the plan's own design review predicted in the abstract and
+  it materialized for real:** the first working version of `apply_anchor_stations` moved a
+  station whenever it wasn't PERFECTLY within one `pad` of an anchor. On M12, two of its own
+  internally-detected anchors (9727mm, 9747mm — 20mm apart, both inside the tightly-gated
+  `breakthrough` band `[9600,9800]` which needs >=10 stations with, per Gate 0, ZERO headroom)
+  were already reasonably bracketed by the ordinary quantile draw (~16-20mm away, i.e. ~2.6-2.8x
+  the ~6mm pad) — "reasonably good but not perfectly tight" by design, since the anchors
+  themselves are close together and share the local station budget. Tightening both brackets
+  down to exactly `pad` concentrated stations near the two anchors and thinned the band's spread
+  enough to drop its reported count from 10 to 9, failing `station_bands` outright
+  (`harness/score.py --milestone M12` progress dropped to 0.5238). Root cause: "not already
+  covered" was the wrong trigger condition — it fires on ANY imperfection, not just a genuinely
+  bad gap. **Fix:** only intervene when the current distance exceeds `3.5x` the pad (`M8's real
+  n=40 failure was ~4.2x its own pad; M12's already-adequate brackets were ~2.6-2.8x — clean
+  separation`). Re-verified: M12 passes again (`harness/score.py` progress 1.0), M8's original
+  fix is unaffected (sections 80-250 still all pass p95≈0.32mm), and the full M1-M13 regression
+  is clean. This is the reason Part A alone took the whole "Part A alone, full sweep" rollout
+  step seriously rather than assuming a design that looked sound on paper was automatically
+  safe in practice — it wasn't, on the first attempt, and the regression gate caught it before
+  it reached Part B.
+- **Part B implemented** (`pipeline/engine.py`, `pipeline/cli.py`): `_rebuild_with_refinement`
+  wraps `_rebuild_argparse` (both the CLI path and `rebuild()`/GUI path now call it); a complete
+  no-op (`return _rebuild_argparse(args)` immediately) whenever `refine_passes<=0`, which is the
+  current default — so this is committed but **inert until the default is flipped**, matching
+  the plan's staged rollout. When enabled: runs once, reads back the stashed `verification`
+  outcome (`args._outcome`, mirroring the existing `args._partial` failure-report pattern), and
+  if `deviation.pass is False` and the worst point (frame-converted via `axial_origin_z`) isn't
+  already near a station, redistributes the SAME station budget toward it
+  (`apply_anchor_stations` via `args._anchor_zs`) and rebuilds once more, keeping whichever pass
+  has the lower `approx_p95_mm` — snapshotting/restoring `output`/`stl`/`report` so a worse or
+  crashed retry leaves pass 1's artifacts untouched. Multi-body (M11) explicitly never retries
+  (different verification frame, deferred). A `"refinement"` key is additively annotated onto
+  the report only when a retry was actually attempted. Progress bar: a relay remaps pass 1 into
+  `[0,0.9]` and a retry into `[0.9,1.0]` under a new `"refine"` stage name (not `"stations"`),
+  so `tests/api/test_engine.py`'s existing per-station monotonicity assertion is untouched for
+  the common (no-retry) case. `RebuildOptions.refine_passes: int = 0` / CLI `--refine-passes N`
+  is the escape hatch (capped internally at 1 extra pass regardless of the value given).
+  Full M1-M13 regression + `pytest tests/` (59 passed) both green with Part B present but inert.
+- **Next**: write `tests/api/test_refine.py` (the plan's 11-case list: no-op on pass, keeps
+  the improved pass, restores on worse/crash/cancel, honest never-converges reporting, skip when
+  already covered, multi-body never retries, progress monotonicity), then flip
+  `RebuildOptions.refine_passes` default to 1 and CLI's `--refine-passes` default to 1, and run
+  the full regression one more time as the final rollout gate (per Gate 0, expected to only
+  actually engage on M6, harmlessly, within its runtime budget).
+
 ### Brady's live testing, 2026-09-05 (part 3) — robustness fix + honest scope check on M9
 - Brady asked two pointed follow-ups after part 2's fix: "is that the most robust way to handle
   this?" and "will this fix help other milestone geometries as well?" Answers, with evidence:

@@ -210,6 +210,9 @@ class RebuildOptions:
     chord_tol: float = 0.5
     report: Optional[str] = None
     stl: Optional[str] = None
+    refine_passes: int = 0  # 2026-09-05: extra verify-and-refine retries beyond the first build
+                            # (see `_rebuild_with_refinement`). 0 disables -- the default while
+                            # this is being rolled out; see PROGRESS.md's Gate 0 measurement.
 
 
 def rebuild(opts: RebuildOptions, on_progress: Optional[Callable[[str, float, str], None]] = None,
@@ -228,12 +231,12 @@ def rebuild(opts: RebuildOptions, on_progress: Optional[Callable[[str, float, st
         input_stl=opts.input_stl, output=opts.output, axis=opts.axis, units=opts.units,
         sections=opts.sections, refine_bands=opts.refine_bands, adaptive=opts.adaptive,
         chord_tol=opts.chord_tol, report=opts.report, stl=opts.stl,
-        on_progress=on_progress, cancel=cancel,
+        refine_passes=opts.refine_passes, on_progress=on_progress, cancel=cancel,
     )
     stderr_buf = io.StringIO()
     try:
         with contextlib.redirect_stderr(stderr_buf):
-            code = _rebuild_argparse(args)
+            code = _rebuild_with_refinement(args)
     except RebuildCancelled:
         raise
     except Exception as exc:
@@ -1511,6 +1514,15 @@ def _run_multi_body(mesh, info, args, chord_tol) -> int:
             stations_z_mm=sorted(all_stations), topology_events_z_mm=[],
             adaptive=args.adaptive, sections=args.sections)
         _print_verification(verification)
+    # Multi-body verification uses a different frame (identity, no `axial_origin_z`
+    # subtraction) than the single-body path above -- porting a `worst_z_mm` from here through
+    # `_rebuild_with_refinement`'s single-body frame conversion would silently anchor at the
+    # wrong z, so refinement is out of scope for multi-body inputs for now (2026-09-05). Marking
+    # it explicit here is what lets the caller refuse cleanly instead of guessing.
+    _outcome = getattr(args, "_outcome", None)
+    if _outcome is not None:
+        _outcome["verification"] = verification
+        _outcome["multi_body"] = True
     if args.report:
         report.write(
             args.report,
@@ -1855,6 +1867,264 @@ def _write_failure_report(path: str, partial: dict, error: str, exit_code: int) 
         pass
 
 
+_MAX_REFINE_PASSES = 2  # 1 initial + at most 1 refinement pass -- see _rebuild_with_refinement
+
+
+class _RefineProgressRelay:
+    """Sits between `_rebuild_impl` and the caller's real `on_progress`, remapping stage names
+    and fractions across up to `_MAX_REFINE_PASSES` passes so the bar/log never goes backward
+    and a retry never looks like the run restarted from 0%. Pass 1 is squeezed into [0, 0.9] (it
+    already spends nearly all of a run's wall-clock, per-station and everything after); a retry
+    pass is relabelled "refine" (not "stations" -- `tests/api/test_engine.py` asserts the
+    `"stations"` stage fires exactly once, in strictly increasing fracs, for the common
+    no-retry case, and this relabelling is what keeps that true even when a retry runs) and
+    mapped into [0.9, 1.0]. `("done", 1.0)` is buffered and emitted exactly once, by `finish()`,
+    regardless of how many passes actually ran."""
+
+    def __init__(self, real_on_progress, refine_enabled: bool):
+        self._real = real_on_progress
+        self._enabled = refine_enabled and real_on_progress is not None
+        self._base = 0.0
+        self._last = 0.0
+        self._in_refine_pass = False
+
+    def __call__(self, stage: str, frac: float, message: str) -> None:
+        if self._real is None:
+            return
+        if not self._enabled:
+            self._real(stage, frac, message)
+            return
+        if stage == "done":
+            return  # buffered; `finish()` emits the single real "done"
+        if self._in_refine_pass:
+            mapped_stage = "refine" if stage == "stations" else stage
+            mapped_frac = 0.9 + 0.1 * max(0.0, min(1.0, frac))
+        else:
+            mapped_stage = stage
+            mapped_frac = 0.9 * max(0.0, min(1.0, frac))
+        mapped_frac = max(mapped_frac, self._last)
+        self._last = mapped_frac
+        self._real(mapped_stage, mapped_frac, message)
+
+    def begin_refine_pass(self) -> None:
+        self._in_refine_pass = True
+
+    def finish(self) -> None:
+        if self._real is not None:
+            self._real("done", 1.0, "rebuild complete")
+
+
+def _refine_anchor_from_outcome(outcome: dict | None):
+    """(engine-frame anchor z, reason-if-none) from pass 1's stashed outcome. Returns
+    `(None, reason)` when no retry is warranted: no outcome, multi-body (different verification
+    frame -- see `_run_multi_body`'s own comment), no verification computed, no deviation block,
+    deviation already passing, or deviation errored without a usable `worst_z_mm`. The frame
+    conversion (report frame -> engine frame) is the one place a mistake would silently misplace
+    every anchor on a milestone with a nonzero axial origin (M10/M13): `worst_z_mm` is reported
+    relative to `axial_origin_z`, but station z's (and `apply_anchor_stations`) are not."""
+    if not outcome:
+        return None, "no outcome captured"
+    if outcome.get("multi_body"):
+        return None, "multi-body input (refinement not yet supported for M11-shaped inputs)"
+    v = outcome.get("verification")
+    if not v:
+        return None, "no verification computed"
+    dev = v.get("deviation")
+    if not dev:
+        return None, "no deviation check in verification"
+    if dev.get("pass") is not False:
+        return None, "deviation check did not fail"
+    worst_z = dev.get("worst_z_mm")
+    if worst_z is None:
+        return None, "deviation failed but reported no worst_z_mm"
+    anchor = float(worst_z) + float(outcome.get("axial_origin_z", 0.0))
+    return anchor, ""
+
+
+def _snapshot_artifacts(paths: list) -> dict:
+    """Copy whichever of `paths` currently exist into a scratch dir, keyed by original path.
+    Best-effort: a path that doesn't exist (e.g. `--stl` wasn't requested) is simply absent from
+    the returned mapping. The scratch dir itself is returned under `"__dir__"` for cleanup."""
+    import shutil
+    scratch = tempfile.mkdtemp(prefix="rebuild_refine_snapshot_")
+    saved = {"__dir__": scratch}
+    for i, p in enumerate(paths):
+        if p and os.path.exists(p):
+            dst = os.path.join(scratch, f"{i}_{os.path.basename(p)}")
+            shutil.copy2(p, dst)
+            saved[p] = dst
+    return saved
+
+
+def _restore_artifacts(snapshot: dict) -> None:
+    import shutil
+    try:
+        for p, saved_path in snapshot.items():
+            if p == "__dir__":
+                continue
+            shutil.copy2(saved_path, p)
+    finally:
+        shutil.rmtree(snapshot.get("__dir__", ""), ignore_errors=True)
+
+
+def _discard_snapshot(snapshot: dict) -> None:
+    import shutil
+    shutil.rmtree(snapshot.get("__dir__", ""), ignore_errors=True)
+
+
+def _annotate_report_refinement(path: str, block: dict) -> None:
+    """Merge an additive top-level `"refinement"` key into an already-written report (read ->
+    update -> rewrite), preserving every other key untouched. Only ever called after the
+    keep/restore decision, since that's the only point the on-disk report and this annotation
+    can describe the same kept artifacts. Best-effort: a report a caller never asked for
+    (`args.report is None`) means there's nothing to annotate, not an error."""
+    if not path or not os.path.exists(path):
+        return
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        data["refinement"] = block
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass  # annotation is informational; never let it turn a good rebuild into a failure
+
+
+def _rebuild_with_refinement(args) -> int:
+    """Verify-and-refine: run `_rebuild_argparse` once; if its verification's deviation check
+    failed and the worst point isn't already near a station, redistribute the SAME station
+    budget toward it (`stations.apply_anchor_stations`, via `args._anchor_zs`) and rebuild once
+    more, keeping whichever pass has the lower `deviation.approx_p95_mm` -- never just the last
+    one, since denser/moved sampling has already been shown not to be reliably better (see
+    PROGRESS.md's M8 --adaptive investigation, 2026-09-05). A pass-1 PASS is a complete no-op:
+    the snapshot/compare machinery never engages and the report/STEP are byte-identical to a
+    `refine_passes=0` run.
+
+    Lives ABOVE `_rebuild_argparse`, not inside `_rebuild_impl`, so each pass gets a fully
+    independent report-on-failure run (a failing pass still writes its own failure report
+    exactly as today) and never re-enters `_rebuild_impl` while `args._partial["stations_z_mm"]`
+    -- aliased to the live station list -- is still being appended to by an earlier pass.
+
+    Multi-body inputs (M11) never retry (`_refine_anchor_from_outcome` refuses them explicitly);
+    per-body refinement and a frame-unified multi-body verification are deferred."""
+    max_passes = max(0, min(int(getattr(args, "refine_passes", 0)) + 1, _MAX_REFINE_PASSES))
+    if max_passes <= 1:
+        return _rebuild_argparse(args)
+
+    real_on_progress = getattr(args, "on_progress", None)
+    relay = _RefineProgressRelay(real_on_progress, refine_enabled=True)
+    args.on_progress = relay
+
+    args._outcome = {}
+    try:
+        code = _rebuild_argparse(args)
+    except RebuildCancelled:
+        args.on_progress = real_on_progress  # no relay.finish(): a cancelled run emits no "done"
+        raise
+    outcome1 = args._outcome
+
+    if code != 0:
+        relay.finish()
+        args.on_progress = real_on_progress
+        return code
+
+    anchor, skip_reason = _refine_anchor_from_outcome(outcome1)
+    if anchor is None:
+        relay.finish()
+        args.on_progress = real_on_progress
+        return 0  # pass 1 passed verification, or a retry wouldn't help -- complete no-op
+
+    p95_1 = ((outcome1.get("verification") or {}).get("deviation") or {}).get("approx_p95_mm")
+    stations1 = sorted(outcome1.get("stations_z_engine") or [])
+    span1 = outcome1.get("axial_extent_mm") or 1.0
+    already_covered = False
+    if len(stations1) >= 2:
+        j = int(np.searchsorted(stations1, anchor))
+        neighbors = [stations1[k] for k in (j - 1, j) if 0 <= k < len(stations1)]
+        if neighbors:
+            gap = (stations1[min(j, len(stations1) - 1)]
+                   - stations1[max(j - 1, 0)]) or (span1 / len(stations1))
+            pad = stations._anchor_pad(gap, getattr(args, "chord_tol", None), span1)
+            already_covered = min(abs(anchor - z) for z in neighbors) <= pad
+    if already_covered:
+        # The worst point already has a station essentially on top of it: a station-density
+        # retry is a guaranteed-wasted full pass (minutes, on an M13-sized part) for a failure
+        # that isn't a station-density problem.
+        relay.finish()
+        args.on_progress = real_on_progress
+        _annotate_report_refinement(getattr(args, "report", None), {
+            "max_passes": max_passes, "passes_run": 1, "kept_pass": 1, "improved": False,
+            "skipped": f"worst point at z≈{anchor:.1f} already has a station within tolerance "
+                       f"of it -- the deviation failure is not a station-density problem",
+        })
+        return 0
+
+    real_cancel = getattr(args, "cancel", None)
+    if real_cancel is not None and real_cancel():
+        relay.finish()
+        args.on_progress = real_on_progress
+        raise RebuildCancelled("cancelled before refinement pass 2/2")
+
+    snapshot_paths = [p for p in (getattr(args, "output", None), getattr(args, "stl", None),
+                                  getattr(args, "report", None)) if p]
+    snapshot = _snapshot_artifacts(snapshot_paths)
+
+    args._anchor_zs = [anchor]
+    args._anchor_per_side = 2
+    args._outcome = {}
+    args._quiet_verification = True
+    relay.begin_refine_pass()
+
+    attempts = [{"pass": 1, "n_stations": len(stations1), "deviation_p95_mm": p95_1,
+                "deviation_pass": False}]
+    try:
+        code2 = _rebuild_argparse(args)
+    except RebuildCancelled:
+        _restore_artifacts(snapshot)  # pass 1's valid result stays on disk, not a half-built pass 2
+        args.on_progress = real_on_progress  # no relay.finish(): a cancelled run emits no "done"
+        del args._anchor_zs, args._anchor_per_side, args._quiet_verification
+        raise
+    except Exception as exc:
+        _restore_artifacts(snapshot)
+        attempts.append({"pass": 2, "error": f"{type(exc).__name__}: {exc}"})
+        _annotate_report_refinement(getattr(args, "report", None), {
+            "max_passes": max_passes, "passes_run": 2, "kept_pass": 1, "improved": False,
+            "anchor_z_mm": anchor, "attempts": attempts,
+            "note": "refinement pass raised an exception; kept pass 1",
+        })
+        relay.finish()
+        args.on_progress = real_on_progress
+        del args._anchor_zs, args._anchor_per_side, args._quiet_verification
+        return 0
+
+    outcome2 = args._outcome
+    dev2 = (outcome2.get("verification") or {}).get("deviation") or {}
+    p95_2 = dev2.get("approx_p95_mm") if code2 == 0 else None
+    attempts.append({"pass": 2, "n_stations": len(outcome2.get("stations_z_engine") or []),
+                     "deviation_p95_mm": p95_2, "deviation_pass": dev2.get("pass")})
+
+    improved = code2 == 0 and p95_2 is not None and p95_1 is not None and p95_2 < p95_1
+    if improved:
+        kept, code_out = 2, code2
+        note = f"refinement improved p95 {p95_1:.4g} -> {p95_2:.4g} mm; kept pass 2"
+    else:
+        _restore_artifacts(snapshot)
+        kept, code_out = 1, code
+        note = ("refinement pass failed to build; kept pass 1" if code2 != 0 else
+                f"refinement pass did not improve p95 ({p95_1} vs {p95_2}); kept pass 1")
+    if kept == 2:
+        _discard_snapshot(snapshot)
+
+    _annotate_report_refinement(getattr(args, "report", None), {
+        "max_passes": max_passes, "passes_run": 2, "kept_pass": kept, "improved": improved,
+        "anchor_z_mm": anchor, "attempts": attempts, "note": note,
+    })
+    relay.finish()
+    args.on_progress = real_on_progress
+    del args._anchor_zs, args._anchor_per_side, args._quiet_verification
+    return code_out
+
+
 def _rebuild_argparse(args) -> int:
     """Report-on-failure wrapper around `_rebuild_impl` (MISSION §5.2 step 8 / §7.2): when
     `--report` is requested the JSON must exist on EVERY exit path — success, clean typed
@@ -1922,12 +2192,16 @@ def _rebuild_impl(args) -> int:
     # swallows the entire aft dome/slot-exit region past z=8945, per MISSION.md §5.2 step 2's
     # own note that this hard-coded inset needs a cap at 0.02*L).
     station_eps = min(max(eps_end_val, 200.0 * chord_tol), 0.02 * L)
+    _anchor_zs = getattr(args, "_anchor_zs", None)
+    _anchor_per_side = getattr(args, "_anchor_per_side", 1)
     if args.adaptive:
         zs = stations.adaptive_stations(mesh, z_min, z_max, args.sections, station_eps,
-                                         vertex_zs=mesh.vertices[:, 2])
+                                         vertex_zs=mesh.vertices[:, 2], chord_tol=chord_tol,
+                                         anchor_zs=_anchor_zs, anchor_per_side=_anchor_per_side)
     else:
         zs = stations.uniform_stations(z_min, z_max, args.sections, station_eps,
-                                        vertex_zs=mesh.vertices[:, 2])
+                                        vertex_zs=mesh.vertices[:, 2], chord_tol=chord_tol,
+                                        anchor_zs=_anchor_zs, anchor_per_side=_anchor_per_side)
 
     outer_pts = []   # (z, R) of the exterior loop
     bore_pts = []    # (z, R) of the (single) axis-centered interior loop, only while circular
@@ -2805,7 +3079,19 @@ def _rebuild_impl(args) -> int:
             preview_stl=args.stl, stations_z_mm=[z - axial_origin_z for z in zs],
             topology_events_z_mm=[z - axial_origin_z for z in topo_events_z_mm],
             axial_origin_z=axial_origin_z, adaptive=args.adaptive, sections=args.sections)
-        _print_verification(verification)
+        if not getattr(args, "_quiet_verification", False):
+            _print_verification(verification)
+    # Stash outcome details for `_rebuild_with_refinement` (mirrors the `args._partial` pattern
+    # used for failure reports below): only set when that caller actually wants it, so every
+    # other call site (CLI without refinement, `_run_multi_body`'s per-body sub-calls) leaves
+    # this dead, exactly like `_partial`.
+    _outcome = getattr(args, "_outcome", None)
+    if _outcome is not None:
+        _outcome["verification"] = verification
+        _outcome["axial_origin_z"] = float(axial_origin_z)
+        _outcome["stations_z_engine"] = [float(z) for z in zs]
+        _outcome["axial_extent_mm"] = float(z_max - z_min)
+        _outcome["multi_body"] = False
     if args.report:
         report.write(
             args.report,
