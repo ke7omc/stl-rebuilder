@@ -3435,6 +3435,57 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 
+### Brady's live testing, 2026-09-05 (part 2) — M8 --adaptive non-monotonicity ROOT-CAUSED AND FIXED
+- Brady asked directly: "did you actually solve the non-monotonic --adaptive behavior?" Answer
+  at the time: no, only worked around it with a hint. Asked to actually go solve it — this entry
+  is that fix.
+- Used an Explore agent to map every code path touching `pipeline/engine.py::_rebuild_impl`'s
+  interior-loop classification (`bore_pts`/`bore_rings`/`sat_samples`/`sat_rings`) and every
+  contributor to `topology_events_z_mm` (`zone_fore`/`zone_aft`, `event_z`, `sat_events_z_mm`,
+  `breakthrough_events`), then verified its report empirically with a standalone station-by-
+  station classification trace script against `harness/truth/M8.stl` at n=100 vs n=140.
+- **Root cause, precisely**: M8's 8 obround slots are born DETACHED at z=5850 (each its own
+  small loop growing out of the r=150 end fillet) and don't merge into one combined "gear ring"
+  with the central bore until z≈5888 — a real, geometry-defined 38 mm window
+  (`_bisect_slot_zone_edge`'s own docstring already documented this exact measurement). That
+  window is correctly and fully handled by the "mixed" bore path (`_build_slot_wedges`, called
+  with `sat_rings` directly, covering the whole zone `[zone_fore, zone_aft]` — see
+  `pipeline/engine.py:2503`). But a SEPARATE, independent mechanism (`ring_chains`, built from
+  the same `sat_rings` samples at engine.py:2088-2185) ALSO tries to build standalone
+  constant-cross-section prism cutters for any "chain" of ≥3 stations landing in that same 38 mm
+  window — and does so it whenever adaptive placement happens to be dense enough there. At
+  `--sections 100` too few stations land in the 38 mm window (0-2, dropped by the existing
+  `len(ch) < 3` sliver guard); at `--sections 140` enough land there to build the redundant
+  chains. Those chains then get boolean-CUT a second time on top of the already-correct
+  wedge/lobe cut (a genuine double-cut of the same material — the mechanism behind the worse
+  deviation at 140 vs 100 sections despite denser local station coverage), AND their bisected
+  edges (~5850, ~5888) get added to `sat_events_z_mm` alongside the correct `zone_fore`/
+  `zone_aft` (~5850, ~9650) with no cross-source dedup — producing the exact empirically-observed
+  `topology_events_z_mm = [5850, 5850, 5888, 9650]` (4 events, over M8's `topo_events_max` gate
+  of 3) instead of the correct `[5850, 9650]`.
+- **Fix** (`pipeline/engine.py`, one guard condition at the `for ch in ring_chains:` loop,
+  ~line 2142): changed `if len(ch) < 3:` to `if bore_rings or len(ch) < 3:` — whenever the mixed
+  bore path is going to run at all (`bore_rings` non-empty), no `ring_chains`-derived standalone
+  cutter is redundant with it, regardless of how many stations happen to sample the detached
+  window. The pre-existing sliver guard (`len(ch) < 3`) stays for the case where `bore_rings` is
+  empty (a hypothetical standalone slot feature with no merged bore) but the chain is still too
+  thin on its own.
+- **Verified**: M8 `--adaptive` at sections 40/60/80/100/120/140/160/200/250, chord_tol=0.9436
+  (Analyze's suggestion). 80 through 250 ALL now pass cleanly, p95 ≈ 0.32 mm, `topology_events_z_mm
+  == [5850.0, 9650.0]` (exactly 2, no duplicates) at every one of them — the non-monotonicity
+  between 100 and 140 is gone. 40 and 60 still fail (40: p95 134.8mm unchanged, genuinely too
+  coarse for 8 slots; 60: a pre-existing `BRepCheck_Analyzer` validity failure) — confirmed BOTH
+  of those also fail identically on the pre-fix code via `git stash`, so they are separate,
+  already-known low-station-count limitations, not something this fix touched or regressed.
+  Full `harness/score.py --milestone Mk` for all 13 milestones individually: all still
+  `pass: true, progress: 1.0` (M9/M12/M13 all share this exact `bore_rings`+`sat_rings` code
+  path and are unaffected/still green). `pytest tests/gui tests/api -q` → 22 passed.
+- The GUI hint text (`_deviation_hint`'s "near a topology event with --adaptive on" branch, added
+  earlier this session) is now MOSTLY moot for this specific M8 case since the actual bug is
+  fixed — left in place since it's still generically true advice for any future case where
+  adaptive placement quality does vary with station count for other reasons, and costs nothing
+  to keep.
+
 ### Brady's live testing, 2026-09-05 — M8 --adaptive non-monotonic deviation + verification hints
 - Report: running M8 (obround-slot milestone) in the GUI with `--adaptive`, `--sections 40`
   fails the deviation check, `--sections 100` passes, `--sections 140` fails again — "if it

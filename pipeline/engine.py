@@ -2140,7 +2140,26 @@ def _rebuild_impl(args) -> int:
     # makes), extended to the part's true axial extent if it spans every station, else bisected to
     # its own birth/death z (`_bisect_ring_edge`, M8's axial end fillet at z=5850/9650).
     for ch in ring_chains:
-        if len(ch) < 3:
+        if bore_rings or len(ch) < 3:
+            # `bore_rings` non-empty means the "mixed" bore path (below, `_build_slot_wedges` /
+            # `_build_slot_lobes` / `_fuse_sandwich_bore`) is going to run and consumes `sat_rings`
+            # DIRECTLY to reconstruct this exact detached-lobe window as part of one combined
+            # zone [zone_fore, zone_aft] — a chain built from the very same `sat_rings` samples
+            # here would be a SECOND, independent, cruder (constant-cross-section, not tapered)
+            # cutter for material the wedge/lobe cut already removed. At sparse adaptive
+            # placement that chain never reaches 3 stations (the old `len(ch) < 3` guard below
+            # dropped it, by luck rather than design), but denser placement (M8 --adaptive
+            # --sections 140 vs 100) can and does produce a >=3-station chain there, and this
+            # redundant prism then double-cuts the transition band AND its bisected z_lo/z_hi
+            # (~5850 and ~5888, 38 mm apart) both land in `sat_events_z_mm` alongside the
+            # correctly-computed `zone_fore`/`zone_aft` (~5850, ~9650) -- a spurious duplicate
+            # event plus a bogus extra one, and the double-cut is why quality got WORSE at 140
+            # sections despite denser local coverage than the passing 100-section run (Brady,
+            # 2026-09-05; see PROGRESS.md for the full station-by-station trace that found this).
+            # The shorter-chain case keeps its own guard for when `bore_rings` is empty (a
+            # standalone slot feature with no merged bore at all) but the chain is still too
+            # thin to trust — see that case's own comment history below.
+            #
             # A 1-2 station chain right at the edge of a merged non-circular `bore_rings` run
             # (M8's slot/bore overlap pinching to a momentary extra split before re-merging) is
             # too thin a sliver to build a robust standalone prism cutter from: its "constant
