@@ -3435,6 +3435,57 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 
+### Brady's live testing, 2026-09-05 (part 3) — robustness fix + honest scope check on M9
+- Brady asked two pointed follow-ups after part 2's fix: "is that the most robust way to handle
+  this?" and "will this fix help other milestone geometries as well?" Answers, with evidence:
+- **Robustness — no, the first version wasn't, and it's been replaced.** The committed fix
+  (`a4c6412`) skipped a `ring_chains` cutter whenever `bore_rings` was non-empty ANYWHERE on the
+  part — true for all 13 current milestones (every one with `sat_rings` at all uses it as part
+  of the same M8-family detached-lobe-merging-into-a-bore feature), but unsound in general: a
+  real burnback STL could plausibly have an unrelated non-circular bore feature in one region
+  and a genuinely separate, never-merging satellite slot elsewhere, and the global check would
+  silently drop that slot's cutter entirely — a missing hole in the output, worse than the bug
+  it fixed, and the kind of thing that would only surface on a real part, never on the synthetic
+  milestone suite. Replaced with a precise, local check: a chain is redundant only when one of
+  its own ends is ADJACENT, in the actual sampled station sequence (`all_zz`), to a `bore_rings`
+  sample — i.e. it's the immediate detached precursor/tail of a loop that merges into the bore
+  right next to it (the exact adjacency notion `_bisect_ring_edge`'s own callers already use, so
+  no re-slicing or reordering was needed to compute it). Re-verified: identical, still-correct
+  results on M8 across the same sections 40-250 sweep, and the full M1-M13 regression is still
+  all `pass:true progress:1.0` with this version. This is the version actually committed now;
+  `a4c6412`'s commit message describes the superseded global-check version — the fix itself was
+  amended in place before anyone else could build on the less robust one.
+- **Generalization — confirmed real and positive, but INCOMPLETE: M9 has a second, different
+  bug this fix does not touch.** M9 reuses M8's exact geometry (`harness/milestones.py`: "M8
+  truth reused") through this exact `bore_rings`/`sat_rings` code path, so it was the natural
+  place to check. Ran the same kind of sections sweep (60/80/100/120/160/200,
+  `--chord-tol 5`, M9's own noisy marching-cubes mesh) on the PRE-fix code via `git stash`:
+  **the identical non-monotonic pattern is there** — 60/80/120/160 all pass (p95 1.6-3.0mm),
+  but 100 and 200 both fail catastrophically (volume off by 10.5%, p95 416mm and 193mm). Popped
+  the stash and re-ran the identical sweep with the fix applied: 100 and 200 are numerically
+  IDENTICAL before and after (p95 415.657mm at n=100, byte-for-byte the same number) — proof
+  this specific fix has ZERO effect on M9's failure. So M9 does exhibit the same *symptom*
+  (--adaptive quality is not monotonic in --sections) but from what must be a DIFFERENT root
+  cause than the M8 bug just fixed: the worst-deviation locations reported (z≈7777mm, deep
+  inside the merged gear-ring zone away from either slot edge; z≈74mm, near the fore dome, nowhere
+  near any slot) don't match the fore/aft slot-transition location the fixed bug lived at, and
+  M9's own gate report showed exactly 2 clean events both times (no duplicate/spurious event,
+  unlike M8's signature) — so whatever is wrong here isn't the ring_chains double-cut. Most
+  likely candidate given M9 is specifically "a noisy, skewed marching-cubes surface": something
+  in how the adaptive station scan or a circle/ring fit reacts to the mesh's own noise at
+  specific unlucky station placements, not a topology-classification issue. NOT investigated
+  further this session (M9's mesh is ~900k triangles, each rebuild is slow, and this is a
+  separate bug from what Brady asked to fix). M9's own MILESTONE-PRESCRIBED config
+  (`--sections 80`, from `harness/milestones.py`) already passes and is unaffected either way —
+  this only matters if Brady manually experiments with different `--sections` values on M9 the
+  way he did on M8, the same way this whole investigation started.
+- **Honest summary for "will this help other milestones": yes for the exact mechanism found
+  (any milestone hitting the M8-style redundant-cutter bug is now fixed, robustly, not just
+  for the synthetic cases), but NOT a general fix for "--adaptive quality is sometimes
+  non-monotonic" as a whole — M9 alone is proof at least one other, unrelated cause of that same
+  symptom exists. If Brady wants that fully closed out, it needs its own investigation the same
+  size as this one, starting from M9's actual failure at z≈7777mm/n=100.
+
 ### Brady's live testing, 2026-09-05 (part 2) — M8 --adaptive non-monotonicity ROOT-CAUSED AND FIXED
 - Brady asked directly: "did you actually solve the non-monotonic --adaptive behavior?" Answer
   at the time: no, only worked around it with a hint. Asked to actually go solve it — this entry

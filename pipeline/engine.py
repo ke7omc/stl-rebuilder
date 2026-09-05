@@ -2139,26 +2139,43 @@ def _rebuild_impl(args) -> int:
     # (least likely to be distorted by an inset/end effect, same choice `_build_prism_bore`
     # makes), extended to the part's true axial extent if it spans every station, else bisected to
     # its own birth/death z (`_bisect_ring_edge`, M8's axial end fillet at z=5850/9650).
+    # A chain is redundant with the "mixed" bore path (below) exactly when one of its ends
+    # touches a `bore_rings` sample in the ACTUAL SAMPLED SEQUENCE (the immediately-preceding or
+    # -following station in `all_zz`, the same adjacency notion `_bisect_ring_edge`'s own callers
+    # already use) -- i.e. it's the detached precursor/tail of a loop that merges into the bore
+    # right next to it, which `_build_slot_wedges`/`_build_slot_lobes`/`_fuse_sandwich_bore`
+    # already reconstruct directly from `sat_rings` over the whole zone. Checking "any bore_rings
+    # anywhere on the part" instead (tried first) is unsound: a real part could have an unrelated
+    # non-circular bore feature in one region and a genuinely separate, never-merging satellite
+    # slot elsewhere, and that global check would silently drop its cutter -- a missing hole in
+    # the output, not just a quality regression. Adjacency in the sampled sequence is the actual
+    # distinguishing fact, is already exactly what `_bisect_ring_edge` bisects between, and needs
+    # no re-slicing or reordering to check (Brady asked "is this the most robust way", 2026-09-05
+    # -- it wasn't; this replaces the global check with this one).
+    _bore_rings_z = {z for z, _ring in bore_rings}
     for ch in ring_chains:
-        if bore_rings or len(ch) < 3:
-            # `bore_rings` non-empty means the "mixed" bore path (below, `_build_slot_wedges` /
-            # `_build_slot_lobes` / `_fuse_sandwich_bore`) is going to run and consumes `sat_rings`
-            # DIRECTLY to reconstruct this exact detached-lobe window as part of one combined
-            # zone [zone_fore, zone_aft] — a chain built from the very same `sat_rings` samples
-            # here would be a SECOND, independent, cruder (constant-cross-section, not tapered)
-            # cutter for material the wedge/lobe cut already removed. At sparse adaptive
-            # placement that chain never reaches 3 stations (the old `len(ch) < 3` guard below
-            # dropped it, by luck rather than design), but denser placement (M8 --adaptive
-            # --sections 140 vs 100) can and does produce a >=3-station chain there, and this
-            # redundant prism then double-cuts the transition band AND its bisected z_lo/z_hi
-            # (~5850 and ~5888, 38 mm apart) both land in `sat_events_z_mm` alongside the
-            # correctly-computed `zone_fore`/`zone_aft` (~5850, ~9650) -- a spurious duplicate
-            # event plus a bogus extra one, and the double-cut is why quality got WORSE at 140
-            # sections despite denser local coverage than the passing 100-section run (Brady,
-            # 2026-09-05; see PROGRESS.md for the full station-by-station trace that found this).
-            # The shorter-chain case keeps its own guard for when `bore_rings` is empty (a
-            # standalone slot feature with no merged bore at all) but the chain is still too
-            # thin to trust — see that case's own comment history below.
+        z_first, z_last = ch[0][0], ch[-1][0]
+        i_first, i_last = all_zz.index(z_first), all_zz.index(z_last)
+        touches_bore_rings = (
+            (i_first > 0 and all_zz[i_first - 1] in _bore_rings_z) or
+            (i_last < len(all_zz) - 1 and all_zz[i_last + 1] in _bore_rings_z)
+        )
+        if touches_bore_rings or len(ch) < 3:
+            # `_touches_bore_rings`: this chain's own boundary sits right next to where the mixed
+            # bore path (`_build_slot_wedges` / `_build_slot_lobes` / `_fuse_sandwich_bore`)
+            # already reconstructs the same lobe from `sat_rings` directly, covering the whole
+            # zone `[zone_fore, zone_aft]` -- a chain built here from those very same samples
+            # would be a SECOND, independent, cruder (constant-cross-section, not tapered) cutter
+            # for material the wedge/lobe cut already removed. At sparse adaptive placement that
+            # chain never reaches 3 stations (the old `len(ch) < 3` guard below dropped it, by
+            # luck rather than design), but denser placement (M8 --adaptive --sections 140 vs
+            # 100) can and does produce a >=3-station chain there, and this redundant prism then
+            # double-cuts the transition band AND its bisected z_lo/z_hi (~5850 and ~5888, 38 mm
+            # apart) both land in `sat_events_z_mm` alongside the correctly-computed
+            # `zone_fore`/`zone_aft` (~5850, ~9650) -- a spurious duplicate event plus a bogus
+            # extra one, and the double-cut is why quality got WORSE at 140 sections despite
+            # denser local coverage than the passing 100-section run (Brady, 2026-09-05; see
+            # PROGRESS.md for the full station-by-station trace that found this).
             #
             # A 1-2 station chain right at the edge of a merged non-circular `bore_rings` run
             # (M8's slot/bore overlap pinching to a momentary extra split before re-merging) is
@@ -2180,8 +2197,6 @@ def _rebuild_impl(args) -> int:
         rep_hole = ch[len(ch) // 2][3]
         r_extent = float(np.max(np.hypot(rep_hole[:, 0] - cx0, rep_hole[:, 1] - cy0)))
         match_dist = 2.0 * r_extent
-        z_first, z_last = ch[0][0], ch[-1][0]
-        i_first, i_last = all_zz.index(z_first), all_zz.index(z_last)
         if i_first == 0:
             z_lo = z_min - eps_cut_val
         else:
