@@ -3435,6 +3435,40 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 
+### Brady's live testing, 2026-09-05 (part 5) — verify-and-refine DEFAULT FLIPPED ON, shipped
+- `RebuildOptions.refine_passes` default 0->1 and CLI `--refine-passes` default 0->1 (both
+  paths — GUI/API and `rebuild.py` itself — now actually engage the retry loop by default; the
+  GUI goes through `RebuildOptions`, the frozen scorer and any direct CLI use go through the
+  argparse default, so both needed to flip for this to be a real, live feature rather than an
+  opt-in nobody would discover). `tests/api/test_refine.py` (11 tests, written first, covering
+  the retry loop's orchestration via a scripted `_compute_verification` rather than depending on
+  a specific mesh's real geometry) + full `pytest tests/` (70 passed) both green before flipping.
+- **Final full regression, default ON, with per-milestone wall-clock timing** (the number that
+  actually matters for "is this safe against the frozen scorer's `runtime_cap_s`"): all 13
+  `pass: true, progress: 1.0`. M13 (the tightest budget, 900s cap): 307s — matches its normal
+  single-pass runtime exactly, confirming ZERO retry triggered there, exactly as Gate 0
+  predicted. **M6: 67s — roughly 2x its normal ~30s runtime, confirming a retry pass DID
+  actually run** (M6 is the one milestone Gate 0 found already failing verification), comfortably
+  inside its 300s cap. Every other milestone's runtime is unremarkable (a single pass, no
+  retry). This is the live proof the feature behaves exactly as designed: invisible/free when
+  not needed, engages automatically and safely when it is, respects the runtime budget that
+  mattered from the start.
+- **What Brady gets from this, concretely:** `rebuild.py` (and the GUI) now automatically
+  detect when the reconstructed solid doesn't match the input mesh well enough, try ONE
+  redistributed-station rebuild targeted at the worst point, and keep whichever result is
+  actually better — all without the user needing to guess `--sections`, and reporting honestly
+  (a new `report["refinement"]` block) when it tried and when it didn't need to. Combined with
+  Part A's anchor guarantee, this closes the specific M8 bug from earlier today AND provides a
+  general, self-correcting safety net for whatever OTHER cause of non-monotonic quality shows
+  up next (M9's own separate, still-unexplained instability included, though not specifically
+  verified to be fixed by this — see the honest scope note in the part-3 entry above).
+- **Everything from this multi-part investigation (parts 2-5) is committed**: `a4c6412`
+  (original M8 fix, global check), `80dbc47` (replaced with the precise adjacency check),
+  `c36731e` (Part A: anchor guarantee + the M12 near-miss fix), `9a0e260` (Part B: retry loop,
+  shipped inert), `8366361` (Part B tests), and this entry's default flip. The approved
+  implementation plan is preserved for reference (not committed to the repo, lives in Claude's
+  local plan storage).
+
 ### Brady's live testing, 2026-09-05 (part 4) — Part A shipped (anchor guarantee), Gate 0 run,
 ### Part B (verify-and-refine) implemented, default OFF pending final rollout
 - Brady asked for the most robust fix, said "I want the tool to be impressive," and approved a

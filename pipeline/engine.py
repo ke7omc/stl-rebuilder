@@ -210,9 +210,12 @@ class RebuildOptions:
     chord_tol: float = 0.5
     report: Optional[str] = None
     stl: Optional[str] = None
-    refine_passes: int = 0  # 2026-09-05: extra verify-and-refine retries beyond the first build
-                            # (see `_rebuild_with_refinement`). 0 disables -- the default while
-                            # this is being rolled out; see PROGRESS.md's Gate 0 measurement.
+    refine_passes: int = 1  # 2026-09-05: extra verify-and-refine retries beyond the first build
+                            # (see `_rebuild_with_refinement`). 0 disables. Default flipped ON
+                            # after Gate 0 (PROGRESS.md) found the tightest-runtime-budget
+                            # milestone (M13) already passes verification (complete no-op there
+                            # regardless of default) and only one milestone (M6) currently
+                            # triggers a retry at all, with ample runtime headroom to spare.
 
 
 def rebuild(opts: RebuildOptions, on_progress: Optional[Callable[[str, float, str], None]] = None,

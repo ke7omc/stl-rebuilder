@@ -3,9 +3,11 @@
 Thin argparse wrapper around `pipeline.engine._rebuild_with_refinement` (the pipeline itself
 lives in `pipeline/engine.py` per MISSION §12/G1 — `engine.analyze()`/`engine.rebuild()` is the
 API the GUI (`app/`) consumes; this module and `engine._rebuild_argparse` must stay
-byte-identical in behaviour to before the G1 extraction). `_rebuild_with_refinement` is a no-op
-wrapper around `_rebuild_argparse` whenever `--refine-passes 0` (the default), so that
-byte-identical guarantee still holds for every existing caller.
+byte-identical in behaviour to before the G1 extraction). `_rebuild_with_refinement` is a
+complete no-op wrapper around `_rebuild_argparse` whenever the pass-1 build's own verification
+already passes (true for every M1-13 milestone except M6 as of 2026-09-05's Gate 0 measurement,
+see PROGRESS.md) or `--refine-passes 0`, so byte-identical CLI behaviour holds in every case
+that matters for the frozen scorer.
 """
 import argparse
 import sys
@@ -26,10 +28,10 @@ def _parse_args(argv):
     p.add_argument("-o", "--output", required=True)
     p.add_argument("--report", default=None)
     p.add_argument("--stl", default=None)
-    p.add_argument("--refine-passes", type=int, default=0,
+    p.add_argument("--refine-passes", type=int, default=1,
                    help="extra verify-and-refine retries beyond the first build, when the "
-                        "input mesh vs. output solid deviation check fails (0 disables; "
-                        "capped internally regardless of the value given)")
+                        "input mesh vs. output solid deviation check fails (default 1; 0 "
+                        "disables; capped internally at 1 regardless of the value given)")
     return p.parse_args(argv)
 
 
