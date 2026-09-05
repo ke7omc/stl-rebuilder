@@ -4,6 +4,7 @@ status bar with progress + cancel."""
 import datetime
 import html
 import os
+import textwrap
 
 import numpy as np
 import pyvista as pv
@@ -530,10 +531,32 @@ def _verification_glyph(passed):
     return "–", TEXT_DISABLED
 
 
+def _with_hint(check: dict, text: str) -> str:
+    """Hard-wrap a Verification row's status text into explicit `\\n`-separated lines (always --
+    a PASSING row's status line can be exactly as long as a failing one, e.g. a full bounds
+    comparison), then append a failed check's engine-computed fix suggestion right into the
+    visible text (not just the tooltip) -- a failure with no visible next step was exactly
+    Brady's complaint 2026-09-05: the hint was being computed but only reachable by hovering the
+    raw dict.
+
+    `PropertyTree` doesn't reflow text to the column's actual pixel width -- see its own
+    `setWordWrap` comment for why that reflow is deliberately off; every long value must arrive
+    here pre-wrapped into explicit lines, PASSING rows included, or it silently overflows the
+    column with no wrap and no elide (found 2026-09-05 verifying this same fix: wrapping only
+    the failing branch here fixed the hint but left passing Bounds rows overflowing, since they
+    never went through `textwrap.fill` at all)."""
+    wrapped_text = textwrap.fill(text, width=34, subsequent_indent="   ")
+    if check.get("pass") is False and check.get("hint"):
+        wrapped_hint = textwrap.fill(check["hint"], width=34, subsequent_indent="   ")
+        return wrapped_text + "\n↳ " + wrapped_hint
+    return wrapped_text
+
+
 def _verification_group(verif: dict):
     """The Output page's "Verification" group (engine-computed `report["verification"]`,
     input mesh vs produced solid): one row per check, value text leading with a colored glyph
-    followed by the two measured values, the delta, and the tolerance in-line."""
+    followed by the two measured values, the delta, and the tolerance in-line. A failed check
+    that carries a `hint` shows it as a second line right in the Value column."""
     rows = []
     vol = verif.get("volume")
     if vol:
@@ -544,7 +567,7 @@ def _verification_group(verif: dict):
             text = (f"{glyph}  {fmt_num(vol['input_mm3'] / 1e6, 3)} L vs "
                     f"{fmt_num(vol['solid_mm3'] / 1e6, 3)} L "
                     f"(Δ {vol['delta_pct']:.4g} % ≤ {vol['tol_pct']:g} %)")
-        rows.append(("Volume", text, str(vol), color))
+        rows.append(("Volume", _with_hint(vol, text), str(vol), color))
     for ax in ("x", "y", "z"):
         b = (verif.get("bounds") or {}).get(ax)
         if not b:
@@ -553,7 +576,7 @@ def _verification_group(verif: dict):
         text = (f"{glyph}  {ax.upper()}: {fmt_num(b['input_mm'][0])}…{fmt_num(b['input_mm'][1])}"
                 f" vs {fmt_num(b['solid_mm'][0])}…{fmt_num(b['solid_mm'][1])} mm "
                 f"(max Δ {b['max_dev_mm']:.3g} ≤ {b['tol_mm']:.3g} mm)")
-        rows.append((f"Bounds {ax.upper()}", text, str(b), color))
+        rows.append((f"Bounds {ax.upper()}", _with_hint(b, text), str(b), color))
     bod = verif.get("bodies")
     if bod:
         glyph, color = _verification_glyph(bod.get("pass"))
@@ -568,7 +591,7 @@ def _verification_group(verif: dict):
         else:
             text = (f"{glyph}  p95 {dev['approx_p95_mm']:.3g} mm, max "
                     f"{dev['approx_max_mm']:.3g} mm (p95 ≤ {dev['tol_mm']:.3g} mm, approx.)")
-        rows.append(("Deviation", text, str(dev), color))
+        rows.append(("Deviation", _with_hint(dev, text), str(dev), color))
     if "error" in verif:
         glyph, color = _verification_glyph(None)
         rows.append(("Note", f"{glyph}  verification incomplete: {verif['error']}",

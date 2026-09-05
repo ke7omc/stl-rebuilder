@@ -3435,6 +3435,105 @@ where the scorer is weaker than MISSION §7.2 asks for. Roughly highest value fi
 
 ## Log
 
+### Brady's live testing, 2026-09-05 — M8 --adaptive non-monotonic deviation + verification hints
+- Report: running M8 (obround-slot milestone) in the GUI with `--adaptive`, `--sections 40`
+  fails the deviation check, `--sections 100` passes, `--sections 140` fails again — "if it
+  passes at 100 it should pass at any number above 100." Also: a failed verification check gave
+  no visible next step (the `_deviation_hint`/`_compute_verification` hint work from the
+  previous uncommitted `pipeline/engine.py` diff was half-wired — computed but never threaded
+  through to the report, and not displayed in the GUI at all).
+- Investigated the non-monotonicity directly (`harness.generators.make("M8")` +
+  `engine.rebuild()` at n=40/100/140, chord_tol=0.9436 from `analyze()`): reproduced exactly —
+  p95 134.8mm/0.32mm/3.25mm at n=40/100/140, ALL localized to the same z≈5850mm, which is
+  M8/M9's `slot_z_lo` (the obround-slot birth plane, `harness/milestones.py:376`). Two fix
+  attempts, both empirically tested and REVERTED because they didn't help (both left in the
+  git history of this session's tool calls, not in the tree):
+  1. Decoupling `adaptive_stations`'s coarse feature-detection scan resolution (`n_scan`) from
+     `n` (was `max(4*n, 50)`, tried a fixed 2000): n=100 unchanged, n=140 unchanged (still
+     fails identically), n=40 changed to a DIFFERENT failure (BRepCheck validity error instead
+     of silently bad output) — proved the scan-resolution coupling isn't the actual driver.
+  2. Forcing minimum station coverage inside each detected topology-event band, first using the
+     event's full (data-driven, weight-bump) band — which turned out to be ~1300mm wide (13%
+     of the part) for this transition, so "some station lands in the band" was already trivially
+     true and never fired; then a tight window right at the transition's own scan cell — station
+     positions came back BYTE-IDENTICAL to before at all three n, i.e. the fix never triggered
+     because the existing quantile draw already had 1-2 stations within a couple dz of z=5850
+     at EVERY n tested, including n=40 (which still produced 267mm max deviation) and n=140
+     (denser local spacing at the transition than n=100, which passes). This rules out "not
+     enough stations near the feature" as the mechanism — n=140 is locally denser there than
+     n=100 yet fails worse. The more precise clue: n=140's own `topology_events_z_mm` contains
+     a DUPLICATE entry at the same z PLUS a spurious extra event 37mm away that n=100 doesn't
+     have — pointing at a cross-section CLASSIFICATION instability (some station near the
+     fillet/transition getting mis-classified circular-vs-not, or triggering an extra
+     birth/death split) that depends on exactly which z's a given n happens to land on, not on
+     density. This is the same class of bug Round 2's M13 iter 74-76 needed a dedicated
+     escalated investigation to root-cause (see the Aug 31 log entries) — a real fix belongs in
+     a similar focused pass, not a guess made in an interactive support session, so nothing in
+     `pipeline/stations.py` changed; it's back to exactly what iter 78 (G1) shipped.
+- What DID ship (`pipeline/engine.py`, `app/main_window.py`, `app/widgets.py`): finished wiring
+  the verification hint feature that was left half-done in the tree from an earlier
+  (uncommitted, unattributed) session. `_compute_verification`'s two call sites now pass
+  `stations_z_mm`/`topology_events_z_mm`/`adaptive`/`sections` through (previously always
+  `None`, so `_deviation_hint` could never say "near a topology event" or give sections-aware
+  advice). `_deviation_hint` now has a SPECIFIC branch for "near a topology event AND adaptive
+  already on": instead of "increase --sections" (which the M8 investigation above proved is not
+  reliable advice right at a sharp transition), it says so explicitly and suggests trying values
+  in both directions. Shortened all three hints (volume/bounds/deviation) from full paragraphs
+  to one concise clause each — verified in the GUI that the original long-form text got clipped
+  regardless of length, which led to the real widget bug below.
+- Real bug found and fixed in `app/widgets.py::PropertyTree`: a failed check's hint was
+  computed correctly but silently invisible in the GUI (buried in the tooltip only). Fixing the
+  *display* took three real, verified-by-rendering rounds, because `PropertyTree` had a latent
+  multi-line-value bug no one had hit before (previous long values were short enough, or fixed
+  3-line `fmt_bounds` output, to not trigger it): (1) `setWordWrap(True)`'s automatic row-height
+  growth silently caps out and clips text even with `ElideNone` set, once ANY stylesheet is
+  applied to the tree (confirmed: a plain, unstyled `PropertyTree` wraps a 6-line value
+  correctly; the SAME text clips under the app's real QSS theme) — worked around by computing
+  each row's height ourselves from its line count instead of trusting the delegate. (2) That
+  per-line height itself needed a 1.5x fudge factor: text mixing in glyphs the base font doesn't
+  cover (✗ ↳ Δ ≤) renders from a taller fallback font than `fontMetrics().lineSpacing()`
+  reports, measured empirically (1.0x clipped a 6-line value's last line, 1.5x didn't). (3) Once
+  rows were correctly sized in isolation, a SECOND row's wrapped hint still clipped in the full
+  tree — Qt's own per-pixel word-wrap was ALSO active alongside our own explicit `\n`-wrapping,
+  and it disagreed with our line count whenever the real column came out narrower than our
+  wrap-width guess (a live check found the actual column ~257px / ~42 chars at 1500x950, right
+  at our first guess's edge case). Fixed by turning `setWordWrap` OFF entirely (nothing in this
+  codebase's multi-line values relies on Qt's reflow — `fmt_bounds` and the new hint code both
+  already emit explicit `\n`) and narrowing the wrap width to 34 chars for headroom, and by
+  wrapping EVERY status line through the same helper (not just failing ones — a passing Bounds
+  row's status text is just as long and was overflowing unwrapped once Qt's own reflow was
+  turned off).
+- Verified end-to-end through the real production code path (`RebuildWorker` -> `_on_rebuilt`,
+  not a shortcut), not just unit-level: rendered the actual M8/n=40 failing case in an offscreen
+  GUI window and read back the screenshot at each of the three fix iterations above to confirm
+  the clipping was actually gone, not just theoretically fixed.
+- Score after: `pytest tests/gui tests/api -q` → 22 passed (offscreen). Full `pytest tests/` →
+  46 passed / 1 environmental (see below). M1–M13 via `harness/score.py --milestone Mk`
+  individually → all 13 `pass: true, progress: 1.0`, unchanged.
+- False alarm, recorded so it isn't re-investigated: a first full-suite run showed
+  `tests/test_selftest.py::test_every_m1_check_passes_and_missing_generators_block_the_freeze`
+  FAILING on "M9: too many spurious topology events" (22 events reported instead of the
+  expected rejection). That check doesn't even go through this session's changed code
+  (`_score_with_step` fakes the pipeline with an `_ideal_report`, bypassing `pipeline/engine.py`
+  entirely) — traced it to running a `harness/score.py --milestone M9` regression check in a
+  background shell AT THE SAME TIME as the pytest suite, both hitting `harness/score.py`'s
+  `_truth_hidden()` (renames `harness/truth/` aside for a pipeline subprocess, moves it back in
+  a `finally`) concurrently — the same rename-based mechanism that left the two orphaned
+  `.truth_hidden_<pid>` directories found and fixed earlier this session
+  ([[project_stl_rebuilder]]-adjacent note: still not process-safe). Confirmed by reproduction:
+  the single test passed cleanly (`1 passed in 584s`) both on the pre-session commit and on
+  today's changes once run with nothing else touching `harness/truth/` concurrently. Lesson: on
+  this repo, never run a milestone regression check and the pytest suite (or two milestone
+  checks) at the same time — `harness/score.py`'s truth-hiding is not safe for concurrent
+  processes.
+- Next: if the M8 --adaptive non-monotonicity is worth fixing properly (not just documenting via
+  the hint), it needs a dedicated escalated-style investigation into WHY the topology-event
+  classification flips near a fillet/slot transition depending on exact station z's — start by
+  reproducing the n=140 spurious-duplicate-event with `REBUILD_DEBUG_M13`-style tracing at the
+  specific stations bracketing z=5850/5888, the same way iter 74 root-caused M13's sandwich-path
+  bug. Until then, the GUI hint tells the user the honest, verified-true thing: try nearby
+  --sections values in both directions, don't assume higher is strictly better.
+
 ### iter 84 — HANDOFF — opus/medium — 2026-09-04T10:38
 - Score before: iter 83's driver evaluation PASSED (g3-gate, all checks). `HANDOFF.md` v3 already
   written and committed at `3521ee4`; working tree clean. So the marginal-value question for this

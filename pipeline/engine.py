@@ -1507,7 +1507,9 @@ def _run_multi_body(mesh, info, args, chord_tol) -> int:
         verification = _compute_verification(
             mesh, np.eye(4), compound, chord_tol,
             float(mesh.bounds[1][2] - mesh.bounds[0][2]),
-            expected_bodies=len(bodies), preview_stl=args.stl)
+            expected_bodies=len(bodies), preview_stl=args.stl,
+            stations_z_mm=sorted(all_stations), topology_events_z_mm=[],
+            adaptive=args.adaptive, sections=args.sections)
         _print_verification(verification)
     if args.report:
         report.write(
@@ -1559,8 +1561,63 @@ def _solid_tessellation(shape, preview_stl, chord_tol):
         return None
 
 
+def _deviation_hint(worst_z: float, stations_z_mm, topology_events_z_mm,
+                    adaptive, sections) -> str:
+    """Actionable one-liner for a FAILED deviation check: where the worst sample sits (near a
+    detected topology event? in a wide gap between stations?) and the concrete knobs to turn.
+    All z values are in the report frame — the same one `stations_z_mm` and
+    `topology_events_z_mm` are reported in. Best-effort: any missing context just drops that
+    clause."""
+    parts = [f"worst deviation at z≈{worst_z:.0f} mm"]
+    gap = None
+    st = np.sort(np.asarray(stations_z_mm, dtype=float)) if stations_z_mm else None
+    if st is not None and len(st) >= 2:
+        i = int(np.searchsorted(st, worst_z))
+        if i <= 0:
+            gap = float(st[1] - st[0])
+        elif i >= len(st):
+            gap = float(st[-1] - st[-2])
+        else:
+            gap = float(st[i] - st[i - 1])
+    near_event = False
+    if topology_events_z_mm:
+        ev = min(topology_events_z_mm, key=lambda e: abs(e - worst_z))
+        span = float(st[-1] - st[0]) if st is not None and len(st) >= 2 else 0.0
+        near_tol = max(2.0 * (gap or 0.0), 0.03 * span)
+        if abs(ev - worst_z) <= near_tol:
+            near_event = True
+            parts.append(f"near the topology event at z≈{ev:.0f} mm")
+    loc = ", ".join(parts)
+    if gap is not None:
+        loc += f", spacing {gap:.0f} mm"
+    if near_event and adaptive:
+        # A sharp topology-event transition (a slot/hole birth-death plane, an end fillet) is a
+        # KNOWN sensitivity, not "just add more stations": `--adaptive` redraws its whole station
+        # set from scratch for every `--sections` value (a coarse feature-detection rescan plus a
+        # fresh quantile-of-CDF resample), so which stations land tightly around a sharp
+        # transition is not a strict refinement as the count grows -- measured directly on M8:
+        # --adaptive --sections 40 fails here, 100 passes, 140 fails again, worse than 100 despite
+        # denser LOCAL spacing at the transition than 100 has. So "increase --sections" is not
+        # reliable local advice; the practical fix is to try nearby values in both directions.
+        lower = max(int(0.7 * sections), 2) if sections else "a lower"
+        upper = int(1.3 * sections) if sections else "a higher"
+        return (f"{loc} — --adaptive isn't reliably better with more --sections here; "
+                f"try {lower} or {upper} instead of just increasing it")
+    remedies = []
+    if adaptive is False:
+        remedies.append("try --adaptive")
+    if sections:
+        remedies.append(f"more --sections (e.g. {2 * int(sections)})")
+    else:
+        remedies.append("more --sections")
+    remedies.append("check --chord-tol vs. the mesh's chordal sag")
+    return loc + " — " + ", ".join(remedies)
+
+
 def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm: float,
-                          expected_bodies: int, preview_stl=None) -> dict:
+                          expected_bodies: int, preview_stl=None, stations_z_mm=None,
+                          topology_events_z_mm=None, axial_origin_z: float = 0.0,
+                          adaptive=None, sections=None) -> dict:
     """End-user verification block (report key `verification`, additive — the frozen scorer
     only requires its known keys): compare the units-converted, repaired input mesh against the
     produced solid, both in the ORIGINAL output frame (the STEP is exported back in the input's
@@ -1598,6 +1655,10 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
             out["volume"] = {"input_mm3": input_mm3, "solid_mm3": solid_mm3,
                              "delta_pct": delta_pct, "tol_pct": vol_tol_pct,
                              "pass": bool(delta_pct <= vol_tol_pct)}
+            if not out["volume"]["pass"]:
+                out["volume"]["hint"] = (
+                    "missing/extra material — try more --sections, --adaptive, or check "
+                    "--chord-tol against the mesh's chordal sag (Analyze suggests one)")
         else:
             out["volume"] = {"input_mm3": None, "solid_mm3": solid_mm3, "delta_pct": None,
                              "tol_pct": vol_tol_pct, "pass": None,
@@ -1631,6 +1692,10 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
             bounds[ax_name] = {"input_mm": [lo_i, hi_i], "solid_mm": [lo_s, hi_s],
                                "max_dev_mm": max_dev, "tol_mm": bounds_tol_mm,
                                "pass": bool(max_dev <= bounds_tol_mm)}
+            if not bounds[ax_name]["pass"]:
+                bounds[ax_name]["hint"] = (
+                    f"check --axis (is the motor axis really {ax_name.upper()}?) and --units "
+                    f"— a wrong one rotates/rescales the whole part")
         out["bounds"] = bounds
 
         # --- approximate sampled deviation (input vertices -> solid tessellation) ----------
@@ -1675,13 +1740,25 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
                 d = np.linalg.norm(closest - rep_pts, axis=1).reshape(len(pts), k).min(axis=1)
                 dev_tol = 2.0 * chord_tol
                 p95 = float(np.percentile(d, 95))
+                # Axial location of the worst sample, in the report frame (`stations_z_mm`'s
+                # own coordinate system): the sample lives in the ORIGINAL output frame, so map
+                # it forward through R_axis into the engine frame, then subtract the report's
+                # axial origin — this is what lets a failed check say WHERE it failed.
+                worst_pt = pts[int(np.argmax(d))]
+                z_eng = float((np.asarray(R_axis, dtype=float)
+                               @ np.append(worst_pt, 1.0))[2])
+                worst_z = z_eng - float(axial_origin_z or 0.0)
                 out["deviation"] = {
                     "approx_p95_mm": p95, "approx_max_mm": float(d.max()),
+                    "worst_z_mm": worst_z,
                     "n_samples": int(len(pts)), "tol_mm": dev_tol,
                     "pass": bool(p95 <= dev_tol),
                     "note": "approximate: subsampled input vertices vs the solid's preview "
                             "tessellation (KD-tree candidates + point-to-triangle); pass gates p95",
                 }
+                if not out["deviation"]["pass"]:
+                    out["deviation"]["hint"] = _deviation_hint(
+                        worst_z, stations_z_mm, topology_events_z_mm, adaptive, sections)
             except Exception as exc:
                 out["deviation"] = {"pass": None, "error": f"{type(exc).__name__}: {exc}"}
     except Exception as exc:
@@ -1700,6 +1777,10 @@ def _print_verification(v) -> None:
         def _status(p):
             return "OK" if p is True else ("FAIL" if p is False else "n/a")
 
+        def _hint(check):
+            if check.get("pass") is False and check.get("hint"):
+                print(f"  hint: {check['hint']}")
+
         vol = v.get("volume")
         if vol:
             if vol.get("pass") is None:
@@ -1708,12 +1789,14 @@ def _print_verification(v) -> None:
                 print(f"verify volume: input {vol['input_mm3']:.5g} mm3 vs solid "
                       f"{vol['solid_mm3']:.5g} mm3 (d {vol['delta_pct']:.3g}% <= "
                       f"{vol['tol_pct']:g}%) {_status(vol['pass'])}")
+                _hint(vol)
         for ax in ("x", "y", "z"):
             b = (v.get("bounds") or {}).get(ax)
             if b:
                 print(f"verify bounds {ax.upper()}: [{b['input_mm'][0]:.2f}, {b['input_mm'][1]:.2f}] "
                       f"vs [{b['solid_mm'][0]:.2f}, {b['solid_mm'][1]:.2f}] mm "
                       f"(max d {b['max_dev_mm']:.3g} <= {b['tol_mm']:.3g} mm) {_status(b['pass'])}")
+                _hint(b)
         bod = v.get("bodies")
         if bod:
             print(f"verify bodies: expected {bod['expected']} vs solid {bod['solid_bodies']} "
@@ -1723,6 +1806,7 @@ def _print_verification(v) -> None:
             print(f"verify deviation (approx): p95 {dev['approx_p95_mm']:.3g} mm, max "
                   f"{dev['approx_max_mm']:.3g} mm (p95 <= {dev['tol_mm']:.3g} mm) "
                   f"{_status(dev['pass'])}")
+            _hint(dev)
         if "error" in v:
             print(f"verify: incomplete ({v['error']})")
     except Exception:
@@ -2668,22 +2752,27 @@ def _rebuild_impl(args) -> int:
     export.write_step(shape, args.output, chord_tol)
     if args.stl:
         export.write_stl(shape, args.stl, chord_tol)
+    # Report z-values relative to `axial_origin_z` (the fore dome's theoretical R=0 apex, per
+    # the generator's canonical-frame convention -- see the comment where it's solved above),
+    # not our internally-arbitrary z=0, so `stations_z_mm`/`topology_events_z_mm` land in the
+    # same axial coordinate system the scorer's hidden ground-truth frame uses (MISSION §5.5.1
+    # frame normalisation; matters once the input has a nonzero axial origin, e.g. M10). Computed
+    # here (before `_compute_verification`, not just at `report.write` below) so a failed
+    # deviation check's hint can say whether the worst point sits near a real topology event.
+    topo_events_z_mm = sorted(
+        ([zone_fore, zone_aft] if zone_fore is not None
+         else ([event_z] if event_z is not None else [])) + sat_events_z_mm
+        + breakthrough_events
+    )
     verification = None
     if not getattr(args, "_skip_verification", False):
-        verification = _compute_verification(mesh, R_axis, shape, chord_tol, z_max - z_min,
-                                             expected_bodies=1, preview_stl=args.stl)
+        verification = _compute_verification(
+            mesh, R_axis, shape, chord_tol, z_max - z_min, expected_bodies=1,
+            preview_stl=args.stl, stations_z_mm=[z - axial_origin_z for z in zs],
+            topology_events_z_mm=[z - axial_origin_z for z in topo_events_z_mm],
+            axial_origin_z=axial_origin_z, adaptive=args.adaptive, sections=args.sections)
         _print_verification(verification)
     if args.report:
-        # Report z-values relative to `axial_origin_z` (the fore dome's theoretical R=0 apex, per
-        # the generator's canonical-frame convention -- see the comment where it's solved above),
-        # not our internally-arbitrary z=0, so `stations_z_mm`/`topology_events_z_mm` land in the
-        # same axial coordinate system the scorer's hidden ground-truth frame uses (MISSION §5.5.1
-        # frame normalisation; matters once the input has a nonzero axial origin, e.g. M10).
-        topo_events_z_mm = sorted(
-            ([zone_fore, zone_aft] if zone_fore is not None
-             else ([event_z] if event_z is not None else [])) + sat_events_z_mm
-            + breakthrough_events
-        )
         report.write(
             args.report,
             n_stations=len(zs),

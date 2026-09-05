@@ -1,6 +1,6 @@
 """Reusable read-only display widgets for the Details dock (G3 visual-review fix #1: never show
 raw JSON to the user -- grouped, human-formatted property rows with the raw value in a tooltip)."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QHeaderView, QTreeWidget, QTreeWidgetItem
 
 
@@ -16,9 +16,15 @@ class PropertyTree(QTreeWidget):
         self.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         # G3 review #2 item 2: long values ("Bounds [[-999.75...", "Paths used: ...") were
-        # truncated by the fixed row height with no wrap. Word-wrap the value column and let
-        # rows grow to fit instead of eliding.
-        self.setWordWrap(True)
+        # truncated by the fixed row height with no wrap. Every multi-line value in this class
+        # is pre-wrapped into explicit "\n"-separated lines by its caller (`fmt_bounds`, and
+        # `main_window._with_hint`) rather than relying on Qt's own per-pixel reflow -- so
+        # `setWordWrap` stays OFF: turning it on let Qt ALSO re-wrap an already-wrapped long
+        # line a second time whenever the real column came out narrower than the caller's wrap
+        # width guessed, silently invalidating the line count `set_groups` uses to size the row
+        # (found while adding the verification "hint" line, 2026-09-05: correct in isolation,
+        # clipped once real column widths made Qt's second wrap pass add extra lines). Explicit
+        # "\n"s still render as separate lines with word-wrap off -- only reflow is disabled.
         self.setUniformRowHeights(False)
         self.setTextElideMode(Qt.TextElideMode.ElideNone)
 
@@ -39,16 +45,38 @@ class PropertyTree(QTreeWidget):
             for row_tuple in rows:
                 label, value, tooltip = row_tuple[:3]
                 color = row_tuple[3] if len(row_tuple) > 3 else None
-                row = QTreeWidgetItem([label, str(value)])
-                row.setToolTip(1, str(tooltip) if tooltip else str(value))
+                value_str = str(value)
+                row = QTreeWidgetItem([label, value_str])
+                row.setToolTip(1, str(tooltip) if tooltip else value_str)
                 if color:
                     row.setForeground(1, QColor(color))
                 group_item.addChild(row)
+                # Word-wrap's automatic row-height growth is unreliable once a stylesheet is
+                # applied to this widget (Qt/QSS switches to the CSS item delegate, whose
+                # wrapped-text sizeHint calculation silently caps out after ~2-3 lines and
+                # elides the rest even with ElideNone set) -- found while adding the
+                # verification "hint" line, which was being cut off no matter how short it was
+                # made (Brady, 2026-09-05). Compute the height ourselves from the line count
+                # instead of trusting the delegate's own wrap sizeHint. The 1.5x isn't slack --
+                # our status/hint text mixes in glyphs (✗ ↳ Δ ≤) the base font doesn't cover, so
+                # Qt renders those runs from a taller fallback font than `lineSpacing()`
+                # reports; measured empirically (a 6-line value clipped its last line at 1.0x
+                # and rendered complete at 1.5x).
+                n_lines = value_str.count("\n") + 1
+                if n_lines > 1:
+                    line_h = self.fontMetrics().lineSpacing()
+                    row.setSizeHint(1, QSize(0, int(n_lines * line_h * 1.5) + 10))
             group_item.setExpanded(True)
         self.resizeColumnToContents(0)
         # Cap the label column so long group headers ("Suggested run settings") can't eat the
         # width the Value column needs to wrap readably (G3 review #2 item 2).
         self.setColumnWidth(0, min(self.columnWidth(0), 130))
+        # Force a full relayout after every row's sizeHint is set: setting several rows'
+        # non-uniform sizeHints back-to-back in this loop left later rows' positions computed
+        # from a stale layout (a row could report the CORRECT sizeHint on its own yet still get
+        # clipped in-place -- verified by rendering it as the tree's only row, where it was
+        # fine) -- found the same day as the sizeHint fix above.
+        self.doItemsLayout()
 
 
 def fmt_bounds(bounds_mm) -> str:
