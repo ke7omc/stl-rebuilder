@@ -48,3 +48,31 @@ def test_no_verification_group_when_absent(qtbot):
     man = {"output_path": "out.step", "stl_path": None, "warnings": []}
     groups = _manifest_property_groups(man)
     assert groups[0][0] == "Output"
+
+
+def test_watertight_row_shown_first_when_present(qtbot):
+    """Brady, 2026-09-06: "the end verification in the details pane should also state if it
+    passed watertight verification" -- a Watertight row, leading the Verification group."""
+    verif = dict(_VERIF, watertight={"pass": True})
+    man = {"output_path": "out.step", "stl_path": None, "warnings": [], "verification": verif}
+    groups = _manifest_property_groups(man)
+    tree = PropertyTree()
+    qtbot.addWidget(tree)
+    tree.set_groups(groups)
+    top = tree.topLevelItem(0)
+    assert top.child(0).text(0) == "Watertight"
+    assert top.child(0).text(1).startswith("✓")
+    assert top.child(0).foreground(1).color().name() == QColor(SUCCESS).name()
+
+
+def test_not_watertight_row_shown_as_a_failure(qtbot):
+    verif = dict(_VERIF, watertight={"pass": False})
+    man = {"output_path": "out.step", "stl_path": None, "warnings": [], "verification": verif}
+    groups = _manifest_property_groups(man)
+    tree = PropertyTree()
+    qtbot.addWidget(tree)
+    tree.set_groups(groups)
+    top = tree.topLevelItem(0)
+    assert top.child(0).text(0) == "Watertight"
+    assert "NOT watertight" in top.child(0).text(1)
+    assert top.child(0).foreground(1).color().name() == QColor(WARNING).name()

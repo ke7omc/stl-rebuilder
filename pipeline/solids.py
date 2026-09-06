@@ -257,8 +257,13 @@ def build_filleted_wedge_solid(z_lo: float, z_hi: float, r_in: float, r_out: flo
         pm = gp_Pnt(cr + bis[0], 0.0, cz + bis[1])
         return BRepBuilderAPI_MakeEdge(GC_MakeArcOfCircle(p0, pm, p1).Value()).Edge()
 
-    f_lo = max(0.0, min(f_lo, 0.5 * (z_hi - z_lo), 0.5 * (r_out - r_in)))
-    f_hi = max(0.0, min(f_hi, 0.5 * (z_hi - z_lo), 0.5 * (r_out - r_in)))
+    # A fillet clamped to *exactly* half the axial/radial span makes two meridian corners
+    # coincide (e.g. p1 == p8 when f_lo == 0.5*(r_out-r_in)), and the unguarded MakeEdge on a
+    # zero-length edge below throws Standard_Failure. `margin` keeps the clamp a hair short of
+    # that boundary instead, mirroring the `radius <= 1.0e-9` epsilon already used in arc_or_line.
+    margin = 1.0e-6
+    f_lo = max(0.0, min(f_lo, 0.5 * (z_hi - z_lo) - margin, 0.5 * (r_out - r_in) - margin))
+    f_hi = max(0.0, min(f_hi, 0.5 * (z_hi - z_lo) - margin, 0.5 * (r_out - r_in) - margin))
 
     p1, p2 = P(r_in + f_lo, z_lo), P(r_in, z_lo + f_lo)
     p3, p4 = P(r_in, z_hi - f_hi), P(r_in + f_hi, z_hi)

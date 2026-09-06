@@ -313,8 +313,33 @@ QScrollBar::add-line, QScrollBar::sub-line {{
     width: 0;
 }}
 
+/* Explicit width/height on the handle -- as soon as a stylesheet touches QSplitter::handle at
+   all, Qt stops using the platform style's own (normally comfortably wide) grab metrics and
+   falls back to a sliver only ~1px wide, which is there to see but not really there to grab
+   (Brady, 2026-09-06). 6px keeps the line about as subtle as before while actually being
+   clickable; the same fix is mirrored below for QMainWindow's own dock-vs-central-widget
+   separator, which is a completely different Qt mechanism from QSplitter and needs its own
+   rule. */
 QSplitter::handle {{
     background-color: {BORDER};
+}}
+QSplitter::handle:hover {{
+    background-color: {ACCENT};
+}}
+QSplitter::handle:vertical {{
+    height: 6px;
+}}
+QSplitter::handle:horizontal {{
+    width: 6px;
+}}
+
+QMainWindow::separator {{
+    background-color: {BORDER};
+    width: 6px;
+    height: 6px;
+}}
+QMainWindow::separator:hover {{
+    background-color: {ACCENT};
 }}
 
 QMessageBox {{

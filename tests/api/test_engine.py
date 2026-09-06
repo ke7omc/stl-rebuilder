@@ -65,6 +65,12 @@ def test_rebuild_reports_progress_per_station(m1_stl, tmp_path):
     station_fracs = [frac for stage, frac in stages if stage == "stations"]
     assert len(station_fracs) == 6
     assert station_fracs == sorted(station_fracs)
+    # "build" covers the previously-silent post-sectioning tail (chain matching, boolean cuts,
+    # export, verification) -- must fire and stay monotonic within itself, same contract as
+    # "stations" above.
+    build_fracs = [frac for stage, frac in stages if stage == "build"]
+    assert len(build_fracs) >= 3
+    assert build_fracs == sorted(build_fracs)
 
 
 def test_rebuild_cancel_raises_and_stops_early(m1_stl, tmp_path):
@@ -176,3 +182,84 @@ def test_analyze_suggested_chord_tol_is_sag_based():
     a = engine.analyze("harness/truth/M8.stl", axis="z", units="mm")
     assert 0.1 <= a.suggested_chord_tol_mm <= 1.0
     assert a.median_edge_length_mm > 20.0  # the raw median-edge metric itself is unchanged
+
+
+def test_invalid_final_solid_always_has_an_actionable_hint(tmp_path):
+    """Regression test for a real incident (2026-09-06): M8 at --sections 40 --adaptive with
+    --chord-tol 0.5 (the GUI's raw spinbox default, used because Analyze was never run so the
+    ~0.94mm mesh-appropriate value was never computed) failed BRepCheck_Analyzer's final
+    validity check with NO hint at all -- a bare "failed validity check" message. Brady hit this
+    same bare-message gap at least three times. Every exit path from that failure must now
+    leave an actionable next step, not just report that it failed."""
+    opts = engine.RebuildOptions(
+        input_stl="harness/truth/M8.stl", output=str(tmp_path / "out.step"),
+        axis="auto", units="mm", sections=40, adaptive=True, chord_tol=0.5,
+        refine_passes=0,  # isolate the failure -- a retry pass would just repeat it
+    )
+    with pytest.raises(engine.GeometryError) as excinfo:
+        engine.rebuild(opts)
+    message = str(excinfo.value)
+    assert "final solid failed BRepCheck_Analyzer validity check" in message
+    # The specific, correct diagnosis for THIS incident: 0.5mm is far finer than the mesh's own
+    # ~0.94mm chordal deviation. Any of these three phrasings would count as "actionable" but
+    # this one is the mechanically correct one for this exact input -- assert on it precisely
+    # so a regression that falls through to the generic branch instead is still caught.
+    assert "is much finer than the mesh's estimated chordal deviation" in message
+    assert "retry with --chord-tol" in message
+
+
+def test_validity_hint_does_not_suggest_enabling_adaptive_when_already_on(tmp_path):
+    """Regression test for Brady's 2026-09-06 report: the generic branch of the same validity
+    hint used to say "try --adaptive" unconditionally, even on a run that already had
+    --adaptive on -- confusing, and also not evidence-backed: --adaptive is what crashes this
+    exact way on M8 at n=52/60 while uniform placement passes at the same n, so recommending
+    turning it OFF is the correct, context-aware advice here."""
+    opts = engine.RebuildOptions(
+        input_stl="harness/truth/M8.stl", output=str(tmp_path / "out.step"),
+        axis="z", units="mm", sections=52, adaptive=True, chord_tol=0.9436368581581187,
+        refine_passes=0,
+    )
+    with pytest.raises(engine.GeometryError) as excinfo:
+        engine.rebuild(opts)
+    message = str(excinfo.value)
+    assert "try turning off --adaptive" in message
+    assert "try --adaptive to concentrate" not in message
+
+
+def test_volume_hint_does_not_suggest_adaptive_when_already_on(tmp_path):
+    opts = engine.RebuildOptions(
+        input_stl="harness/truth/M8.stl", output=str(tmp_path / "out.step"),
+        axis="z", units="mm", sections=40, adaptive=True, chord_tol=0.9436368581581187,
+        refine_passes=0, report=str(tmp_path / "out.report.json"),
+    )
+    result = engine.rebuild(opts)
+    hint = result.report["verification"]["volume"].get("hint", "")
+    assert "adaptive" not in hint.lower()
+    assert "more --sections" in hint
+
+
+def test_non_axisymmetric_hint_gives_a_specific_chord_tol_when_roundness_is_the_cause():
+    """Regression test for a real incident (2026-09-06): a real STL's outer loop measured
+    max_resid=0.1240 against --chord-tol 0.082's gate of 0.123 -- under 1% over, ordinary mesh
+    tessellation noise tripping an auto-computed chord-tol's tight gate, NOT a genuinely
+    non-round part (the fitted center was 0.003mm off-axis, negligible). Brady's ask: "we need
+    a user message saying to bump up the chord tolerance a bit, be specific on a percentage or
+    something" -- this must give a concrete number, not a vague nudge, and must not blame
+    --axis when the center is actually fine."""
+    msg = engine._non_axisymmetric_hint(
+        zz=109.609, cx=0.0011, cy=-0.0027, max_resid=0.1240, chord_tol=0.082)
+    assert "retry with --chord-tol" in msg
+    assert "check --axis" not in msg
+    # The suggested value must actually clear the gate it failed, with real margin -- not just
+    # barely enough to pass by the same hair it originally missed by.
+    suggested = float(msg.rsplit("--chord-tol ", 1)[1].split(" ")[0])
+    assert engine.tol.circle_max_resid(suggested) > 0.1240 * 1.1
+
+
+def test_non_axisymmetric_hint_blames_axis_when_center_is_genuinely_off(tmp_path):
+    """The OTHER branch of the same OR'd check: a center that's actually far from the axis
+    (not a roundness-noise false positive) should point at --axis/--units, not chord-tol."""
+    msg = engine._non_axisymmetric_hint(
+        zz=50.0, cx=5.0, cy=3.0, max_resid=0.05, chord_tol=0.1)
+    assert "check --axis" in msg
+    assert "retry with --chord-tol" not in msg

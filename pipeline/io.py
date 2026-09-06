@@ -173,11 +173,25 @@ def _drop_small_islands(mesh: "trimesh.Trimesh", min_frac: float = 0.02):
     return merged, dropped
 
 
-def load_and_orient(stl_path: str, axis_arg: str, units_arg: str = "mm", chord_tol: float = 0.5):
+def load_and_orient(stl_path: str, axis_arg: str, units_arg: str = "mm", chord_tol: float = 0.5,
+                    on_progress=None):
     """Returns (mesh, F, info). `F` is the 4x4 rotation+translation transform applied to the
     (already unit-converted) mesh to bring the motor axis to +Z through the origin; its inverse
     must be applied to the result shape before export (unit conversion is NOT part of `F` --
-    the exported STEP is always mm, so that scaling is never undone)."""
+    the exported STEP is always mm, so that scaling is never undone).
+
+    `on_progress(frac, message)`, when given, is called at each major step (reading the file,
+    repairing/welding, orienting, refining the origin) -- this is the ONLY instrumentation
+    possible here: each step is a single call into trimesh/numpy with no internal progress hook
+    of its own, so these are coarse checkpoints, not a fine-grained loop. On a huge STL (M13:
+    265 MB) `trimesh.load` alone can run tens of seconds with nothing to report in between --
+    the GUI dial's own "creep" animation (app/dashboard.py) is what fills that gap visibly,
+    these checkpoints are just where the needle gets re-anchored to real progress."""
+    def _progress(frac, message):
+        if on_progress is not None:
+            on_progress(frac, message)
+
+    _progress(0.0, "reading STL file")
     mesh = trimesh.load(stl_path, process=True, force="mesh")
 
     scale = parse_units(units_arg)
@@ -193,10 +207,12 @@ def load_and_orient(stl_path: str, axis_arg: str, units_arg: str = "mm", chord_t
     # edges even at generous tolerances, root-caused to binary STL's float32 export
     # quantization (~1e-3 mm ULP at this part's coordinate magnitude) straddling rounding-grid
     # boundaries independently of the mesh's own jitter.
+    _progress(0.5, "repairing and welding mesh")
     mesh = _weld_by_radius(mesh, tol_mm=2e-3)
     mesh, n_dropped_islands = _drop_small_islands(mesh)
     mesh.fix_normals(multibody=True)
 
+    _progress(0.75, "detecting motor axis")
     axis_vec = parse_axis(axis_arg, mesh)
     target = np.array([0.0, 0.0, 1.0])
     if np.allclose(axis_vec, target):
@@ -205,6 +221,7 @@ def load_and_orient(stl_path: str, axis_arg: str, units_arg: str = "mm", chord_t
         R1 = trimesh.geometry.align_vectors(axis_vec, target)
     mesh.apply_transform(R1)
 
+    _progress(0.9, "refining axis origin")
     R2, ox, oy = _axis_origin_refine(mesh, chord_tol)
     T = np.eye(4)
     T[0, 3] = -ox

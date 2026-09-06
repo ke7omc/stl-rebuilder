@@ -143,15 +143,22 @@ def _nudge_vertex_coincidence(zs: np.ndarray, vertex_zs, span: float,
     return zs
 
 
-def _scan_area_and_loops(mesh, zs: np.ndarray):
+def _scan_area_and_loops(mesh, zs: np.ndarray, on_progress=None):
     """Cheap per-z cross-section scan: total polygon area (holes subtracted, shapely does this
     natively) and loop (polygon) count. Used only to build a placement *weight*, not for the
     final station geometry — a failed/degenerate section just contributes 0/1 and is otherwise
-    harmless since it's overwritten by the real (retried) `slice_station` later at the chosen z."""
+    harmless since it's overwritten by the real (retried) `slice_station` later at the chosen z.
+
+    `on_progress(frac)`, when given, is called every ~20 iterations (and on the last one) — this
+    coarse scan can run up to ~2000 sections on a GUI-max run and was previously entirely silent,
+    which is what made large `--adaptive` runs look stalled at 0% for long stretches."""
     normal = np.array([0.0, 0.0, 1.0])
     areas = np.zeros(len(zs))
     nloops = np.ones(len(zs), dtype=int)
+    n = len(zs)
     for i, z in enumerate(zs):
+        if on_progress is not None and (i % 20 == 0 or i == n - 1):
+            on_progress(i / max(n - 1, 1))
         to_2D = trimesh.geometry.plane_transform(np.array([0.0, 0.0, z]), normal)
         sec = mesh.section(plane_origin=[0.0, 0.0, z], plane_normal=[0.0, 0.0, 1.0])
         if sec is None:
@@ -214,7 +221,7 @@ def _detect_topology_anchors(scan_zs: np.ndarray, areas: np.ndarray,
 def adaptive_stations(mesh, z_min: float, z_max: float, n: int, eps_end_val: float,
                        vertex_zs=None, n_scan: int = 400, jitter: float | None = None,
                        chord_tol: float | None = None, anchor_zs=None,
-                       anchor_per_side: int = 1) -> np.ndarray:
+                       anchor_per_side: int = 1, on_progress=None) -> np.ndarray:
     """Feature-aware placement (MISSION §6.2 M8+ `station_bands`/`adaptive_efficiency`): scan the
     mesh's cross-sectional area/loop-count at `n_scan` coarse samples, build a placement density
     from where that signal changes fastest (dome curvature, and — much more sharply — a
@@ -237,7 +244,7 @@ def adaptive_stations(mesh, z_min: float, z_max: float, n: int, eps_end_val: flo
         lo, hi = z_min, z_max
     n_scan = max(int(n_scan), 4 * n, 50)
     scan_zs = np.linspace(lo, hi, n_scan)
-    areas, nloops = _scan_area_and_loops(mesh, scan_zs)
+    areas, nloops = _scan_area_and_loops(mesh, scan_zs, on_progress=on_progress)
 
     dz = scan_zs[1] - scan_zs[0] if n_scan > 1 else 1.0
     darea = np.abs(np.gradient(areas, scan_zs))

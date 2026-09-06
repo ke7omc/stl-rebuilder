@@ -1,0 +1,190 @@
+"""Viewport legend/layer-toggle tests (2026-09-05): clickable legend rows, rebuilt-solid
+transparency, input-mesh opacity. See app/viewport.py's module docstring and PROGRESS.md for the
+Qt layout timing bug this guards against (a legend rebuilt after already having shown once used
+to collapse to a tiny box with overlapping row text -- widgets inserted into an already-visible
+parent's layout don't become visible, and so don't get sized, until the event loop spins)."""
+import pyvista as pv
+import pytest
+
+from app.viewport import (
+    INPUT_MESH_OPACITY_OVER_SOLID, SOLID_MESH_OPACITY_NORMAL, SOLID_MESH_OPACITY_TRANSPARENT,
+    Viewport,
+)
+
+
+@pytest.fixture
+def viewport(qtbot):
+    vp = Viewport(offscreen=True)
+    qtbot.addWidget(vp)
+    vp.resize(900, 700)
+    vp.show()
+    qtbot.wait(0)
+    vp.show_input_mesh(pv.Sphere())
+    vp.show_solid_mesh(pv.Sphere())
+    qtbot.wait(0)
+    return vp
+
+
+def test_legend_rows_exist_for_visible_layers(viewport):
+    assert viewport._legend.isVisible()
+    for key in ("input", "solid", "stations"):
+        assert viewport._legend_rows[key].isVisible()
+    # No topology events were shown, so that row stays hidden.
+    assert not viewport._legend_rows["events"].isVisible()
+
+
+def test_legend_row_click_toggles_layer_and_actor(viewport):
+    seen = []
+    viewport.layer_toggled.connect(lambda k, on: seen.append((k, on)))
+    assert viewport._layer_visible["solid"] is True
+    viewport._legend_rows["solid"].clicked.emit()
+    assert viewport._layer_visible["solid"] is False
+    assert viewport._solid_actor.GetVisibility() == 0
+    assert seen == [("solid", False)]
+    viewport._legend_rows["solid"].clicked.emit()
+    assert viewport._layer_visible["solid"] is True
+    assert viewport._solid_actor.GetVisibility() == 1
+
+
+def test_view_menu_and_legend_stay_in_sync(viewport):
+    # `set_layer_visible` is the single source of truth both the legend row and the (separately
+    # tested, in test_main_window.py) View-menu action funnel through -- verify the row reflects
+    # a toggle made the other way.
+    viewport.set_layer_visible("stations", False)
+    assert viewport._legend_rows["stations"]._on is False
+
+
+def test_solid_transparent_toggle(viewport):
+    assert viewport._solid_actor.GetProperty().GetOpacity() == SOLID_MESH_OPACITY_NORMAL
+    viewport.set_solid_transparent(True)
+    assert viewport._solid_actor.GetProperty().GetOpacity() == SOLID_MESH_OPACITY_TRANSPARENT
+    viewport.set_solid_transparent(False)
+    assert viewport._solid_actor.GetProperty().GetOpacity() == SOLID_MESH_OPACITY_NORMAL
+
+
+def test_input_opaque_toggle_wins_over_default_overlay_opacity(viewport):
+    # With the solid shown, the input mesh defaults to the faint overlay opacity.
+    assert viewport._input_actor.GetProperty().GetOpacity() == INPUT_MESH_OPACITY_OVER_SOLID
+    viewport.set_input_opaque(True)
+    assert viewport._input_actor.GetProperty().GetOpacity() == 1.0
+    viewport.set_input_opaque(False)
+    assert viewport._input_actor.GetProperty().GetOpacity() == INPUT_MESH_OPACITY_OVER_SOLID
+
+
+def test_legend_does_not_collapse_when_rebuilt_after_first_show(viewport):
+    """Regression test for the exact bug found manually 2026-09-05: showing the input mesh
+    (1 legend row + Stations) and THEN the solid mesh (adds a 2nd row) used to leave the legend
+    container sized for the first call only, with new rows invisible/zero-size."""
+    assert viewport._legend.layout().count() == len(viewport._legend_rows)
+    for key in ("input", "solid", "stations"):
+        row = viewport._legend_rows[key]
+        assert row.isVisible()
+        assert row.size().height() > 0
+        assert row.size().width() > 0
+    # Rows must be stacked (non-overlapping), not all pinned at the same position.
+    ys = sorted(viewport._legend_rows[k].pos().y() for k in ("input", "solid", "stations"))
+    assert ys[0] < ys[1] < ys[2]
+
+
+def test_axis_gizmo_click_sets_the_view(viewport):
+    """Clicking an X/Y/Z hotspot (app/viewport.py's AxisGizmo, 2026-09-06 Brady's request) must
+    look straight down that axis -- verified empirically (not just "some view changed") against
+    a box with axis-marker spheres: looking down an axis puts that axis's +marker sphere near
+    dead-center (foreshortened toward the camera), not off to a side."""
+    viewport.plotter.clear()
+    viewport.plotter.add_mesh(pv.Box(bounds=(-1, 1, -2, 2, -3, 3)), color="lightgray")
+    markers = {"x": (3, 0, 0), "y": (0, 3, 0), "z": (0, 0, 3)}
+    for axis, center in markers.items():
+        viewport.plotter.add_mesh(pv.Sphere(radius=0.3, center=center), name=f"marker_{axis}")
+    viewport.plotter.reset_camera()
+
+    for axis in ("x", "y", "z"):
+        viewport._axis_gizmo.axis_clicked.emit(axis)
+        # The clicked axis's own marker should now project near the viewport center (looking
+        # straight down that axis foreshortens it to ~0 in screen space); the other two remain
+        # off-center. Compare screen-space distance from center via the renderer's world-to-
+        # display transform.
+        renderer = viewport.plotter.renderer
+        w, h = viewport.plotter.window_size
+        dists = {}
+        for other, center in markers.items():
+            renderer.SetWorldPoint(*center, 1.0)
+            renderer.WorldToDisplay()
+            x, y, _ = renderer.GetDisplayPoint()
+            dists[other] = ((x - w / 2) ** 2 + (y - h / 2) ** 2) ** 0.5
+        assert dists[axis] < min(dists[o] for o in markers if o != axis)
+
+
+def test_view_along_axis_ignores_unknown_axis(viewport):
+    # No exception, no-op -- defensive against a future typo/refactor, not a reachable UI path.
+    viewport.view_along_axis("w")
+
+
+def _center_pixel(vp):
+    vp.render()
+    img = vp._label.pixmap().toImage()
+    return img.pixelColor(img.width() // 2, img.height() // 2).getRgb()[:3]
+
+
+def test_solid_transparent_toggle_actually_rerenders(qtbot):
+    """Regression test for a real VTK rendering bug found 2026-09-06: mutating an
+    already-rendered actor's opacity via a bare `SetOpacity()` can silently fail to visually
+    update on the NEXT render call -- reproduced directly in a minimal pyvista script (crossing
+    the opaque/1.0 <-> translucent boundary in EITHER direction never re-rendered, even with an
+    explicit `render()` call in between; changes that stayed within the translucent range did
+    update fine). `_sync_solid_opacity`/`_readd_solid_actor` fix this by re-adding the actor
+    instead of mutating it in place.
+
+    A `GetOpacity() == expected` property assertion does NOT catch this class of bug -- the
+    property value updates correctly even when the bug is present, which is exactly what let it
+    ship undetected. This has to be a real pixel comparison against an actual rendered frame."""
+    vp = Viewport(offscreen=True)
+    qtbot.addWidget(vp)
+    vp.resize(300, 300)
+    vp.show()
+    vp.plotter.set_background("black")
+    vp.show_solid_mesh(pv.Sphere(radius=2.0))
+    opaque_pixel = _center_pixel(vp)
+
+    vp.set_solid_transparent(True)
+    ghost_pixel = _center_pixel(vp)
+
+    # Against a pure-black background, fading toward transparent blends the surface's own lit
+    # color darker -- a stale (bug-present) render would show the IDENTICAL pixel here.
+    assert ghost_pixel != opaque_pixel
+
+
+def test_input_opaque_toggle_actually_rerenders(qtbot):
+    """Same regression as `test_solid_transparent_toggle_actually_rerenders`, for the input
+    mesh's opacity toggle (which crosses the same 1.0 boundary in the opposite direction)."""
+    vp = Viewport(offscreen=True)
+    qtbot.addWidget(vp)
+    vp.resize(300, 300)
+    vp.show()
+    vp.plotter.set_background("black")
+    vp.show_input_mesh(pv.Sphere(radius=2.0))
+    ghost_pixel = _center_pixel(vp)
+
+    vp.set_input_opaque(True)
+    opaque_pixel = _center_pixel(vp)
+
+    assert ghost_pixel != opaque_pixel
+
+
+def test_legend_visibility_toggle_actually_rerenders(qtbot):
+    """Same class of bug, for `SetVisibility()` -- confirmed the offscreen `render()` path could
+    return a stale frame after a visibility-only change too (fixed by `Viewport.render()`
+    forcing a real `plotter.render()` before `screenshot()`)."""
+    vp = Viewport(offscreen=True)
+    qtbot.addWidget(vp)
+    vp.resize(300, 300)
+    vp.show()
+    vp.plotter.set_background("black")
+    vp.show_solid_mesh(pv.Sphere(radius=2.0))
+    shown_pixel = _center_pixel(vp)
+
+    vp.set_layer_visible("solid", False)
+    hidden_pixel = _center_pixel(vp)
+
+    assert hidden_pixel != shown_pixel
+    assert hidden_pixel == (0, 0, 0)  # nothing left but the black background

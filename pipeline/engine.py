@@ -169,18 +169,36 @@ def _estimate_chord_tol(mesh) -> float:
         return 0.0
 
 
-def analyze(input_path: str, axis: str = "auto", units: Optional[str] = None) -> Analysis:
+def analyze(input_path: str, axis: str = "auto", units: Optional[str] = None,
+           on_progress=None) -> Analysis:
     """Load and repair `input_path`, detect its frame, and report size/quality metrics —
-    WITHOUT building any output geometry. MISSION.md §12 (G1)."""
+    WITHOUT building any output geometry. MISSION.md §12 (G1).
+
+    `on_progress("analyze", frac, message)`, when given, mirrors `rebuild()`'s convention (same
+    3-arg shape, "analyze" as the one stage name throughout) so the GUI's dashboard dial wiring
+    (app/dashboard.py's `Dashboard.on_stage`) works identically for both. Checkpoints are coarse
+    (`load_and_orient`'s own sub-checkpoints, then one each for the two chord-tol/axis-confidence
+    estimates) -- on a huge STL none of these individual steps has finer instrumentation of its
+    own, so between checkpoints the GUI dial's own "creep" animation is what keeps the needle
+    visibly moving (Brady, 2026-09-06: Analyze on M13 sat still enough with no progress signal
+    at all to look stuck, next to M8 finishing in ~2 seconds)."""
+    def _progress(frac, message):
+        if on_progress is not None:
+            on_progress("analyze", frac, message)
+
     units_arg = units or "mm"
     probe_chord_tol = 0.5
-    mesh, _F, info = pio.load_and_orient(input_path, axis, units_arg, probe_chord_tol)
+    mesh, _F, info = pio.load_and_orient(
+        input_path, axis, units_arg, probe_chord_tol,
+        on_progress=(lambda f, m: _progress(0.75 * f, m)) if on_progress is not None else None)
+    _progress(0.8, "computing size/quality metrics")
     z_min, z_max = float(mesh.bounds[0][2]), float(mesh.bounds[1][2])
     edge_lengths = mesh.edges_unique_length
     median_edge = float(np.median(edge_lengths)) if len(edge_lengths) else 0.0
     est = _estimate_chord_tol(mesh)
     suggested = max(est if est > 0.0 else median_edge, 1e-3)
-    return Analysis(
+    _progress(0.92, "estimating axis confidence")
+    result = Analysis(
         frame_axis=list(info["axis_unit"]),
         origin_xy_mm=list(info["origin_xy_mm"]),
         axial_extent_mm=z_max - z_min,
@@ -194,6 +212,8 @@ def analyze(input_path: str, axis: str = "auto", units: Optional[str] = None) ->
         n_dropped_islands=info["n_dropped_islands"],
         bounds_mm=info["bounds"],
     )
+    _progress(1.0, "analyze complete")
+    return result
 
 
 @dataclass
@@ -255,6 +275,33 @@ def rebuild(opts: RebuildOptions, on_progress: Optional[Callable[[str, float, st
 
 def _axis_centered(cx: float, cy: float, R: float, chord_tol: float) -> bool:
     return (cx ** 2 + cy ** 2) ** 0.5 < 0.5 * tol.circle_max_resid(chord_tol)
+
+
+def _non_axisymmetric_hint(zz: float, cx: float, cy: float, max_resid: float,
+                           chord_tol: float) -> str:
+    """Actionable message for a failed outer-loop circle fit (`_axis_centered`/
+    `circle_max_resid`, MISSION §6.1's axisymmetric-outer-envelope assumption). Two different
+    conditions are OR'd into one check, and they need different fixes: a genuinely off-axis
+    center points at --axis/--units, while an in-range center with too much roundness residual
+    (the common case in practice: ordinary mesh tessellation noise landing just over an auto
+    chord-tol's tight gate -- confirmed 2026-09-06, a residual of 0.1240 against a gate of 0.123
+    from --chord-tol 0.082, under 1% over) points at --chord-tol. Give a concrete number either
+    way, computed from what was actually measured, not a vague "try adjusting" (Brady,
+    2026-09-06: "we need a user message saying to bump up the chord tolerance a bit, be
+    specific on a percentage or something")."""
+    msg = (f"rebuild.py: outer loop at z={zz:.3f} is not an axis-centered circle "
+          f"(max_resid={max_resid:.4f}, center=({cx:.4f},{cy:.4f})) — "
+          f"non-axisymmetric outer envelopes not yet implemented")
+    offset = (cx ** 2 + cy ** 2) ** 0.5
+    if offset > 0.75 * tol.circle_max_resid(chord_tol):
+        msg += (f"; the fitted center is {offset:.3g} mm off the axis — check --axis "
+               f"(is it really right?) and --units")
+    else:
+        needed = max(max_resid / 1.5, offset / 0.75) * 1.2
+        msg += (f"; --chord-tol {chord_tol:g} mm is too tight for this mesh's actual "
+               f"roundness noise at this station — retry with --chord-tol {needed:.3g} "
+               f"or larger")
+    return msg
 
 
 def _fit_r2_quadratic(pts, at_start: bool, min_dz: float, resid_tol: float):
@@ -1316,11 +1363,18 @@ def _build_slot_wedges(bore_rings, sat_rings, z_lo: float, z_hi: float, bore_rad
     if not (0.0 < r_in < r_out):
         return []
 
-    out = []
-    for tc in thetas:
-        out.append(solids.build_filleted_wedge_solid(z_lo, z_hi, r_in, r_out, f_lo, f_hi,
-                                                      tc, theta_half))
-    return out
+    try:
+        out = []
+        for tc in thetas:
+            out.append(solids.build_filleted_wedge_solid(z_lo, z_hi, r_in, r_out, f_lo, f_hi,
+                                                          tc, theta_half))
+        return out
+    except Exception:
+        # An under-determined fillet fit (too few stations in the slot end-window) can still
+        # produce a degenerate wedge OCCT rejects. The 8 `return []` exits above exist so the
+        # caller falls back to `_fuse_sandwich_bore`/`_build_slot_lobes` -- this guard makes that
+        # fallback reachable from a raw OCCT construction failure too, not just a clean rejection.
+        return []
 
 
 def _ring_area(pts) -> float:
@@ -1643,6 +1697,13 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
     import time
     t0 = time.perf_counter()
     out = {}
+    # Confirmation, not really a "check that could fail" here: `_rebuild_impl` already required
+    # the input to be watertight before it ever got this far (exit 3 otherwise), so this is
+    # always true in practice by the time verification runs -- shown anyway so the Output page's
+    # Verification group carries the same confirmation the Detected page already has, without
+    # making the user flip back to see it (Brady, 2026-09-06: "the end verification in the
+    # details pane should also state if it passed watertight verification").
+    out["watertight"] = {"pass": bool(mesh.is_watertight)}
     try:
         from OCP.Bnd import Bnd_Box
         from OCP.BRepBndLib import BRepBndLib
@@ -1671,9 +1732,20 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
                              "delta_pct": delta_pct, "tol_pct": vol_tol_pct,
                              "pass": bool(delta_pct <= vol_tol_pct)}
             if not out["volume"]["pass"]:
-                out["volume"]["hint"] = (
-                    "missing/extra material — try more --sections, --adaptive, or check "
-                    "--chord-tol against the mesh's chordal sag (Analyze suggests one)")
+                # Leads with sections/adaptive, not chord-tol: in practice (2026-09-06,
+                # confirmed on M8) under-sampling is what actually needs fixing here, and
+                # "auto from mesh" chord-tol is deliberately biased coarse as a crash-safety
+                # margin (see _estimate_chord_tol) -- telling the user to second-guess THAT
+                # first sends them the wrong direction. --chord-tol is still the right lever
+                # when it's the SPECIFIC, identified cause (see the dedicated coarse/fine hints
+                # on the BRepCheck validity failure below, which compute an actual number), just
+                # not as a vague first guess for an unexplained volume mismatch. Don't suggest
+                # --adaptive when it's already on -- confusing, and not obviously the fix anyway
+                # (a quality MISS, unlike the crash-class hints above, is one case where
+                # --adaptive turning on can genuinely help, so it's still worth naming here --
+                # just not to someone who's already using it).
+                out["volume"]["hint"] = ("missing/extra material — try more --sections"
+                                         + ("" if adaptive else ", or --adaptive"))
         else:
             out["volume"] = {"input_mm3": None, "solid_mm3": solid_mm3, "delta_pct": None,
                              "tol_pct": vol_tol_pct, "pass": None,
@@ -1872,17 +1944,57 @@ def _write_failure_report(path: str, partial: dict, error: str, exit_code: int) 
 
 _MAX_REFINE_PASSES = 2  # 1 initial + at most 1 refinement pass -- see _rebuild_with_refinement
 
+# Each stage's own slice of ONE PASS's [0, 1] progress (2026-09-05, added alongside the "scan"/
+# "build" stages): `_RefineProgressRelay` uses this to turn a stage's local 0..1 progress into a
+# smoothly, monotonically increasing overall value. Before this table existed there was only one
+# real progress-bearing stage ("stations"), so a flat `0.9 * frac` was a fine approximation of
+# "how far through the pass" -- once "scan" (before stations) and "build" (after) started
+# reporting their OWN local 0..1 progress too, that flat scaling made EVERY new stage's local
+# frac reset near 0, and the relay's monotonic-max clamp then flatlined the reported value at
+# the previous stage's ceiling for that entire stage's duration (confirmed: the whole
+# "stations" phase reported a constant 0.9, and "build" a constant 1.0 -- silently defeating the
+# very dashboard gauges this was all for). `stage_local_progress` below is this table's exact
+# inverse, used by the GUI (app/dashboard.py) to recover a stage's own local progress for its
+# gauge dial from the combined value `on_progress` actually delivers.
+_STAGE_RANGE = {"load": (0.0, 0.02), "scan": (0.02, 0.15), "stations": (0.15, 0.85),
+                "build": (0.85, 1.0)}
+
+
+def stage_local_progress(stage: str, global_frac: float) -> float:
+    """Inverse of `_STAGE_RANGE`/`_RefineProgressRelay`'s mapping: recovers a stage's own 0..1
+    local progress from the combined value `on_progress` delivers, for a GUI gauge dial that
+    wants "how far through THIS phase" rather than "how far through the whole run". Only
+    meaningful when the relay is actually in front of `_rebuild_impl` (true for every GUI run:
+    `RebuildOptions.refine_passes` defaults to 1) -- an unrecognised stage name, or a direct
+    `_rebuild_impl` call with no relay (e.g. `refine_passes=0`, where `on_progress` already
+    receives raw stage-local values), falls back to returning `global_frac` unchanged."""
+    if stage == "refine":
+        lo, hi = 0.9, 1.0
+    elif stage in _STAGE_RANGE:
+        rlo, rhi = _STAGE_RANGE[stage]
+        lo, hi = 0.9 * rlo, 0.9 * rhi
+    else:
+        return max(0.0, min(1.0, global_frac))
+    if hi <= lo:
+        return max(0.0, min(1.0, global_frac))
+    return max(0.0, min(1.0, (global_frac - lo) / (hi - lo)))
+
 
 class _RefineProgressRelay:
     """Sits between `_rebuild_impl` and the caller's real `on_progress`, remapping stage names
     and fractions across up to `_MAX_REFINE_PASSES` passes so the bar/log never goes backward
-    and a retry never looks like the run restarted from 0%. Pass 1 is squeezed into [0, 0.9] (it
-    already spends nearly all of a run's wall-clock, per-station and everything after); a retry
-    pass is relabelled "refine" (not "stations" -- `tests/api/test_engine.py` asserts the
-    `"stations"` stage fires exactly once, in strictly increasing fracs, for the common
-    no-retry case, and this relabelling is what keeps that true even when a retry runs) and
-    mapped into [0.9, 1.0]. `("done", 1.0)` is buffered and emitted exactly once, by `finish()`,
-    regardless of how many passes actually ran."""
+    and a retry never looks like the run restarted from 0%. Pass 1 is squeezed into [0, 0.9],
+    each stage getting its own slice of that range per `_STAGE_RANGE` (it already spends nearly
+    all of a run's wall-clock, per-station and everything after); a retry pass is relabelled
+    "refine" (not "stations" -- `tests/api/test_engine.py` asserts the `"stations"` stage fires
+    exactly once, in strictly increasing fracs, for the common no-retry case, and this
+    relabelling is what keeps that true even when a retry runs) and mapped into [0.9, 1.0].
+    Stages OTHER than "stations" occurring during a retry pass (a retry re-runs `_rebuild_impl`
+    in full, so "load"/"scan"/"build" fire again too) are NOT individually sub-ranged the way
+    pass 1's are -- a retry is the rare, failure-triggered path, and giving its own sub-stages a
+    few percent of visible flatlining within the already-small [0.9, 1.0] slice is an accepted,
+    minor cosmetic tradeoff against the added complexity of a second range table. `("done", 1.0)`
+    is buffered and emitted exactly once, by `finish()`, regardless of how many passes ran."""
 
     def __init__(self, real_on_progress, refine_enabled: bool):
         self._real = real_on_progress
@@ -1899,12 +2011,14 @@ class _RefineProgressRelay:
             return
         if stage == "done":
             return  # buffered; `finish()` emits the single real "done"
+        local = max(0.0, min(1.0, frac))
         if self._in_refine_pass:
             mapped_stage = "refine" if stage == "stations" else stage
-            mapped_frac = 0.9 + 0.1 * max(0.0, min(1.0, frac))
+            mapped_frac = 0.9 + 0.1 * local
         else:
             mapped_stage = stage
-            mapped_frac = 0.9 * max(0.0, min(1.0, frac))
+            lo, hi = _STAGE_RANGE.get(stage, (0.0, 1.0))
+            mapped_frac = 0.9 * (lo + (hi - lo) * local)
         mapped_frac = max(mapped_frac, self._last)
         self._last = mapped_frac
         self._real(mapped_stage, mapped_frac, message)
@@ -2162,9 +2276,9 @@ def _rebuild_argparse(args) -> int:
 def _rebuild_impl(args) -> int:
     chord_tol = args.chord_tol
     _on_progress0 = getattr(args, "on_progress", None)
-    if _on_progress0 is not None:
-        _on_progress0("load", 0.0, "loading and orienting mesh")
-    mesh, R_axis, info = pio.load_and_orient(args.input_stl, args.axis, args.units, chord_tol)
+    mesh, R_axis, info = pio.load_and_orient(
+        args.input_stl, args.axis, args.units, chord_tol,
+        on_progress=(lambda f, m: _on_progress0("load", f, m)) if _on_progress0 is not None else None)
     if not info["is_watertight"]:
         print(f"rebuild.py: input mesh is not a single watertight body "
               f"(watertight={info['is_watertight']}, body_count={info['body_count']})",
@@ -2198,9 +2312,12 @@ def _rebuild_impl(args) -> int:
     _anchor_zs = getattr(args, "_anchor_zs", None)
     _anchor_per_side = getattr(args, "_anchor_per_side", 1)
     if args.adaptive:
+        _scan_progress = ((lambda f: _on_progress0("scan", f, "scanning cross-sections"))
+                          if _on_progress0 is not None else None)
         zs = stations.adaptive_stations(mesh, z_min, z_max, args.sections, station_eps,
                                          vertex_zs=mesh.vertices[:, 2], chord_tol=chord_tol,
-                                         anchor_zs=_anchor_zs, anchor_per_side=_anchor_per_side)
+                                         anchor_zs=_anchor_zs, anchor_per_side=_anchor_per_side,
+                                         on_progress=_scan_progress)
     else:
         zs = stations.uniform_stations(z_min, z_max, args.sections, station_eps,
                                         vertex_zs=mesh.vertices[:, 2], chord_tol=chord_tol,
@@ -2241,9 +2358,7 @@ def _rebuild_impl(args) -> int:
         ext = np.asarray(poly.exterior.coords)
         cx, cy, Ro, max_resid, _ = fit_circle_robust(ext)
         if max_resid > tol.circle_max_resid(chord_tol) or not _axis_centered(cx, cy, Ro, chord_tol):
-            print(f"rebuild.py: outer loop at z={zz:.3f} is not an axis-centered circle "
-                  f"(max_resid={max_resid:.4f}, center=({cx:.4f},{cy:.4f})) — "
-                  f"non-axisymmetric outer envelopes not yet implemented", file=sys.stderr)
+            print(_non_axisymmetric_hint(zz, cx, cy, max_resid, chord_tol), file=sys.stderr)
             return 4
         outer_pts.append((zz, Ro))
 
@@ -2309,6 +2424,8 @@ def _rebuild_impl(args) -> int:
 
     if _partial is not None:
         _partial["stage_reached"] = "solids"
+    if _on_progress is not None:
+        _on_progress("build", 0.0, "matching chains and fitting loops")
 
     # Group satellite samples into chains by nearest-center match to the previous station's
     # live chains — satellites are straight (M7), so a true match is ~0 mm apart while distinct
@@ -2836,10 +2953,16 @@ def _rebuild_impl(args) -> int:
                 # clearance rung exists only to make an otherwise-invalid fuse valid.
                 fused = last_fused = None
                 for clearance in (0.0, 4.0 * seam_eps):
-                    last_fused = _fuse_sandwich_bore(
-                        bore_rings, pts_before, pts_after, z_min, z_max, event_fore, event_aft,
-                        circ_overlap, fin_overlap, seam_eps, eps_cut_val, seam_bore_radius,
-                        chord_tol, clearance)
+                    try:
+                        last_fused = _fuse_sandwich_bore(
+                            bore_rings, pts_before, pts_after, z_min, z_max, event_fore, event_aft,
+                            circ_overlap, fin_overlap, seam_eps, eps_cut_val, seam_bore_radius,
+                            chord_tol, clearance)
+                    except Exception:
+                        # Same "fall through to the next rung" contract as `_build_slot_wedges`'s
+                        # own guard above: a raw OCCT failure here is treated like an invalid fuse.
+                        last_fused = None
+                        continue
                     if BRepCheck_Analyzer(last_fused).IsValid():
                         fused = last_fused
                         break
@@ -2849,8 +2972,11 @@ def _rebuild_impl(args) -> int:
                     # Cavity decomposition: one uninterrupted circular bore revolve over the whole
                     # length plus one independent prism per slot, so no two cutter surfaces are
                     # ever near-coincident and no fuse is needed at all.
-                    lobe_cutters = _build_slot_lobes(bore_rings, event_fore, event_aft,
-                                                      seam_bore_radius, chord_tol)
+                    try:
+                        lobe_cutters = _build_slot_lobes(bore_rings, event_fore, event_aft,
+                                                          seam_bore_radius, chord_tol)
+                    except Exception:
+                        lobe_cutters = []
                     if lobe_cutters:
                         paths_slot = "prism"
                         bore_solid = solids.build_revolve_solid(bore_full, chord_tol)
@@ -2901,6 +3027,30 @@ def _rebuild_impl(args) -> int:
         bore_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
             + [(z_max + eps_cut_val, bore_pts[-1][1])]
         bore_solid = solids.build_revolve_solid(bore_full, chord_tol)
+
+    if bore_solid is None:
+        # Every rung of the slot/bore fallback ladder (wedge -> fused sandwich -> decomposed
+        # lobes) failed to produce a shape -- almost always because too few stations landed in a
+        # slot's end-window to fit its fillets/transition independently. Report this the same
+        # actionable way as the boolean-cut/validity hints below instead of letting a bare None
+        # crash deeper in the pipeline with no guidance.
+        est = _estimate_chord_tol(mesh)
+        hint = (f"; the mesh's estimated chordal deviation is only ~{est:.3g} mm — retry with "
+                f"--chord-tol {est:.3g}") if est > 0.0 and chord_tol > 2.0 * est else ""
+        # Context-aware, not a fixed string: telling a user who already has --adaptive on to
+        # "try --adaptive" is confusing at best (Brady, 2026-09-06). It's also not obviously
+        # the right direction here regardless -- measured on M8, --adaptive crashes this exact
+        # way at n=52/60 while uniform placement passes cleanly at the same n, so when adaptive
+        # is already on, suggesting it OFF is the evidence-backed move, not a generic nudge.
+        strategy = ("try turning off --adaptive (uniform placement is more robust for this kind "
+                    "of slot/fillet transition), and/or increase --sections" if args.adaptive else
+                    "try --adaptive to concentrate stations at topology transitions, and/or "
+                    "increase --sections")
+        print(f"rebuild.py: could not fit a bore/slot solid for this geometry — too few "
+              f"stations landed in a slot's end-window to resolve its fillets independently. "
+              f"{strategy} (currently {args.sections}, adaptive={args.adaptive}){hint}",
+              file=sys.stderr)
+        return 5
 
     import os as _os
     if _os.environ.get("REBUILD_DEBUG_M13"):
@@ -3007,13 +3157,23 @@ def _rebuild_impl(args) -> int:
                           f"{_pb2[5]:.1f}] volume={_pop.Mass():.1f} -> "
                           f"common(outer, probe)={_pcmp.Mass():.1f}", file=sys.stderr)
 
+    _n_cuts = 1 + len(lobe_cutters) + len(sat_cutters)
+    _cut_i = 0
+    def _cut_progress():
+        nonlocal _cut_i
+        _cut_i += 1
+        if _on_progress is not None:
+            _on_progress("build", 0.1 + 0.6 * (_cut_i / max(_n_cuts, 1)),
+                        f"boolean cut {_cut_i}/{_n_cuts}")
     try:
         shape = booleans.cut(outer_solid, bore_solid, tol.fuzzy(chord_tol))
+        _cut_progress()
         # Slot lobes of a decomposed merged bore+slot cavity: each overlaps the already-cut bore
         # deeply and transversally, so independent sequential cuts are robust (same argument as
         # the M7 satellites below).
         for lobe in lobe_cutters:
             shape = booleans.cut(shape, lobe, tol.fuzzy(chord_tol))
+            _cut_progress()
         # Satellite perforations (M7) are geometrically disjoint from the main bore and from
         # each other, so a sequence of independent cuts gives the same result as fusing them
         # first and is simpler/more robust than a multi-solid fuse of disjoint cutters.
@@ -3024,6 +3184,7 @@ def _rebuild_impl(args) -> int:
             # span >= 2*chord_tol, so this clamp only bites near that floor).
             shape = booleans.cut(shape, sat_solid,
                                  min(tol.fuzzy(chord_tol), 0.25 * (z_hi - z_lo)))
+            _cut_progress()
             if z_lo > z_min + eps_cut_val:
                 sat_events_raw.append(z_lo)
             if z_hi < z_max - eps_cut_val:
@@ -3049,17 +3210,44 @@ def _rebuild_impl(args) -> int:
             sat_events_z_mm.append(z)
     if _partial is not None:
         _partial["stage_reached"] = "export"
+    if _on_progress is not None:
+        _on_progress("build", 0.75, "finalizing solid")
     shape, valid = export.finalize(shape, chord_tol)
     if not valid:
+        # Every branch below must leave the user with something to actually DO differently --
+        # a bare "failed validity check" with no hint was raised at least three times over
+        # (2026-09-06, M8 at --sections 40 --adaptive with the GUI's raw 0.5mm chord-tol default
+        # instead of the ~0.94mm Analyze would have suggested, the actual root cause that run):
+        # no exit path here may print the message alone.
         msg = "final solid failed BRepCheck_Analyzer validity check"
         est = _estimate_chord_tol(mesh)
         if est > 0.0 and chord_tol > 5.0 * est:
             msg += (f" — --chord-tol {chord_tol:g} mm is far coarser than the mesh's estimated "
                     f"chordal deviation (~{est:.3g} mm); retry with --chord-tol {est:.3g}")
+        elif est > 0.0 and chord_tol < 0.7 * est:
+            # The actual cause of the 2026-09-06 M8 incident: a chord-tol tighter than the
+            # mesh's own chordal noise/faceting can starve OCCT's tolerant construction of the
+            # slack it needs, just as reliably as one that's too coarse.
+            msg += (f" — --chord-tol {chord_tol:g} mm is much finer than the mesh's estimated "
+                    f"chordal deviation (~{est:.3g} mm), which can also cause this; retry with "
+                    f"--chord-tol {est:.3g}")
+        else:
+            # Same context-aware logic as the bore/slot hint above: don't tell a user who
+            # already has --adaptive on to turn it on, and don't recommend it blindly either --
+            # measured on M8, --adaptive is what's MORE likely to hit this exact validity
+            # failure at some section counts (n=52/60 crash with it on, pass with it off).
+            strategy = ("try turning off --adaptive (uniform placement is more robust for this "
+                        "kind of slot/fillet transition), and/or increase --sections"
+                        if args.adaptive else
+                        "try --adaptive to concentrate stations at topology transitions, and/or "
+                        "increase --sections")
+            msg += f"; {strategy} (currently {args.sections}, adaptive={args.adaptive})"
         print(f"rebuild.py: {msg}", file=sys.stderr)
         return 5
 
     shape = export.undo_axis_transform(shape, R_axis)
+    if _on_progress is not None:
+        _on_progress("build", 0.9, "writing STEP")
     export.write_step(shape, args.output, chord_tol)
     if args.stl:
         export.write_stl(shape, args.stl, chord_tol)
@@ -3077,6 +3265,8 @@ def _rebuild_impl(args) -> int:
     )
     verification = None
     if not getattr(args, "_skip_verification", False):
+        if _on_progress is not None:
+            _on_progress("build", 0.95, "verifying against input mesh")
         verification = _compute_verification(
             mesh, R_axis, shape, chord_tol, z_max - z_min, expected_bodies=1,
             preview_stl=args.stl, stations_z_mm=[z - axial_origin_z for z in zs],

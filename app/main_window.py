@@ -7,7 +7,6 @@ import os
 import textwrap
 
 import numpy as np
-import pyvista as pv
 import qtawesome as qta
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QAction
@@ -19,10 +18,11 @@ from PySide6.QtWidgets import (
 )
 
 from app import manifest as manifest_mod
+from app.dashboard import Dashboard
 from app.theme import ACCENT, ERROR, SUCCESS, TEXT_DISABLED, TEXT_SECONDARY, WARNING
 from app.viewport import Viewport
 from app.widgets import BusySpinner, PropertyTree, StationTable, axis_label, fmt_bounds, fmt_num
-from app.worker import AnalyzeWorker, RebuildWorker, run_in_thread
+from app.worker import AnalyzeWorker, PreviewWorker, RebuildWorker, run_in_thread
 from pipeline.engine import RebuildOptions
 
 NODE_INPUT, NODE_DETECTED, NODE_STATIONS, NODE_OUTPUT = "Input", "Detected", "Stations", "Output"
@@ -36,8 +36,23 @@ class MainWindow(QMainWindow):
         self.resize(1400, 900)
 
         self._analysis = None
+        self._analyzed_input_path = None
+        self._pending_rebuild = False
         self._result = None
+        self._last_stage = None
         self._threads = []  # keep QThread refs alive until done
+        # Keep every worker QObject referenced too, for its whole time in flight -- not just the
+        # QThread it runs on. A worker with no persistent Python reference (and no Qt parent)
+        # can be garbage-collected the moment the method that created it returns, since
+        # `thread.start()` only SCHEDULES `worker.run()` for a later event-loop tick rather than
+        # running it immediately -- found 2026-09-06 tracking down a real hang in Analyze/preview
+        # loading under pytest-qt (confirmed with a minimal repro: identical code keeping an
+        # extra local reference alive in the caller's own scope did not hang; PySide6/shiboken's
+        # implicit "a live signal connection keeps the sender alive" behavior that let this go
+        # unnoticed in interactive use is not something to rely on). `_start_rebuild` already
+        # dodged this by storing `self._active_worker` (needed anyway, for Cancel) -- this list
+        # is the same fix applied everywhere a worker+thread pair is created.
+        self._workers = []
 
         self.viewport = Viewport(self, offscreen=offscreen)
         self.setCentralWidget(self.viewport)
@@ -77,6 +92,10 @@ class MainWindow(QMainWindow):
             act.toggled.connect(lambda on, k=key: self.viewport.set_layer_visible(k, on))
             view_menu.addAction(act)
             self._layer_actions[key] = act
+        # Clicking a legend row (app/viewport.py) also toggles its layer -- keep the menu's
+        # checkmark in sync without re-triggering `toggled`'s own call back into
+        # `set_layer_visible` (which would be a harmless but pointless second call).
+        self.viewport.layer_toggled.connect(self._on_viewport_layer_toggled)
         view_menu.addSeparator()
         self.swap_action = QAction("Swap input ↔ rebuilt", self)
         self.swap_action.setCheckable(True)
@@ -84,6 +103,19 @@ class MainWindow(QMainWindow):
         self.swap_action.setToolTip("A/B compare: show the input mesh near-opaque, hide the rebuilt solid")
         self.swap_action.toggled.connect(self.viewport.set_swap)
         view_menu.addAction(self.swap_action)
+        self.solid_transparent_action = QAction("Rebuilt solid: transparent", self)
+        self.solid_transparent_action.setCheckable(True)
+        self.solid_transparent_action.setToolTip(
+            "Ghost the rebuilt solid to compare its fin/wall geometry against the input mesh")
+        self.solid_transparent_action.toggled.connect(self.viewport.set_solid_transparent)
+        view_menu.addAction(self.solid_transparent_action)
+        self.input_opaque_action = QAction("Input mesh: solid color", self)
+        self.input_opaque_action.setCheckable(True)
+        self.input_opaque_action.setToolTip(
+            "Show the input mesh at full opacity to compare its outer boundary against the "
+            "rebuilt solid")
+        self.input_opaque_action.toggled.connect(self.viewport.set_input_opaque)
+        view_menu.addAction(self.input_opaque_action)
 
         help_menu = menubar.addMenu("&Help")
         about_action = QAction("&About stl-rebuilder", self)
@@ -190,6 +222,7 @@ class MainWindow(QMainWindow):
 
         self.input_path_edit = QLineEdit()
         self.input_path_edit.setMinimumWidth(220)
+        self.input_path_edit.editingFinished.connect(self._on_input_path_edited)
         browse_row = QWidget()
         row_layout = QHBoxLayout(browse_row)
         row_layout.setContentsMargins(0, 0, 0, 0)
@@ -299,12 +332,18 @@ class MainWindow(QMainWindow):
         return w
 
     def _build_log_dock(self):
-        dock = QDockWidget("Log", self)
+        # Dock's internal objectName is unchanged (tests key off it) -- only its title and
+        # contents changed, from a plain log to the instrument dashboard (Brady, 2026-09-05):
+        # gauge dials for the run's phases plus the log (moved here, same widget/object name so
+        # `log_line()` needs no changes). A verification readout used to live here too but
+        # duplicated the Details dock's Output page -- dropped 2026-09-06, Brady's call.
+        dock = QDockWidget("Dashboard", self)
         dock.setObjectName("log_dock")
         self.log = QTextEdit()
         self.log.setObjectName("logConsole")
         self.log.setReadOnly(True)
-        dock.setWidget(self.log)
+        self.dashboard = Dashboard(self.log)
+        dock.setWidget(self.dashboard)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
 
     def _build_status_bar(self):
@@ -318,6 +357,14 @@ class MainWindow(QMainWindow):
         bar.addWidget(self.status_label, 1)
         bar.addPermanentWidget(self.progress_bar)
         bar.addPermanentWidget(self.spinner)
+
+    # ---- view menu / legend sync ------------------------------------------
+    def _on_viewport_layer_toggled(self, key: str, on: bool):
+        act = self._layer_actions.get(key)
+        if act is not None and act.isChecked() != on:
+            act.blockSignals(True)
+            act.setChecked(on)
+            act.blockSignals(False)
 
     # ---- outline selection ----------------------------------------------
     def _on_outline_selection(self, current, _previous):
@@ -346,11 +393,44 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Select input STL", "", "STL files (*.stl)")
         if path:
             self._set_path_field(self.input_path_edit, path)
+            self._load_input_preview(path)
 
     def _browse_output(self):
         path, _ = QFileDialog.getSaveFileName(self, "Select output STEP", "", "STEP files (*.step)")
         if path:
             self._set_path_field(self.output_path_edit, path)
+
+    def _on_input_path_edited(self):
+        # Covers typing/pasting a path directly rather than using Browse... -- fires on Enter or
+        # focus-loss (QLineEdit.editingFinished), not per keystroke.
+        path = self.input_path_edit.text().strip()
+        if path and os.path.exists(path):
+            self._load_input_preview(path)
+
+    def _load_input_preview(self, path: str):
+        """Show the input mesh in the viewport immediately on file selection, before Analyze or
+        Run ever runs -- previously nothing appeared until Analyze completed, leaving no visual
+        confirmation that a file was actually loaded (Brady, 2026-09-06)."""
+        self.viewport.reset_scene()
+        self._analysis = None
+        self._analyzed_input_path = None
+        self.status_label.setText("Loading preview...")
+        worker = PreviewWorker(path)
+        worker.finished.connect(self._on_input_preview_loaded)
+        worker.failed.connect(self._on_input_preview_failed)
+        thread = run_in_thread(worker)
+        self._workers.append(worker)
+        self._threads.append(thread)
+        thread.start()
+
+    def _on_input_preview_loaded(self, mesh):
+        self.status_label.setText("Ready")
+        self.viewport.show_input_mesh(mesh)
+        self.log_line(f"loaded preview: {self.input_path_edit.text().strip()}")
+
+    def _on_input_preview_failed(self, message):
+        self.status_label.setText("Ready")
+        self.log_line(f"viewport: could not load input mesh preview: {message}", level="warn")
 
     def _reveal_output(self):
         if self._result is None:
@@ -370,29 +450,57 @@ class MainWindow(QMainWindow):
         units = self.units_combo.currentText()
         self.status_label.setText("Analyzing...")
         self.spinner.start()
+        self._set_running(True)
+        self.dashboard.reset()
         self.log_line(f"analyze: {input_path} (axis={axis}, units={units})")
         worker = AnalyzeWorker(input_path, axis, units)
+        worker.progress.connect(self._on_analyze_progress)
         worker.finished.connect(self._on_analyzed)
         worker.failed.connect(self._on_failed)
         thread = run_in_thread(worker)
+        self._workers.append(worker)
         self._threads.append(thread)
         thread.start()
 
-    def _on_analyzed(self, analysis):
+    def _on_analyze_progress(self, stage, frac, message):
+        self._last_stage = stage  # shared with _on_progress -- _on_failed reads this either way
+        self.dashboard.on_stage(stage, frac, message)
+
+    def _on_analyzed(self, analysis, mesh):
         self._analysis = analysis
+        self._analyzed_input_path = self.input_path_edit.text().strip()
         self.spinner.stop()
+        self.dashboard.mark_analyze_done()
         self.status_label.setText("Analyzed")
-        self.log_line(f"analyze done: axis={analysis.frame_axis}, extent={analysis.axial_extent_mm:.2f}mm, "
-                      f"bodies={analysis.body_count}, watertight={analysis.is_watertight}")
+        # Spell out each check's pass/fail plainly (Brady, 2026-09-06: "it needs to state that
+        # it is watertight when it passes that check, etc") instead of dumping raw field values
+        # -- "watertight=True" and a bare axis vector don't read as a checklist at a glance.
+        watertight_ok = analysis.is_watertight
+        single_body = analysis.body_count == 1
+        checks = ["✓ watertight" if watertight_ok else "✗ NOT watertight (repair may be needed)",
+                  "✓ single body" if single_body else f"⚠ {analysis.body_count} bodies detected"]
+        if analysis.n_dropped_islands:
+            checks.append(f"⚠ {analysis.n_dropped_islands} noise island(s) dropped")
+        level = "info" if (watertight_ok and single_body) else "warn"
+        self.log_line(
+            f"✓ Analyze done — {', '.join(checks)}, "
+            f"axis {axis_label(analysis.frame_axis)} "
+            f"(confidence {analysis.axis_confidence * 100:.0f}%), "
+            f"extent {analysis.axial_extent_mm:.2f}mm, {analysis.triangle_count:,} triangles",
+            level=level)
         self.page_detected.tree.set_groups(_analysis_property_groups(analysis))
         if self.chord_tol_auto.isChecked():
             self.chord_tol_spin.setValue(max(analysis.suggested_chord_tol_mm, 0.01))
-        try:
-            mesh = pv.read(self.input_path_edit.text().strip())
+        if mesh is not None:
             self.viewport.show_input_mesh(mesh)
-        except Exception as exc:
-            self.log_line(f"viewport: could not load input mesh preview: {exc}", level="warn")
+        else:
+            self.log_line("viewport: could not load input mesh preview", level="warn")
         self.outline.setCurrentItem(self.node_detected)
+        if getattr(self, "_pending_rebuild", False):
+            self._pending_rebuild = False
+            self._start_rebuild()  # re-enables the buttons itself once the rebuild finishes
+        else:
+            self._set_running(False)
 
     def run_rebuild(self):
         input_path = self.input_path_edit.text().strip()
@@ -400,6 +508,24 @@ class MainWindow(QMainWindow):
         if not input_path or not output_path:
             QMessageBox.warning(self, "Run", "Input STL and output STEP path are required.")
             return
+        # "auto from mesh" promises a chord-tol sized to THIS input, but without an Analysis to
+        # read it from, the code used to silently fall back to the raw 0.5mm spinbox default --
+        # often far too fine for a real motor's scale, which can fail geometry construction
+        # outright with no indication chord-tol was ever the issue (Brady, 2026-09-06: M8 at the
+        # default 0.5mm -- instead of the ~0.94mm Analyze would have suggested -- failed
+        # BRepCheck_Analyzer validity). Run Analyze first (silently chaining into the rebuild
+        # once it completes) whenever there's no analysis yet, or it's for a different input.
+        if self.chord_tol_auto.isChecked() and (
+                self._analysis is None or getattr(self, "_analyzed_input_path", None) != input_path):
+            self.log_line("auto chord-tol needs Analyze first — running it now")
+            self._pending_rebuild = True
+            self.run_analyze()
+            return
+        self._start_rebuild()
+
+    def _start_rebuild(self):
+        input_path = self.input_path_edit.text().strip()
+        output_path = self.output_path_edit.text().strip()
         os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
         chord_tol = (self._analysis.suggested_chord_tol_mm if (self.chord_tol_auto.isChecked() and self._analysis)
                      else self.chord_tol_spin.value())
@@ -416,6 +542,8 @@ class MainWindow(QMainWindow):
         self.progress_bar.show()
         self.spinner.start()
         self._set_running(True)
+        self._last_stage = None
+        self.dashboard.reset_rebuild_dials()
         self.log_line(f"rebuild: {input_path} -> {output_path} (sections={opts.sections}, "
                       f"chord_tol={opts.chord_tol:.3f}, adaptive={opts.adaptive})")
         worker = RebuildWorker(opts)
@@ -434,60 +562,81 @@ class MainWindow(QMainWindow):
             self.log_line("cancel requested", level="warn")
 
     def _set_running(self, running: bool):
+        # Also disables Analyze, not just Run/Cancel -- Brady, 2026-09-06: clicking Analyze then
+        # Run before Analyze finished (M13's Analyze alone can run ~19 minutes) let a SECOND,
+        # redundant AnalyzeWorker start via run_rebuild()'s own "needs Analyze first" chaining,
+        # since nothing blocked either button while the first Analyze was still in flight --
+        # confirmed by the log showing two identical "Analyze done" lines seconds apart, but
+        # only one actual rebuild (whichever Analyze completion's _pending_rebuild chain won the
+        # race). Both buttons now go through this one guard for the whole Analyze-and/or-Rebuild
+        # operation, however it started.
         self.run_btn.setEnabled(not running)
         self.run_action.setEnabled(not running)
+        self.analyze_btn.setEnabled(not running)
+        self.analyze_action.setEnabled(not running)
         self.cancel_btn.setEnabled(running)
         self.cancel_action.setEnabled(running)
         self.cancel_btn.setIcon(qta.icon("fa5s.stop", color=ERROR if running else TEXT_DISABLED))
 
     def _on_progress(self, stage, frac, message):
+        self._last_stage = stage
         self.progress_bar.setValue(int(max(0.0, min(1.0, frac)) * 100))
         self.status_label.setText(f"{stage}: {message}")
         self.log_line(f"[{stage}] {frac:.2f} {message}")
+        self.dashboard.on_stage(stage, frac, message)
 
-    def _on_rebuilt(self, result):
+    def _on_rebuilt(self, result, solid_mesh, input_mesh):
         self._result = result
         self._set_running(False)
         self.progress_bar.hide()
         self.spinner.stop()
         self.error_banner.hide()
         self.status_label.setText("Done")
-        self.log_line(f"rebuild done: {result.output_path}")
+        self.log_line(f"✓ Rebuild done — {result.output_path}")
+        self.dashboard.on_done()
         man = manifest_mod.build(result, self._analysis)
         self.manifest_tree.set_groups(_manifest_property_groups(man))
         report = result.report or {}
         stations_z = report.get("stations_z_mm", [])
         events_z = set(round(z, 6) for z in report.get("topology_events_z_mm", []))
-        solid_mesh = None
+        # This rebuild's OWN axis, NOT the cached Analysis's -- they can legitimately differ.
+        # `--axis auto` re-detects fresh on every rebuild (not reused from Analyze), and its
+        # secondary origin-refinement step (`_axis_origin_refine`) depends on --chord-tol, so a
+        # rebuild run with a different chord-tol than whatever Analyze last probed with can end
+        # up with a measurably different axis. Drawing the overlays with the STALE Analyze axis
+        # while the solid itself is built (and positioned) in the CURRENT rebuild's own axis
+        # produces exactly the "station rings look huge/spiraled, way outside the small correct
+        # solid" bug Brady hit 2026-09-06: rings placed along a slightly wrong axis fan out
+        # sideways more and more with each station's z, since each one is offset by
+        # `wrong_axis * z` instead of the true axis.
+        axis_unit = (report.get("frame", {}).get("axis")
+                    or (self._analysis.frame_axis if self._analysis else (0, 0, 1)))
         try:
             # Run without a prior Analyze: the input mesh was never loaded into the scene,
             # which left the Input-mesh layer (and B-swap) empty (Brady, 2026-09-04)
-            if not self.viewport.has_input_mesh:
-                in_path = self.input_path_edit.text().strip()
-                if in_path and os.path.exists(in_path):
-                    self.viewport.show_input_mesh(pv.read(in_path))
-            if result.stl_path and os.path.exists(result.stl_path):
-                solid_mesh = pv.read(result.stl_path)
+            if not self.viewport.has_input_mesh and input_mesh is not None:
+                self.viewport.show_input_mesh(input_mesh)
+            if solid_mesh is not None:
                 self.viewport.show_solid_mesh(solid_mesh)
                 xmin, xmax, ymin, ymax, _zmin, _zmax = solid_mesh.bounds
                 bounds_xy = float(max(abs(xmin), abs(xmax), abs(ymin), abs(ymax)))
-                axis_unit = self._analysis.frame_axis if self._analysis else (0, 0, 1)
                 self.viewport.show_station_planes(stations_z, bounds_xy, axis_unit)
                 self.viewport.show_topology_events(list(events_z), bounds_xy, axis_unit)
                 self.viewport.show_axis_line(bounds_xy, report.get("axial_extent_mm", bounds_xy), axis_unit)
         except Exception as exc:
             self.log_line(f"viewport: could not load solid preview: {exc}", level="warn")
         self.page_stations.table.set_rows(
-            _station_rows(report, stations_z, events_z, solid_mesh,
-                           self._analysis.frame_axis if self._analysis else (0, 0, 1)))
+            _station_rows(report, stations_z, events_z, solid_mesh, axis_unit))
         self.outline.setCurrentItem(self.node_output)
 
     def _on_failed(self, kind, message):
+        self._pending_rebuild = False  # an Analyze that failed must not later auto-trigger a run
         self._set_running(False)
         self.progress_bar.hide()
         self.spinner.stop()
         self.status_label.setText(f"Failed: {kind}")
         self.log_line(f"FAILED [{kind}] {message}", level="error")
+        self.dashboard.on_failed(getattr(self, "_last_stage", None))
         self.error_banner.setText(f"{kind}: {message}")
         self.error_banner.show()
         self.manifest_tree.set_groups([("Error", [("Kind", kind, None), ("Message", message, message)])])
@@ -558,6 +707,11 @@ def _verification_group(verif: dict):
     followed by the two measured values, the delta, and the tolerance in-line. A failed check
     that carries a `hint` shows it as a second line right in the Value column."""
     rows = []
+    wt = verif.get("watertight")
+    if wt:
+        glyph, color = _verification_glyph(wt.get("pass"))
+        text = f"{glyph}  {'watertight' if wt.get('pass') else 'NOT watertight'}"
+        rows.append(("Watertight", text, str(wt), color))
     vol = verif.get("volume")
     if vol:
         glyph, color = _verification_glyph(vol.get("pass"))

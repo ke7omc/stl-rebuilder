@@ -74,8 +74,8 @@ def run_smoke(outdir: str) -> int:
         result = _run_worker_sync(analyze_worker, analyze_thread, ["finished", "failed"])
         if "failed" in result:
             raise RuntimeError(f"analyze failed: {result['failed']}")
-        analysis = result["finished"][0]
-        window._on_analyzed(analysis)
+        analysis, preview_mesh = result["finished"]
+        window._on_analyzed(analysis, preview_mesh)
         app.processEvents()
 
         shot2 = os.path.join(outdir, "02_analyzed.png")
@@ -93,8 +93,8 @@ def run_smoke(outdir: str) -> int:
         result = _run_worker_sync(rebuild_worker, rebuild_thread, ["finished", "failed"])
         if "failed" in result:
             raise RuntimeError(f"rebuild failed: {result['failed']}")
-        rebuild_result = result["finished"][0]
-        window._on_rebuilt(rebuild_result)
+        rebuild_result, solid_mesh, input_mesh = result["finished"]
+        window._on_rebuilt(rebuild_result, solid_mesh, input_mesh)
         app.processEvents()
 
         shot3 = os.path.join(outdir, "03_rebuilt.png")
