@@ -1,6 +1,52 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-06 — Interactive GUI hardening from Brady's live testing, plan complete.** Ran the
+  GUI by hand against real-scale synthetic STLs (M8, M13) and fixed everything that surfaced,
+  closing out the plan at `~/.claude/plans/serialized-percolating-bachman.md` end to end:
+  - **Dashboard**: added a 5th ANALYZE dial (LOAD/SCAN/SECTIONING/BUILD already existed) wired to
+    a real progress signal threaded through `engine.analyze()`/`pipeline/io.py::load_and_orient`
+    (previously silent — Analyze on a big mesh looked hung). Needle "creeps" forward
+    asymptotically between sparse real checkpoints (an absolute 0.93 ceiling, 80s time constant,
+    never-move-backward invariant), calibrated against ACTUAL M13 timing data (`_weld_by_radius`
+    alone burns ~160 of ~182s with only one checkpoint) — a first design based on theoretical
+    checkpoint spacing was proven wrong by replaying real timestamps and would have saturated
+    early then sat flat, or jumped backward.
+  - **Two real bugs found via live use, both fixed**: (1) clicking Analyze then Run before
+    Analyze finished silently started a second, redundant `AnalyzeWorker` (Analyze/Run now
+    disabled for the whole in-flight duration); (2) station rings drawn with a stale CACHED
+    Analyze axis instead of the current rebuild's own recomputed axis (`--axis auto` re-detects
+    fresh every rebuild, origin-refine is chord_tol-dependent) produced a huge spiral of rings on
+    large-extent parts — now prefers `report["frame"]["axis"]` from the rebuild itself.
+  - **Actionable, context-aware error hints** (Brady's explicit ask — "nail down all of these
+    types of errors...they should have some actionable advice"): crash/volume hints no longer
+    say "try --adaptive" when it's already on (say to turn it OFF instead — confirmed by direct
+    reproduction that `--adaptive` is measurably LESS robust than uniform placement on M8's
+    slot/fillet transitions, 4/4 uniform pass vs 1/4 adaptive pass across sections
+    40/52/60/100); the non-axisymmetric-loop crash hint now computes a concrete suggested
+    `--chord-tol` value instead of a vague nudge, and distinguishes real off-axis centers from
+    ordinary chordal roundness noise.
+    Also fixed the M13-without-`--adaptive` crash's ROOT CAUSE in `pipeline/solids.py`'s fillet
+    clamp (a fillet exactly filling half the wedge's span made two meridian points coincide,
+    crashing `BRepBuilderAPI_MakeEdge` on a zero-length edge — now clamped a hair short via a
+    `1e-6` margin), restored the fallback ladder's exception guard, and left a backstop
+    `GeometryError` hint for the case nothing converges.
+  - **Watertight confirmation surfaced end-to-end**: `_compute_verification` now reports it; the
+    Analyze log line is a descriptive pass/fail checklist (watertight, single body, dropped
+    islands) instead of a raw data dump; the Output page's Verification group leads with a
+    Watertight row.
+  - **Viewport** (done earlier in this same session, verified still working): clickable legend
+    rows (`LegendRow` in `app/viewport.py`, synced to the View-menu checkboxes via
+    `layer_toggled` signal) replacing the old inert `QLabel` legend, plus independent "Rebuilt
+    solid: transparent" / "Input mesh: solid color" View-menu toggles for A/B'ing fin geometry
+    against the input mesh.
+  - 95 tests pass (`tests/api`, `tests/gui`, `tests/test_stations.py`, `tests/test_solids.py`).
+    Committed at `ffd23ef`. **Brady: `git push`.**
+  - **Not yet done / next**: none of this has been run against a REAL burnback STL yet — still
+    the big open item from Round 2/3 (see below). The M13-without-adaptive fillet-clamp fix and
+    the new hints are unit/regression-tested but worth re-confirming by hand on the actual M13
+    milestone file (`harness/truth/M13.stl`) at `--sections 50` with no `--adaptive` if that
+    specific repro matters again.
 - **2026-09-04 10:52 — ROUND 3 COMPLETE. ALL THREE ROUNDS DONE.** G1 (engine API) and G2
   (PySide6 app) each passed on their first iteration; G3 took three Fable visual-review rounds
   (feedback via PROGRESS Notes → `state/G3_APPROVED`); HANDOFF v3 written and verified against
