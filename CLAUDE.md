@@ -1,6 +1,24 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-08 — Round 5 of live-testing feedback, committed `f2a13eb`.** Four fixes from
+  Brady's own hands-on GUI testing: (1) removed the viewport ground floor plane (added in Round
+  4) — it read as a stray artifact and interfered with the transparency/ghost-overlay comparison
+  mode; SSAO itself stays. (2) **M9's persistent Bounds Z verification failure investigated and
+  root-caused, but NOT geometrically fixed** — Brady tried every chord-tol/adaptive combination
+  (3.5 crashed, 4.25, auto-suggested 4.93) at M9's own official settings and the ~21mm aft-dome-
+  tip shortfall never moved, because it's a genuine characteristic of M9's noisy/coarse input
+  (median edge length 40mm) at the single most-extreme point, not a chord-tol/adaptive problem —
+  confirmed by Deviation (a robust p95 stat) passing comfortably at 2.29mm/10mm the whole time.
+  `pipeline/engine.py`'s new `_axial_bounds_hint` stops suggesting a fix that can't help and
+  explains why instead. **The underlying shortfall itself is still open** — a real follow-up
+  would loosen this specific check's tolerance for genuinely coarse/noisy inputs (e.g. using the
+  mesh's own median edge length as a per-input noise scale), not something to paper over quickly.
+  (3) Verification hint text in the Details dock was getting lost — widened the wrap column and
+  added an unmissable "WHAT TO DO:" label ahead of the hint. (4) Redrew the percentage readout
+  under each dashboard gauge dial as a hand-drawn 7-segment LED display (bezeled housing, no
+  colon, existing state colors kept) per Brady's "old mission control" reference photo — hand-
+  drawn because this repo's Bash guard blocks fetching a segment font. 151 tests passing.
 - **2026-09-07 — Full-day GUI polish push (4 rounds), complete and self-corrected.** Brady asked
   for an honest design evaluation ("make it look fantastic... enterprise like grade... NASA
   rocket theme"), then live-tested it, then asked for research-grounded inspiration from real
