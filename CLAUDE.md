@@ -1,42 +1,62 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
-- **2026-09-07 — Fable design review + 3-phase GUI polish, complete.** Brady asked for an
-  honest design evaluation ("make it look fantastic... enterprise like grade... NASA rocket
-  theme") plus fresh ideas for the 3D viewport. Fable ran the app offscreen, took ~15 real
-  screenshots (M2 + a trickier M8 finocyl/star-bore run), found the bones (dark shell,
-  verification checklist, error presentation, the dial-cluster concept) already solid but
-  flagged two real bugs — dial captions clipped by the widget's own bottom edge, and 40-60+
-  full-opacity station rings completely wallpapering the solid on real geometry — plus a phased
-  polish/capability plan. Implemented all 3 phases directly (not deferred):
-  - **Phase 1** (finishing): both bugs fixed; monospace numerals everywhere data lives; toolbar
-    text+shortcuts (F5/Ctrl+R/Esc/Ctrl+E/F/O/S/W) + a Run menu; window title tracks the loaded
-    file; version string (status bar + About); path elision; viewport image export; Fit/Ortho
-    camera actions; a real empty state; outline badges ("Stations (60)", "Output ✓").
-  - **Phase 2** (mission-control identity): new `TELEMETRY` cyan color token so "the machine is
-    working" no longer looks identical to "you clicked a button" (dials/spinner/progress bar);
-    a `T+ 00:00:00` mission clock + NOMINAL/RUNNING/FAULT/ABORTED status strip; dial bezel
-    depth; rebuilt-solid render color switched to machined-steel grey (Brady's call, replacing a
-    saturated blue that competed with the UI's own accent colors).
-  - **Phase 3** (viewport as a verification instrument — Brady's "more stuff for geometric
-    viewing" ask): Stations table ↔ 3D ring ↔ new pyqtgraph radius-profile chart are now one
-    linked selection; a draggable section-view slider clips the solid+input mesh along the
-    motor axis (finally see the bore interior instead of squinting through transparency); a
-    deviation heatmap colors the solid by actual per-point distance to the input mesh (scipy
-    cKDTree) against the run's own tolerance; render-mode cycle (shaded/edges/wireframe); a
-    camera-orientation widget alongside the existing precise axis-snap buttons.
-  - Verified against real rendered screenshots at every stage, not code reading alone — M2
-    (axis=Z) confirmed unaffected, M8 confirmed the ring/steel/highlight/section/heatmap
-    features all work together. 20 new regression tests; full suite 137 passed. Committed at
-    `59aa943` (plus `e0af0d4` from the same session fixing the giant/misplaced station rings
-    when the detected motor axis isn't Z — see below). **Brady: `git push`** — 3 commits ahead
-    of `origin/main` as of this entry.
-  - **Known limitation, not yet fixed**: the deviation-heatmap color scale can read as
-    uniformly mid-tone rather than sharply highlighting hotspots — it uses nearest-VERTEX
-    distance between the two differently-tessellated meshes (input STL vs. OCCT preview STL),
-    which is systematically coarser than the engine's own point-to-triangle verification metric
-    (`_compute_verification`'s approx deviation). Real, working, just not the tightest possible
-    signal; a future pass could swap in a point-to-triangle distance (e.g. `vtkImplicitPolyDataDistance`) if it turns out to matter in practice.
+- **2026-09-07 — Full-day GUI polish push (4 rounds), complete and self-corrected.** Brady asked
+  for an honest design evaluation ("make it look fantastic... enterprise like grade... NASA
+  rocket theme"), then live-tested it, then asked for research-grounded inspiration from real
+  commercial CAD software, then had the result reviewed a second time. Each round was verified
+  against real rendered screenshots, not code reading alone — and the review round genuinely
+  caught real bugs, which matters for trusting this pattern going forward.
+  - **Round 1 (Fable design review, commit `59aa943`)**: dark shell/verification checklist/dial
+    concept already solid; fixed dial captions clipping off, station rings wallpapering the
+    solid at real section counts; added the mission clock/status strip, section-view slider,
+    deviation heatmap (first version), render-mode cycle, radius-profile chart, camera-
+    orientation widget. 20 tests, 137 passed.
+  - **Round 2 (Brady's own live testing, commit `f5ba847`)**: dials were `Policy.Fixed`
+    vertically so they stayed small no matter how tall the dock was — now `Expanding` in both
+    directions, a real fix Brady could see immediately; "100%" readout overlapping the dial's
+    own rim and "0"/"100" end-tick labels clipping at the widget edge, both fixed with a
+    provably-correct margin formula; two competing orientation widgets (plain VTK triad + Qt
+    X/Y/Z buttons) consolidated into one once Brady confirmed live that the camera-orientation
+    widget's own click/drag already snaps axis views; **solid color reverted from an
+    experimental steel-grey back to the original blue** — Brady's explicit preference after
+    seeing both.
+  - **Round 3 (Fable research pass into SpaceClaim/SolidWorks/Fusion 360/Onshape/KeyShot +
+    mission-control/avionics design, commit `7115106`)**: SSAO + SSAA + a gradient viewport
+    background + ground floor plane (all verified working in the installed pyvista 0.48.4/VTK
+    9.6.2 at sub-second cost, even on a 77k-cell real motor mesh); solid shading changed to
+    `smooth_shading=True, split_sharp_edges=True` — re-verified directly on M8's star bore (the
+    exact geometry that broke plain smooth shading back on 2026-09-04) that this fixes the
+    pinwheel artifact rather than reintroducing it; IBM Plex Sans/Mono typography (already
+    installed on this Mac) and a full Phosphor icon-set swap (both bundled dependencies, no new
+    installs); "edges" render mode changed from raw triangulation wireframe to a real
+    `extract_feature_edges` geometric-edge overlay; new in-viewport display-toggle overlay
+    (Fusion-360/Onshape-style), wired bidirectionally with the View menu.
+  - **Round 4 (Fable reviews Round 2+3's actual implementation, commit `e322fe3`)** — the
+    payoff of having a second pass check the first: found the **deviation heatmap was computing
+    the wrong metric** (nearest-VERTEX distance instead of true point-to-surface distance) and
+    rendering a saturated, meaningless "everything over tolerance" field on a run that actually
+    passed at p95 0.32mm — fixed with `compute_implicit_distance`, re-verified against the
+    engine's own reported number. Also found the camera-orientation widget was being recreated
+    (leaked) on every file open, and that the home button's position landed **inside** the
+    widget's own footprint despite a code comment claiming otherwise — both fixed, the latter
+    verified by direct geometry/coordinate checks since the widget itself still can't render in
+    this offscreen sandbox. Plus several LOW polish items (transparent empty-state background,
+    last non-Phosphor icon, dial vertical centering).
+  - **Process note worth remembering**: Round 3's own code comments confidently asserted the
+    orientation-widget fix was correct ("sitting below-left... rather than overlapping it") —
+    that claim was wrong, caught only because Round 4 did the geometry math instead of trusting
+    the prose. Self-review of visual/GUI work is worth the cost; a first pass's own confidence in
+    its comments is not evidence it's correct.
+  - Full suite 146 passed as of the last commit. 6 commits ahead of `origin/main` as of this
+    entry (`59aa943`, `e0af0d4` fixing the axis-ring bug — see next entry below — `f5ba847`,
+    `7115106`, `e322fe3`, plus this handoff commit). **Brady: `git push`.**
+  - **Still genuinely unverified, needs Brady's own eyes on a real screen**: the camera-
+    orientation widget's on-screen look and exact position (it's disabled under
+    `QT_QPA_PLATFORM=offscreen` by design, so no screenshot in this whole 4-round process has
+    ever actually shown it) — the fixes above are geometrically/programmatically verified, not
+    pixel-verified. Also worth a real burnback STL run since everything above is still only
+    proven on synthetic milestones.
 - **2026-09-06 — Interactive GUI hardening from Brady's live testing, plan complete.** Ran the
   GUI by hand against real-scale synthetic STLs (M8, M13) and fixed everything that surfaced,
   closing out the plan at `~/.claude/plans/serialized-percolating-bachman.md` end to end:
