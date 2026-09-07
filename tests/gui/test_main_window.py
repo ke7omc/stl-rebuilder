@@ -305,3 +305,29 @@ def test_outline_gains_count_and_status_badges_after_a_rebuild(window):
     window._on_rebuilt(result, None, None)
     assert window.node_stations.text(0) == "Stations (2)"
     assert "✓" in window.node_output.text(0)
+
+
+def test_view_menu_stays_in_sync_with_the_viewport_display_overlay(window):
+    """The in-viewport display overlay (2026-09-07) is a second entry point into state the View
+    menu's QActions also control -- clicking the overlay must update the menu checkboxes (same
+    two-way sync already proven for the legend/layer-visibility actions), not leave them stale."""
+    window.viewport._display_overlay.section_clicked.emit()
+    assert window.section_view_action.isChecked() is True
+
+    window.viewport._display_overlay.deviation_clicked.emit()
+    assert window.deviation_action.isChecked() is True
+
+    window.viewport._display_overlay.render_mode_clicked.emit()  # shaded -> edges
+    assert window._render_mode_actions["edges"].isChecked() is True
+    assert window._render_mode_actions["shaded"].isChecked() is False
+
+
+def test_render_mode_menu_action_drives_the_viewport_not_a_local_copy(window):
+    """Regression test: `_set_render_mode`/`_cycle_render_mode` used to duplicate cycling logic
+    in MainWindow with its OWN idea of "current mode" (read from the menu's checked state) --
+    removed in favor of Viewport owning render_mode as the single source of truth, reached via
+    `viewport.set_render_mode`/`cycle_render_mode` directly."""
+    window._render_mode_actions["wireframe"].trigger()
+    assert window.viewport._render_mode == "wireframe"
+    window.render_mode_cycle_action.trigger()
+    assert window.viewport._render_mode == "shaded"  # wraps around

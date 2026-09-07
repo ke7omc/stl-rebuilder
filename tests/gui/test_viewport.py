@@ -250,3 +250,49 @@ def test_deviation_mode_computes_scalars_once_both_meshes_are_present(viewport):
     viewport.set_deviation_mode(False)
     # scalars stay cached (cheap to recompute-avoid); the toggle just stops USING them
     assert viewport._deviation_mode is False
+
+
+def test_render_mode_edges_adds_a_feature_edge_overlay_not_raw_wireframe(viewport):
+    """2026-09-07 premium-CAD research pass: "edges" mode used to be `show_edges=True` (every
+    triangulation facet edge -- a dense, meaningless mess on a fine mesh). It must now draw only
+    real geometric edges (extract_feature_edges), as a separate actor, present only in "edges"
+    mode."""
+    # A UV sphere (the fixture's default mesh) has no genuinely sharp edges anywhere -- extract
+    # a mesh with real corners so there's something for the feature-edge filter to actually find.
+    viewport.show_solid_mesh(pv.Cube())
+    viewport.set_render_mode("edges")
+    assert viewport.plotter.actors.get("solid_feature_edges") is not None
+    viewport.set_render_mode("shaded")
+    assert viewport.plotter.actors.get("solid_feature_edges") is None
+
+
+def test_ssao_and_floor_are_set_up_after_showing_a_solid(viewport):
+    assert viewport._floor_actor is not None
+    assert viewport.plotter.actors.get("Floor(-z)") is not None
+
+
+def test_display_overlay_buttons_drive_viewport_state_and_emit_sync_signals(viewport):
+    """The in-viewport display overlay (2026-09-07, Fusion-360/Onshape-style canvas controls)
+    must be a second entry point into the SAME state Viewport already owns, not a parallel copy
+    -- clicking a button changes the real state and emits the signal main_window listens to for
+    keeping its View-menu QActions in sync (same pattern as the legend)."""
+    render_modes = []
+    viewport.render_mode_changed.connect(render_modes.append)
+    viewport._display_overlay.render_mode_clicked.emit()
+    assert viewport._render_mode == "edges"
+    assert render_modes == ["edges"]
+    assert viewport._display_overlay.render_mode_btn._checked is True
+
+    section_states = []
+    viewport.section_view_toggled.connect(section_states.append)
+    viewport._display_overlay.section_clicked.emit()
+    assert viewport._section_frac is not None
+    assert section_states == [True]
+    assert viewport._display_overlay.section_btn._checked is True
+
+    deviation_states = []
+    viewport.deviation_mode_toggled.connect(deviation_states.append)
+    viewport._display_overlay.deviation_clicked.emit()
+    assert viewport._deviation_mode is True
+    assert deviation_states == [True]
+    assert viewport._display_overlay.deviation_btn._checked is True

@@ -21,7 +21,10 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider, QVBoxLayout, QWidget
 
-from app.theme import MONO_FAMILY, TELEMETRY, TEXT_DISABLED, TEXT_PRIMARY
+from app.theme import (
+    MONO_FAMILY, TELEMETRY, TEXT_DISABLED, TEXT_PRIMARY, TEXT_SECONDARY, VIEWPORT_BG_BOTTOM,
+    VIEWPORT_BG_TOP, VIEWPORT_FLOOR,
+)
 
 try:
     from pyvistaqt import QtInteractor
@@ -164,8 +167,72 @@ class _SectionSliderOverlay(QWidget):
         self.hide()
 
 
+class _DisplayToggleButton(_ClickableLabel):
+    """One icon button in the in-viewport display-toggle overlay (`_DisplayOverlay`) -- a
+    checkable state for the two boolean toggles (section view, deviation heatmap), a plain
+    click target for the render-mode cycle."""
+
+    def __init__(self, icon_name: str, tooltip: str, parent=None):
+        super().__init__(parent)
+        self._icon_name = icon_name
+        self._checked = False
+        self.setFixedSize(26, 26)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(tooltip)
+        self._restyle()
+
+    def set_checked(self, on: bool):
+        self._checked = bool(on)
+        self._restyle()
+
+    def _restyle(self):
+        color = TELEMETRY if self._checked else TEXT_SECONDARY
+        bg = "rgba(53, 184, 200, 0.22)" if self._checked else "rgba(20, 22, 26, 0.7)"
+        self.setPixmap(qta.icon(self._icon_name, color=color).pixmap(15, 15))
+        self.setStyleSheet(
+            f"background-color: {bg}; border: 1px solid rgba(255,255,255,0.15); "
+            "border-radius: 3px;")
+
+
+class _DisplayOverlay(QWidget):
+    """Top-left in-viewport display-toggle bar (2026-09-07, premium-CAD research pass, "the
+    bigger structural ideas"): Fusion 360 and Onshape both keep the most-used display state
+    (section/clip, render mode, orientation) as translucent controls floating IN the canvas
+    rather than buried only in a top menu -- same Qt-overlay pattern already proven here for the
+    legend/axis-gizmo/section-slider (reliable, simple, no VTK widget picking). The View menu
+    stays the keyboard-accessible source of truth; this is a convenience layer on top of it,
+    kept in sync in both directions via Viewport's own signals (same pattern as the legend)."""
+    section_clicked = Signal()
+    deviation_clicked = Signal()
+    render_mode_clicked = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(
+            "background-color: rgba(20, 22, 26, 0.85); border: 1px solid #3a3f47; "
+            "border-radius: 4px;")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(4)
+        self.render_mode_btn = _DisplayToggleButton(
+            "ph.polygon-bold", "Cycle render mode: shaded / edges / wireframe (W)")
+        self.section_btn = _DisplayToggleButton(
+            "ph.scissors-bold", "Section view: clip along the motor axis (S)")
+        self.deviation_btn = _DisplayToggleButton(
+            "ph.thermometer-bold", "Deviation heatmap: color by distance to the input mesh")
+        self.render_mode_btn.clicked.connect(self.render_mode_clicked.emit)
+        self.section_btn.clicked.connect(self.section_clicked.emit)
+        self.deviation_btn.clicked.connect(self.deviation_clicked.emit)
+        for btn in (self.render_mode_btn, self.section_btn, self.deviation_btn):
+            layout.addWidget(btn)
+
+
 class Viewport(QWidget):
     layer_toggled = Signal(str, bool)  # layer key, new visibility -- for View-menu sync
+    section_view_toggled = Signal(bool)  # for View-menu sync, same pattern as layer_toggled
+    deviation_mode_toggled = Signal(bool)
+    render_mode_changed = Signal(str)
 
     # Bottom-left orientation corner geometry (2026-09-07). Kept small and named so either can
     # be nudged in one place if the live layout still overlaps -- see `_reposition_axis_gizmo`.
@@ -192,6 +259,8 @@ class Viewport(QWidget):
         self._station_actor = None
         self._event_actor = None
         self._axis_actor = None
+        self._floor_actor = None
+        self._feature_edges_actor = None
         self._has_events = False
         self._station_radius = 1.0
         self._station_axis = np.array([0.0, 0.0, 1.0])
@@ -218,7 +287,7 @@ class Viewport(QWidget):
         hint_layout = QVBoxLayout(self._empty_hint)
         hint_layout.setSpacing(6)
         hint_icon = QLabel()
-        hint_icon.setPixmap(qta.icon("fa5s.cube", color=TEXT_DISABLED).pixmap(48, 48))
+        hint_icon.setPixmap(qta.icon("ph.cube-bold", color=TEXT_DISABLED).pixmap(48, 48))
         hint_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint_title = QLabel("No geometry loaded")
         hint_title.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 15px; background: transparent;")
@@ -271,6 +340,15 @@ class Viewport(QWidget):
         self._section_overlay = _SectionSliderOverlay(self)
         self._section_overlay.fraction_changed.connect(self.set_section_fraction)
 
+        self._display_overlay = _DisplayOverlay(self)
+        self._display_overlay.render_mode_btn.setToolTip(
+            f"Cycle render mode: shaded / edges / wireframe (W) -- now: {self._render_mode}")
+        self._display_overlay.render_mode_clicked.connect(self.cycle_render_mode)
+        self._display_overlay.section_clicked.connect(
+            lambda: self.set_section_active(self._section_frac is None))
+        self._display_overlay.deviation_clicked.connect(
+            lambda: self.set_deviation_mode(not self._deviation_mode))
+
         self.reset_scene()
 
     def resizeEvent(self, event):
@@ -279,12 +357,18 @@ class Viewport(QWidget):
         self._reposition_legend()
         self._reposition_axis_gizmo()
         self._reposition_section_overlay()
+        self._reposition_display_overlay()
 
     def _reposition_section_overlay(self):
         self._section_overlay.adjustSize()
         w, h = self._section_overlay.width(), self._section_overlay.height()
         self._section_overlay.move(max((self.width() - w) // 2, 0), self.height() - h - 14)
         self._section_overlay.raise_()
+
+    def _reposition_display_overlay(self):
+        self._display_overlay.adjustSize()
+        self._display_overlay.move(12, 12)
+        self._display_overlay.raise_()
 
     def _reposition_hint(self):
         h = 160  # icon + title + hint text + shortcuts row (U4, 2026-09-07)
@@ -321,7 +405,14 @@ class Viewport(QWidget):
             self.plotter.enable_lightkit()
         except Exception:
             pass
-        self.plotter.set_background("#1e1e1e")
+        # Gradient canvas distinct from the panel chrome (see VIEWPORT_BG_* docstring in
+        # theme.py), plus anti-aliasing -- both cheap, both confirmed working offscreen at
+        # sub-second cost on a real 77k-cell motor mesh (2026-09-07 premium-CAD research pass).
+        self.plotter.set_background(VIEWPORT_BG_BOTTOM, top=VIEWPORT_BG_TOP)
+        try:
+            self.plotter.enable_anti_aliasing("ssaa")
+        except Exception:
+            pass
         self._input_actor = None
         self._input_mesh_data = None
         self._solid_actor = None
@@ -329,18 +420,54 @@ class Viewport(QWidget):
         self._station_actor = None
         self._event_actor = None
         self._axis_actor = None
+        self._floor_actor = None
+        self._feature_edges_actor = None
         self._has_events = False
         self._axis_frame = None
         self._section_frac = None
         self._deviation_mode = False
         self._deviation_clim = None
+        self._render_mode = "shaded"
         self._section_overlay.hide()
+        self._display_overlay.section_btn.set_checked(False)
+        self._display_overlay.deviation_btn.set_checked(False)
+        self._display_overlay.render_mode_btn.setToolTip(
+            "Cycle render mode: shaded / edges / wireframe (W) -- now: shaded")
         self._legend.hide()
         self._add_axis_triad()
         self._empty_hint.show()
         self._reposition_hint()
         self._reposition_axis_gizmo()
+        self._reposition_display_overlay()
         self.render()
+
+    def _update_ssao_and_floor(self):
+        """(Re)compute SSAO's radius/bias from the CURRENT scene's own scale and refresh the
+        ground floor plane -- both must track whatever mesh is actually loaded (a fixed default
+        radius tuned for a small part, e.g. pyvista's own SSAO example, is meaningless at this
+        app's scale: these motors range from ~1m to ~10m). SSAO occluding the gap between the
+        part and the floor is a cheap, real substitute for a full shadow-map pass (VTK's
+        `enable_shadows` is pricier and fussier to tune) -- KeyShot calls the equivalent
+        technique "Occlusion Ground Shadows"."""
+        diag = self.plotter.bounds_size if hasattr(self.plotter, "bounds_size") else None
+        try:
+            b = self.plotter.bounds
+            diag = ((b[1] - b[0]) ** 2 + (b[3] - b[2]) ** 2 + (b[5] - b[4]) ** 2) ** 0.5
+        except Exception:
+            diag = None
+        if not diag or diag <= 0:
+            return
+        try:
+            self.plotter.enable_ssao(radius=0.02 * diag, bias=0.0005 * diag, kernel_size=128)
+        except Exception:
+            pass
+        try:
+            if self._floor_actor is not None:
+                self.plotter.remove_actor(self._floor_actor, render=False)
+            self._floor_actor = self.plotter.add_floor(
+                face="-z", color=VIEWPORT_FLOOR, lighting=False, opacity=0.6, pad=0.3)
+        except Exception:
+            self._floor_actor = None
 
     def _add_axis_triad(self):
         # ONE orientation indicator, not two (Brady, 2026-09-07 live-testing feedback: the
@@ -435,8 +562,11 @@ class Viewport(QWidget):
                             float(proj_min), float(proj_max))
 
     def set_section_active(self, on: bool):
-        """View ▸ Section view (S): shows/hides the bottom slider overlay and applies (or
-        clears) the clip at its current position."""
+        """View ▸ Section view (S), or the in-viewport display-overlay scissors button (2026-09-07)
+        -- shows/hides the bottom slider overlay and applies (or clears) the clip at its current
+        position. Both entry points converge here and emit `section_view_toggled` so the OTHER
+        one (View-menu QAction <-> overlay button) stays in sync, same pattern as the legend."""
+        on = bool(on)
         if on:
             self._section_overlay.show()
             self._reposition_section_overlay()
@@ -444,6 +574,8 @@ class Viewport(QWidget):
         else:
             self._section_overlay.hide()
             self.set_section_fraction(None)
+        self._display_overlay.section_btn.set_checked(on)
+        self.section_view_toggled.emit(on)
 
     def set_section_fraction(self, frac):
         self._section_frac = None if frac is None else max(0.0, min(1.0, float(frac)))
@@ -461,15 +593,18 @@ class Viewport(QWidget):
         self._deviation_tol_mm = float(tol_mm) if tol_mm else None
 
     def set_deviation_mode(self, on: bool):
-        """View ▸ Deviation heatmap (Phase 3, V3): color the solid by its actual per-point
-        distance to the input mesh, computed lazily on first use (both meshes are already
-        loaded in the viewport by the time this can be toggled) rather than unconditionally on
-        every rebuild, since not every session will use it."""
+        """View ▸ Deviation heatmap (Phase 3, V3), or the overlay's thermometer button
+        (2026-09-07): color the solid by its actual per-point distance to the input mesh,
+        computed lazily on first use (both meshes are already loaded in the viewport by the
+        time this can be toggled) rather than unconditionally on every rebuild, since not every
+        session will use it."""
         self._deviation_mode = bool(on)
         if self._deviation_mode:
             self._ensure_deviation_scalars()
         self._readd_solid_actor()
         self._apply_visibility()
+        self._display_overlay.deviation_btn.set_checked(self._deviation_mode)
+        self.deviation_mode_toggled.emit(self._deviation_mode)
         self.render()
 
     def _ensure_deviation_scalars(self):
@@ -486,15 +621,26 @@ class Viewport(QWidget):
         except Exception:
             self._deviation_mode = False
 
+    _RENDER_MODES = ("shaded", "edges", "wireframe")
+
     def set_render_mode(self, mode: str):
-        """View ▸ Render mode (W cycles): "shaded" (current default look), "edges" (shaded +
-        facet outlines), "wireframe"."""
-        if mode not in ("shaded", "edges", "wireframe"):
+        """View ▸ Render mode submenu, or the overlay's polygon button's cycle (W / click):
+        "shaded" (current default look), "edges" (real feature-edge overlay, not raw
+        triangulation -- see `_update_feature_edges`), "wireframe"."""
+        if mode not in self._RENDER_MODES:
             return
         self._render_mode = mode
         self._readd_solid_actor()
         self._apply_visibility()
+        self._display_overlay.render_mode_btn.setToolTip(
+            f"Cycle render mode: shaded / edges / wireframe (W) -- now: {mode}")
+        self._display_overlay.render_mode_btn.set_checked(mode != "shaded")
+        self.render_mode_changed.emit(mode)
         self.render()
+
+    def cycle_render_mode(self):
+        i = self._RENDER_MODES.index(self._render_mode)
+        self.set_render_mode(self._RENDER_MODES[(i + 1) % len(self._RENDER_MODES)])
 
     def _input_opacity(self) -> float:
         if self._input_opaque:
@@ -568,8 +714,17 @@ class Viewport(QWidget):
         deviation-heatmap (V3) toggles -- both mutate the SAME actor, so they're resolved in one
         place rather than each maintaining its own ad hoc re-add path."""
         kwargs = dict(
-            smooth_shading=False, specular=0.1, ambient=0.25, diffuse=0.8,
-            show_edges=self._render_mode == "edges", edge_color="#1c2026", line_width=0.5,
+            # smooth_shading + split_sharp_edges (2026-09-07, premium-CAD research pass), NOT
+            # smooth_shading alone: plain `smooth_shading=True` was rejected 2026-09-04 because
+            # it averages per-vertex normals across ANY adjacent facets, which at a bore hole
+            # (radial facets converging to a small circle) creates a spurious pinwheel of bright/
+            # dark spokes -- confirmed by rendering the same STL both ways. `split_sharp_edges`
+            # duplicates vertices at genuinely sharp creases BEFORE that averaging happens, so
+            # smooth interpolation only ever blends normals within an actually-smooth region --
+            # re-verified directly on M8's star bore (the exact geometry that broke before): no
+            # pinwheel, clean soft dome shading, crisp fin edges. Flat shading is gone; it was
+            # working around a problem this combination solves properly.
+            smooth_shading=True, split_sharp_edges=True, specular=0.15, ambient=0.2, diffuse=0.85,
             style="wireframe" if self._render_mode == "wireframe" else "surface")
         mesh = self._solid_mesh_data
         if self._deviation_mode and mesh is not None and "deviation_mm" in mesh.point_data:
@@ -586,10 +741,38 @@ class Viewport(QWidget):
         cam = self.plotter.camera_position
         if self._solid_actor is not None:
             self.plotter.remove_actor(self._solid_actor)
+        clipped = self._clip_for_section(self._solid_mesh_data)
         self._solid_actor = self.plotter.add_mesh(
-            self._clip_for_section(self._solid_mesh_data), opacity=self._solid_opacity(),
+            clipped, opacity=self._solid_opacity(),
             name="solid_mesh", label="Rebuilt solid", **self._solid_render_kwargs())
+        self._update_feature_edges(clipped)
         self.plotter.camera_position = cam
+
+    def _update_feature_edges(self, clipped_mesh):
+        """Render mode "edges" (V7): real geometric edges only, not the raw triangulation --
+        `show_edges=True` drew every one of the mesh's thousands of tessellation facet edges, a
+        dense mess with no relationship to the part's actual geometry. `extract_feature_edges`
+        (a dihedral-angle threshold) separates genuine edges -- rim transitions, fillet tangent
+        lines, the boundary of a bore -- from the fine near-coplanar facet noise that approximates
+        a smoothly curved wall at this chord-tol; only the former survives the ~25 deg threshold.
+        This is the tessellated-mesh equivalent of the "tangent edges dimmed, not drawn raw"
+        convention real CAD viewers use on true BRep tangency data (Onshape's camera/render
+        options, 2026-09-07 premium-CAD research pass) -- verified cheap even on a real motor
+        mesh (~17k points -> ~0.02s)."""
+        self.plotter.remove_actor("solid_feature_edges", render=False)
+        self._feature_edges_actor = None
+        if self._render_mode != "edges" or clipped_mesh is None or clipped_mesh.n_points == 0:
+            return
+        try:
+            edges = clipped_mesh.extract_feature_edges(
+                feature_angle=25, boundary_edges=True, non_manifold_edges=True,
+                feature_edges=True, manifold_edges=False)
+            if edges.n_points:
+                self._feature_edges_actor = self.plotter.add_mesh(
+                    edges, color="#05070a", line_width=1.5, opacity=1.0,
+                    name="solid_feature_edges", pickable=False)
+        except Exception:
+            pass
 
     def _apply_visibility(self):
         # Opacity is synced (and, if needed, re-added) BEFORE the visibility pass below, so the
@@ -600,7 +783,7 @@ class Viewport(QWidget):
         self._sync_solid_opacity()
         pairs = (("input", self._input_actor), ("solid", self._solid_actor),
                  ("stations", self._station_actor), ("events", self._event_actor),
-                 ("axis", self._axis_actor))
+                 ("axis", self._axis_actor), ("solid", self._feature_edges_actor))
         for key, actor in pairs:
             if actor is None:
                 continue
@@ -609,6 +792,24 @@ class Viewport(QWidget):
                 visible = False
             try:
                 actor.SetVisibility(bool(visible))
+            except Exception:
+                pass
+        # The floor isn't a named layer of its own -- it's a ground reference for WHATEVER mesh
+        # is actually on screen, so it follows the same effective visibility as the input/solid
+        # actors rather than a fixed always-on state (hiding the last visible mesh should hide
+        # its floor too, not leave it floating with nothing on it).
+        if self._floor_actor is not None:
+            # `_layer_visible` is a PREFERENCE dict that defaults every key True regardless of
+            # whether that layer has any actual mesh loaded -- gate on the real actor too, or a
+            # solid-only scene (no input mesh ever shown) leaves the floor visible forever
+            # (confirmed by a test failure: hiding the only mesh in the scene left a non-black
+            # background because `_layer_visible["input"]`'s default-True preference, with no
+            # input actor ever created, still counted as "input is visible").
+            solid_visible = (self._layer_visible["solid"] and not self._swap
+                             and self._solid_actor is not None)
+            input_visible = self._layer_visible["input"] and self._input_actor is not None
+            try:
+                self._floor_actor.SetVisibility(bool(solid_visible or input_visible))
             except Exception:
                 pass
 
@@ -628,24 +829,12 @@ class Viewport(QWidget):
         self._apply_visibility()
         self._iso_camera()
         self._update_legend()
+        self._update_ssao_and_floor()
         self.render()
 
     def show_solid_mesh(self, mesh: pv.PolyData):
-        # FLAT shading, not smooth (still the default in `_solid_render_kwargs`):
-        # `smooth_shading=True` makes VTK average per-vertex normals across adjacent facets
-        # (Gouraud/Phong interpolation) -- fine on the gently-curved outer wall, but at ANY
-        # bore/hole (where the mesh's radial facets all converge toward a small circle) that
-        # per-vertex normal averaging creates a spurious pinwheel of bright/dark spokes
-        # radiating from the hole under specular lighting. On a milestone whose bore already has
-        # real fin/slot geometry (e.g. M9) this reads as literally "a second set of fins"
-        # superimposed on the real ones (Brady, 2026-09-04) -- confirmed by rendering the same
-        # STL both ways: `smooth_shading=True` reproduces the pinwheel at ANY tessellation
-        # fidelity tested (0.3 down to 0.015 rad angular deflection, i.e. up to 250k triangles --
-        # more resolution only sharpens the spokes, it doesn't remove them, since the artifact is
-        # the shading model, not facet size); flat shading (each triangle lit by its own true
-        # normal, no interpolation) removes it completely at the same tessellation
-        # `pipeline/export.py::write_stl` already produces, while the outer wall still reads as
-        # smoothly curved at that facet density.
+        # See `_solid_render_kwargs` for the shading-mode history (flat -> smooth_shading +
+        # split_sharp_edges, 2026-09-07).
         self._empty_hint.hide()
         self._solid_mesh_data = mesh
         self._deviation_clim = None
@@ -655,6 +844,7 @@ class Viewport(QWidget):
         self._apply_visibility()
         self._iso_camera()
         self._update_legend()
+        self._update_ssao_and_floor()
         self.render()
 
     def _iso_camera(self):

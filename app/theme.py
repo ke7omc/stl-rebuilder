@@ -24,15 +24,30 @@ WARNING = "#e0a336"
 # green = nominal, amber = caution, red = fault, cyan/white = live data -- this is the missing
 # "live data" token.
 TELEMETRY = "#35b8c8"
+# Viewport-specific gradient background + floor tint (2026-09-07, premium-CAD research pass):
+# kept distinct from the BG_* panel-chrome tokens above -- every reference tool researched
+# (SpaceClaim's radial gradient, Siemens NX's gradient canvas even in dark mode, KeyShot's
+# separately-lit ground) frames the 3D canvas as a different "material" from the surrounding
+# UI, never the same flat hex as the docks around it.
+VIEWPORT_BG_BOTTOM = "#0d0f12"
+VIEWPORT_BG_TOP = "#20252c"
+VIEWPORT_FLOOR = "#15171b"
 # Monospace stack for every numeric/technical readout (dial percentages, property-tree values,
 # station-table numbers, the mission clock) -- the cheapest, highest-value authenticity upgrade
 # the design review found: the log console was already monospace and was consistently the
-# "most mission-control" surface in every screenshot reviewed.
-MONO_FAMILY = '"SF Mono", "Menlo", "Consolas", monospace'
+# "most mission-control" surface in every screenshot reviewed. "IBM Plex Mono" leads (2026-09-07
+# premium-CAD research pass -- dashboard-typography research converges on tabular/monospaced
+# digits for every live-updating number so it doesn't visibly jitter as it updates; IBM Plex is
+# already installed on this Mac, confirmed via `mdfind`); the existing system-font chain is the
+# fallback for a machine where it isn't installed yet (Qt degrades gracefully to the next name
+# in the stack -- same pattern already used everywhere else in this file). Install IBM Plex Sans
+# + IBM Plex Mono (free, SIL OFL) on any other machine this app runs on for the same look there.
+MONO_FAMILY = '"IBM Plex Mono", "SF Mono", "Menlo", "Consolas", monospace'
+UI_FAMILY = '"IBM Plex Sans", "Helvetica Neue", "Segoe UI", Arial, sans-serif'
 
 DARK_QSS = f"""
 * {{
-    font-family: "Helvetica Neue", "Segoe UI", Arial, sans-serif;
+    font-family: {UI_FAMILY};
     font-size: 13px;
     color: {TEXT_PRIMARY};
     outline: none;
@@ -278,7 +293,7 @@ QToolButton:hover {{
 }}
 
 #logConsole {{
-    font-family: "SF Mono", "Consolas", "Menlo", monospace;
+    font-family: {MONO_FAMILY};
     font-size: 12px;
 }}
 

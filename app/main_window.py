@@ -99,7 +99,7 @@ class MainWindow(QMainWindow):
     def __init__(self, offscreen: bool = False):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
-        self.setWindowIcon(qta.icon("fa5s.cube", color=ACCENT))
+        self.setWindowIcon(qta.icon("ph.cube-bold", color=ACCENT))
         self.resize(1400, 900)
 
         self._analysis = None
@@ -138,11 +138,11 @@ class MainWindow(QMainWindow):
     def _build_menu_and_toolbar(self):
         menubar = self.menuBar()
         file_menu = menubar.addMenu("&File")
-        open_action = QAction(qta.icon("fa5s.folder-open", color=TEXT_SECONDARY), "&Open STL...", self)
+        open_action = QAction(qta.icon("ph.folder-open-bold", color=TEXT_SECONDARY), "&Open STL...", self)
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self._browse_input)
         self.export_image_action = QAction(
-            qta.icon("fa5s.camera", color=TEXT_SECONDARY), "&Export viewport image...", self)
+            qta.icon("ph.camera-bold", color=TEXT_SECONDARY), "&Export viewport image...", self)
         self.export_image_action.setShortcut("Ctrl+E")
         self.export_image_action.setToolTip("Save the current 3D view as a PNG (Ctrl+E)")
         self.export_image_action.triggered.connect(self._export_viewport_image)
@@ -223,6 +223,14 @@ class MainWindow(QMainWindow):
             "single p95/max scalar -- shows WHERE the reconstruction deviates")
         self.deviation_action.toggled.connect(self.viewport.set_deviation_mode)
         view_menu.addAction(self.deviation_action)
+        # Both also drivable from the in-viewport display-toggle overlay (2026-09-07,
+        # Fusion-360/Onshape-style canvas controls) -- Viewport is the single source of truth
+        # for this state either way, so keep these QActions in sync with IT rather than the
+        # other way around (same pattern as the legend's `layer_toggled` sync below).
+        self.viewport.section_view_toggled.connect(
+            lambda on: self._sync_action_checked(self.section_view_action, on))
+        self.viewport.deviation_mode_toggled.connect(
+            lambda on: self._sync_action_checked(self.deviation_action, on))
 
         view_menu.addSeparator()
         render_menu = view_menu.addMenu("Render mode")
@@ -234,12 +242,13 @@ class MainWindow(QMainWindow):
             act.setCheckable(True)
             act.setChecked(mode == "shaded")
             act.setShortcut(shortcut)
-            act.triggered.connect(lambda checked, m=mode: checked and self._set_render_mode(m))
+            act.triggered.connect(lambda checked, m=mode: checked and self.viewport.set_render_mode(m))
             render_menu.addAction(act)
             self._render_mode_actions[mode] = act
+        self.viewport.render_mode_changed.connect(self._on_viewport_render_mode_changed)
         self.render_mode_cycle_action = QAction("Cycle render mode", self)
         self.render_mode_cycle_action.setShortcut("W")
-        self.render_mode_cycle_action.triggered.connect(self._cycle_render_mode)
+        self.render_mode_cycle_action.triggered.connect(self.viewport.cycle_render_mode)
         self.addAction(self.render_mode_cycle_action)  # shortcut-only, not shown in any menu
 
         help_menu = menubar.addMenu("&Help")
@@ -254,15 +263,15 @@ class MainWindow(QMainWindow):
         # Text beside every icon (2026-09-07 design review, U1): an icon-only toolbar with four
         # cryptic glyphs and no labels tested as unclear on its own.
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.analyze_action = QAction(qta.icon("fa5s.search", color=TEXT_SECONDARY), "Analyze", self)
+        self.analyze_action = QAction(qta.icon("ph.magnifying-glass-bold", color=TEXT_SECONDARY), "Analyze", self)
         self.analyze_action.setShortcut("F5")
         self.analyze_action.setToolTip("Detect axis/frame/scale from the input mesh (F5)")
         self.analyze_action.triggered.connect(self.run_analyze)
-        self.run_action = QAction(qta.icon("fa5s.play", color=ACCENT), "Run", self)
+        self.run_action = QAction(qta.icon("ph.play-bold", color=ACCENT), "Run", self)
         self.run_action.setShortcut("Ctrl+R")
         self.run_action.setToolTip("Analyze (if needed) then rebuild the solid (Ctrl+R)")
         self.run_action.triggered.connect(self.run_rebuild)
-        self.cancel_action = QAction(qta.icon("fa5s.stop", color=ERROR), "Cancel", self)
+        self.cancel_action = QAction(qta.icon("ph.stop-bold", color=ERROR), "Cancel", self)
         self.cancel_action.setEnabled(False)
         self.cancel_action.setShortcut("Esc")
         self.cancel_action.setToolTip("Cancel the in-flight run (Esc)")
@@ -276,15 +285,19 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.cancel_action)
         self.addToolBar(toolbar)
 
-    def _set_render_mode(self, mode: str):
-        for m, act in self._render_mode_actions.items():
-            act.setChecked(m == mode)
-        self.viewport.set_render_mode(mode)
+    @staticmethod
+    def _sync_action_checked(action: QAction, on: bool):
+        """Update a checkable QAction's state to match the Viewport signal that just fired,
+        without re-triggering `toggled` back into the Viewport setter it came from (same
+        blockSignals pattern as `_on_viewport_layer_toggled`)."""
+        if action.isChecked() != on:
+            action.blockSignals(True)
+            action.setChecked(on)
+            action.blockSignals(False)
 
-    def _cycle_render_mode(self):
-        order = ["shaded", "edges", "wireframe"]
-        current = next((m for m, a in self._render_mode_actions.items() if a.isChecked()), "shaded")
-        self._set_render_mode(order[(order.index(current) + 1) % len(order)])
+    def _on_viewport_render_mode_changed(self, mode: str):
+        for m, act in self._render_mode_actions.items():
+            self._sync_action_checked(act, m == mode)
 
     def _export_viewport_image(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -323,10 +336,10 @@ class MainWindow(QMainWindow):
         self.node_detected = QTreeWidgetItem([NODE_DETECTED])
         self.node_stations = QTreeWidgetItem([NODE_STATIONS])
         self.node_output = QTreeWidgetItem([NODE_OUTPUT])
-        self.node_input.setIcon(0, qta.icon("fa5s.file-import", color=TEXT_SECONDARY))
-        self.node_detected.setIcon(0, qta.icon("fa5s.search-location", color=TEXT_SECONDARY))
-        self.node_stations.setIcon(0, qta.icon("fa5s.layer-group", color=TEXT_SECONDARY))
-        self.node_output.setIcon(0, qta.icon("fa5s.cube", color=TEXT_SECONDARY))
+        self.node_input.setIcon(0, qta.icon("ph.download-simple-bold", color=TEXT_SECONDARY))
+        self.node_detected.setIcon(0, qta.icon("ph.crosshair-bold", color=TEXT_SECONDARY))
+        self.node_stations.setIcon(0, qta.icon("ph.stack-bold", color=TEXT_SECONDARY))
+        self.node_output.setIcon(0, qta.icon("ph.cube-bold", color=TEXT_SECONDARY))
         self.outline.addTopLevelItems(
             [self.node_input, self.node_detected, self.node_stations, self.node_output])
         dock.setWidget(self.outline)
@@ -417,7 +430,7 @@ class MainWindow(QMainWindow):
         row_layout = QHBoxLayout(browse_row)
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.addWidget(self.input_path_edit)
-        browse_btn = QPushButton(qta.icon("fa5s.folder-open", color=TEXT_SECONDARY), "Browse...")
+        browse_btn = QPushButton(qta.icon("ph.folder-open-bold", color=TEXT_SECONDARY), "Browse...")
         browse_btn.clicked.connect(self._browse_input)
         row_layout.addWidget(browse_btn)
         form.addRow("Input STL", browse_row)
@@ -428,7 +441,7 @@ class MainWindow(QMainWindow):
         out_layout = QHBoxLayout(out_row)
         out_layout.setContentsMargins(0, 0, 0, 0)
         out_layout.addWidget(self.output_path_edit)
-        out_browse_btn = QPushButton(qta.icon("fa5s.folder-open", color=TEXT_SECONDARY), "Browse...")
+        out_browse_btn = QPushButton(qta.icon("ph.folder-open-bold", color=TEXT_SECONDARY), "Browse...")
         out_browse_btn.clicked.connect(self._browse_output)
         out_layout.addWidget(out_browse_btn)
         form.addRow("Output STEP", out_row)
@@ -490,12 +503,12 @@ class MainWindow(QMainWindow):
         btn_layout = QHBoxLayout(btn_row)
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(6)
-        self.analyze_btn = QPushButton(qta.icon("fa5s.search", color=TEXT_SECONDARY), "Analyze")
+        self.analyze_btn = QPushButton(qta.icon("ph.magnifying-glass-bold", color=TEXT_SECONDARY), "Analyze")
         self.analyze_btn.clicked.connect(self.run_analyze)
-        self.run_btn = QPushButton(qta.icon("fa5s.play", color="#ffffff"), "Run")
+        self.run_btn = QPushButton(qta.icon("ph.play-bold", color="#ffffff"), "Run")
         self.run_btn.setObjectName("primary")
         self.run_btn.clicked.connect(self.run_rebuild)
-        self.cancel_btn = QPushButton(qta.icon("fa5s.stop", color=TEXT_DISABLED), "Cancel")
+        self.cancel_btn = QPushButton(qta.icon("ph.stop-bold", color=TEXT_DISABLED), "Cancel")
         self.cancel_btn.setObjectName("danger")
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self.cancel_rebuild)
@@ -522,7 +535,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.error_banner)
         self.manifest_tree = PropertyTree()
         layout.addWidget(self.manifest_tree)
-        reveal_btn = QPushButton(qta.icon("fa5s.external-link-alt", color=TEXT_SECONDARY), "Reveal file")
+        reveal_btn = QPushButton(qta.icon("ph.export-bold", color=TEXT_SECONDARY), "Reveal file")
         reveal_btn.clicked.connect(self._reveal_output)
         layout.addWidget(reveal_btn)
         return w
@@ -803,7 +816,7 @@ class MainWindow(QMainWindow):
         self.analyze_action.setEnabled(not running)
         self.cancel_btn.setEnabled(running)
         self.cancel_action.setEnabled(running)
-        self.cancel_btn.setIcon(qta.icon("fa5s.stop", color=ERROR if running else TEXT_DISABLED))
+        self.cancel_btn.setIcon(qta.icon("ph.stop-bold", color=ERROR if running else TEXT_DISABLED))
 
     def _on_progress(self, stage, frac, message):
         self._last_stage = stage

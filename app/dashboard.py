@@ -217,28 +217,17 @@ class GaugeDial(QWidget):
         p.setFont(title_font)
         p.drawText(QRectF(0, 0, w, 14), Qt.AlignmentFlag.AlignHCenter, self._title)
 
-        # Bezel: a slightly larger, darker ring behind the face, with a faint upper-left
-        # highlight arc, reads as a physical instrument housing rather than a flat disc.
-        bezel_rect = rect.adjusted(-4, -4, 4, 4)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#14161a"))
-        p.drawEllipse(bezel_rect)
-        highlight_pen = QPen(QColor(255, 255, 255, 18), 1.2)
-        p.setPen(highlight_pen)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawArc(bezel_rect, int(70 * 16), int(120 * 16))
-
-        # Dial face + fine tick marks, with a subtle darker chord across the lower half so the
-        # face itself reads as slightly domed/lit-from-above rather than perfectly flat.
-        p.setPen(QPen(QColor(BORDER), 1.5))
+        # Matte face, single hairline ring -- no bezel, no gradient highlight, no fake bevel
+        # shading. 2026-09-07 (premium-CAD/instrument research pass): DaVinci Resolve's color-
+        # page dials -- the closest real analog to a QPainter-drawn instrument -- read as
+        # authentic BECAUSE they're flat: "thin outer tick ring, hairline needle/arc, matte face
+        # the same color as the panel... rather than gradients, glass highlights, or drop
+        # shadows." The previous version's darker bezel ring + highlight arc + shaded lower
+        # chord (2026-09-06) was a step in the opposite direction; removed in favor of the
+        # restraint every reference instrument actually uses.
+        p.setPen(QPen(QColor(BORDER), 1.0))
         p.setBrush(QColor(BG_PANEL))
         p.drawEllipse(rect)
-        p.save()
-        p.setClipRect(QRectF(rect.left(), center.y() + radius * 0.15, rect.width(), rect.height()))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(0, 0, 0, 48))
-        p.drawEllipse(rect)
-        p.restore()
         for i in range(21):
             frac = i / 20
             angle = math.radians(_START_ANGLE_DEG + _SWEEP_DEG * frac)
@@ -270,12 +259,12 @@ class GaugeDial(QWidget):
         # giving an at-a-glance "how much" read that doesn't require judging the needle's exact
         # angle -- the needle stays for a precise pointer.
         arc_rect = rect.adjusted(6, 6, -6, -6)
-        track_pen = QPen(QColor(BORDER), 4.5)
+        track_pen = QPen(QColor(BORDER), 3.0)
         track_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         p.setPen(track_pen)
         p.drawArc(arc_rect, int(_START_ANGLE_DEG * 16), int(_SWEEP_DEG * 16))
         if self._display > 0.001:
-            progress_pen = QPen(color, 4.5)
+            progress_pen = QPen(color, 3.0)
             progress_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             p.setPen(progress_pen)
             p.drawArc(arc_rect, int(_START_ANGLE_DEG * 16),
