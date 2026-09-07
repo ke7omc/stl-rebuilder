@@ -60,6 +60,55 @@ def _any_perpendicular(axis):
     n = np.linalg.norm(perp)
     return perp / n if n > 1e-9 else np.array([0.0, 0.0, 1.0])
 
+
+def _radial_ticks(z_r_pairs, normal, base, inner_frac, outer_frac):
+    """Four short radial tick lines per station, poking just OUTSIDE that station's own local
+    silhouette. A flat ring viewed edge-on collapses to a near-invisible sliver (Brady's M9
+    report, 2026-09-08) -- but a tick that crosses the silhouette projects as a visible comb
+    tooth along the body's profile from any side view, so adaptive clustering reads directly as
+    comb-tooth density, straight from the real z distribution (nothing smoothed or faked). Four
+    azimuths so that at any camera angle at least two ticks survive foreshortening (the pair
+    roughly perpendicular to the view direction lands on the silhouette edges)."""
+    u = _any_perpendicular(normal)
+    v = np.cross(normal, u)
+    pts = np.empty((len(z_r_pairs) * 8, 3), dtype=float)
+    k = 0
+    for z, r in z_r_pairs:
+        center = base + normal * float(z)
+        for d in (u, -u, v, -v):
+            pts[k] = center + d * (r * inner_frac)
+            pts[k + 1] = center + d * (r * outer_frac)
+            k += 2
+    n = len(z_r_pairs) * 4
+    lines = np.empty((n, 3), dtype=np.int64)
+    lines[:, 0] = 2
+    lines[:, 1] = np.arange(n) * 2
+    lines[:, 2] = np.arange(n) * 2 + 1
+    return pv.PolyData(pts, lines=lines.ravel())
+
+
+def _offset_section_loops(section, normal, base):
+    """Nudge a station's true traced cross-section loops slightly OFF the surface they lie
+    exactly on (a slice IS the surface; drawn in place it z-fights and gets occluded): the outer
+    loop 2% radially outward (just clear of the solid), every inner loop 2% inward -- into the
+    bore void, which is where a star/fin bore's shape is actually visible to the camera. The
+    homothety is about the motor axis so each loop keeps its real shape: this is what lets a
+    ring literally hug a lobed silhouette instead of circumscribing it with a circle."""
+    pts = np.asarray(section.points, dtype=float)
+    rel = pts - base
+    ax_c = np.outer(rel @ normal, normal)
+    radial = rel - ax_c
+    rnorm = np.linalg.norm(radial, axis=1)
+    scale = np.full(len(pts), 1.02)
+    region = section.point_data.get("RegionId")
+    if region is not None and len(region) == len(pts) and rnorm.size:
+        region = np.asarray(region)
+        outer_rid = region[int(np.argmax(rnorm))]
+        scale[region != outer_rid] = 0.98
+    out = section.copy(deep=True)
+    out.points = base + ax_c + radial * scale[:, None]
+    return out
+
 LAYERS = ("input", "solid", "stations", "events", "axis")
 # Layers that get a clickable legend row (axis is a reference line, not a data layer -- it never
 # had a legend entry even before the legend became interactive).
@@ -261,12 +310,15 @@ class Viewport(QWidget):
         self._solid_actor = None
         self._solid_mesh_data = None
         self._station_actor = None
+        self._station_tick_actor = None
         self._event_actor = None
+        self._event_tick_actor = None
         self._axis_actor = None
         self._feature_edges_actor = None
         self._camera_widget = None  # created once by `_add_axis_triad`, never recreated
         self._has_events = False
         self._station_radius = 1.0
+        self._station_local_radii = []  # sorted (z, local r_outer) pairs for highlight_station
         self._station_axis = np.array([0.0, 0.0, 1.0])
         self._station_axis_point = np.zeros(3)
         # axis-frame cache for the section-view clip plane (Phase 3, V2) -- set by
@@ -432,10 +484,13 @@ class Viewport(QWidget):
         self._solid_actor = None
         self._solid_mesh_data = None
         self._station_actor = None
+        self._station_tick_actor = None
         self._event_actor = None
+        self._event_tick_actor = None
         self._axis_actor = None
         self._feature_edges_actor = None
         self._has_events = False
+        self._station_local_radii = []
         self._axis_frame = None
         self._section_frac = None
         self._deviation_mode = False
@@ -808,7 +863,8 @@ class Viewport(QWidget):
         self._sync_input_opacity()
         self._sync_solid_opacity()
         pairs = (("input", self._input_actor), ("solid", self._solid_actor),
-                 ("stations", self._station_actor), ("events", self._event_actor),
+                 ("stations", self._station_actor), ("stations", self._station_tick_actor),
+                 ("events", self._event_actor), ("events", self._event_tick_actor),
                  ("axis", self._axis_actor), ("solid", self._feature_edges_actor))
         for key, actor in pairs:
             if actor is None:
@@ -890,41 +946,71 @@ class Viewport(QWidget):
         self.layer_toggled.emit(key, on)
 
     def show_station_planes(self, stations_z_mm, bounds_xy_mm, axis_unit=(0, 0, 1),
-                            axis_point=(0.0, 0.0, 0.0)):
+                            axis_point=(0.0, 0.0, 0.0), radii_mm=None, sections=None):
         """`stations_z_mm`: axial coordinates along the reconstruction axis (mm), in the SAME
         frame as `axis_point` (both input-frame axial projections — caller applies
-        `axial_origin_z` before calling this). Drawn as thin rings hugging the outer surface
-        silhouette (not full discs, which the opaque solid occludes almost entirely -- G3 review
-        #4), centered on `axis_point + z*axis_unit` -- the actual motor axis, which generally
-        does NOT pass through the world origin (2026-09-07 fix; the old `axis_point`-less version
-        assumed it did, offsetting every ring by the motor axis's true transverse position).
-        ALL stations are drawn — the ring count must match the report's n_stations (adaptive sets
-        legitimately stack rings at features; the View menu can hide the layer if it reads busy)."""
+        `axial_origin_z` before calling this). Centered on `axis_point + z*axis_unit` -- the
+        actual motor axis, which generally does NOT pass through the world origin (2026-09-07
+        fix; the old `axis_point`-less version assumed it did).
+
+        `radii_mm` (optional, aligned to `stations_z_mm`): each station's OWN local outer radius
+        from the same slice the Stations table measures. Without it every ring falls back to the
+        single global `bounds_xy_mm` -- the exact bug from Brady's 2026-09-08 M9 session: rings
+        all out at the full-body max radius meant a zoomed-in feature region looked station-free
+        (its rings were off-frame at the far silhouette) even when adaptive placement had packed
+        stations right there. `sections` (optional, aligned): the true traced cross-section
+        loops at each station; when present the ring drawn IS that loop, offset just off the
+        surface (`_offset_section_loops`), hugging star/fin silhouettes literally instead of
+        circumscribing them with a circle -- for a grain, the interesting shape is usually the
+        BORE loop, which a circle at r_outer never showed at all.
+
+        ALL stations are drawn — one ring per station (adaptive sets legitimately stack rings at
+        features; the View menu can hide the layer if it reads busy). A four-azimuth tick comb
+        (`_radial_ticks`) rides in a second actor on the same layer for edge-on visibility."""
         self.plotter.remove_actor("station_planes", render=False)
+        self.plotter.remove_actor("station_ticks", render=False)
         self._station_actor = None
+        self._station_tick_actor = None
+        self._station_local_radii = []
         if not stations_z_mm:
             self.render()
             return
-        self._station_radius = max(bounds_xy_mm, 1.0) * 1.02
+        fallback_r = max(bounds_xy_mm, 1.0)
+        n = len(stations_z_mm)
+        radii = list(radii_mm) if radii_mm is not None else [None] * n
+        secs = list(sections) if sections is not None else [None] * n
+        self._station_radius = fallback_r * 1.02
         self._station_axis = np.array(axis_unit, dtype=float)
         self._station_axis = self._station_axis / (np.linalg.norm(self._station_axis) or 1.0)
         self._station_axis_point = np.asarray(axis_point, dtype=float)
-        stations_sorted = sorted(stations_z_mm)
-        radius = self._station_radius
         normal = self._station_axis
         base = self._station_axis_point
         rings = pv.MultiBlock()
-        for z in stations_sorted:
-            center = base + normal * float(z)
-            # Thin, near-transparent rings (0.85 -> 0.35 opacity, thinner band): at real section
-            # counts (40-60+) full-opacity rings completely wallpaper the solid, hiding the very
-            # geometry they're meant to annotate (2026-09-07 design review, seen on M8's fins/
-            # star bore). `highlight_station` draws ONE full-weight ring on top for the case a
-            # user actually wants one station to stand out.
-            rings.append(pv.Disc(center=center, inner=radius * 0.99, outer=radius, normal=normal, r_res=1, c_res=48))
+        z_r = []
+        for z, r, sec in sorted(zip(stations_z_mm, radii, secs), key=lambda t: float(t[0])):
+            r_local = float(r) if r else fallback_r
+            z_r.append((float(z), r_local))
+            if sec is not None and getattr(sec, "n_points", 0):
+                rings.append(_offset_section_loops(sec, normal, base))
+            else:
+                center = base + normal * float(z)
+                rr = r_local * 1.02
+                rings.append(pv.Disc(center=center, inner=rr * 0.985, outer=rr,
+                                     normal=normal, r_res=1, c_res=48))
+        self._station_local_radii = z_r
         merged = rings.combine()
+        # Thin, near-transparent rings (0.85 -> 0.35 opacity): at real section counts (40-60+)
+        # full-opacity rings completely wallpaper the solid, hiding the very geometry they're
+        # meant to annotate (2026-09-07 design review, seen on M8's fins/star bore).
+        # `highlight_station` draws ONE full-weight ring on top for the case a user actually
+        # wants one station to stand out. The tick comb gets full-ish weight instead -- it's a
+        # few pixels per station out past the silhouette, so it can't wallpaper anything, and at
+        # 0.35 it disappeared exactly in the edge-on views it exists for.
         self._station_actor = self.plotter.add_mesh(
-            merged, color=STATION_RING_COLOR, opacity=0.35, name="station_planes")
+            merged, color=STATION_RING_COLOR, opacity=0.35, line_width=1.6, name="station_planes")
+        ticks = _radial_ticks(z_r, normal, base, 1.03, 1.10)
+        self._station_tick_actor = self.plotter.add_mesh(
+            ticks, color=STATION_RING_COLOR, opacity=0.9, line_width=1.4, name="station_ticks")
         self._apply_visibility()
         self.render()
 
@@ -939,7 +1025,14 @@ class Viewport(QWidget):
         if z_mm is None or self._station_actor is None:
             self.render()
             return
+        # The station's OWN local radius (nearest-z lookup into what show_station_planes drew),
+        # not the global fallback -- a highlight ring out at the full-body radius around a small
+        # dome-tip station would miss the very geometry the selected table row describes
+        # (same 2026-09-08 M9 locality bug as the main ring layer).
         radius = self._station_radius
+        if self._station_local_radii:
+            _, r_local = min(self._station_local_radii, key=lambda zr: abs(zr[0] - float(z_mm)))
+            radius = r_local * 1.02
         normal = self._station_axis
         center = self._station_axis_point + normal * float(z_mm)
         ring = pv.Disc(center=center, inner=radius * 0.955, outer=radius * 1.01,
@@ -959,25 +1052,40 @@ class Viewport(QWidget):
         self.render()
 
     def show_topology_events(self, events_z_mm, bounds_xy_mm, axis_unit=(0, 0, 1),
-                             axis_point=(0.0, 0.0, 0.0)):
+                             axis_point=(0.0, 0.0, 0.0), radii_mm=None):
+        """Same per-event local-radius sizing as `show_station_planes` (`radii_mm` aligned to
+        `events_z_mm`, falling back to the global `bounds_xy_mm` -- the shared 2026-09-08 M9
+        fixed-global-radius bug lived here too), plus a longer red tick comb so an event stays
+        findable edge-on. Events keep circles rather than traced loops: an event z is exactly
+        where the loop topology CHANGES, so "the" cross-section there is ambiguous by nature."""
         self.plotter.remove_actor("topology_events", render=False)
+        self.plotter.remove_actor("topology_event_ticks", render=False)
         self._event_actor = None
+        self._event_tick_actor = None
         self._has_events = bool(events_z_mm)
         if not events_z_mm:
             self._update_legend()
             self.render()
             return
-        radius = max(bounds_xy_mm, 1.0) * 1.08
+        fallback_r = max(bounds_xy_mm, 1.0)
+        radii = list(radii_mm) if radii_mm is not None else [None] * len(events_z_mm)
         normal = np.array(axis_unit, dtype=float)
         normal = normal / (np.linalg.norm(normal) or 1.0)
         base = np.asarray(axis_point, dtype=float)
         rings = pv.MultiBlock()
-        for z in events_z_mm:
+        z_r = []
+        for z, r in zip(events_z_mm, radii):
+            r_local = float(r) if r else fallback_r
+            z_r.append((float(z), r_local))
             center = base + normal * float(z)
-            rings.append(pv.Disc(center=center, inner=radius * 0.97, outer=radius, normal=normal, r_res=1, c_res=48))
+            rr = r_local * 1.04
+            rings.append(pv.Disc(center=center, inner=rr * 0.97, outer=rr, normal=normal, r_res=1, c_res=48))
         merged = rings.combine()
         self._event_actor = self.plotter.add_mesh(
             merged, color=EVENT_RING_COLOR, opacity=0.9, name="topology_events")
+        ticks = _radial_ticks(z_r, normal, base, 1.04, 1.16)
+        self._event_tick_actor = self.plotter.add_mesh(
+            ticks, color=EVENT_RING_COLOR, opacity=0.95, line_width=1.8, name="topology_event_ticks")
         self._apply_visibility()
         self._update_legend()
         self.render()

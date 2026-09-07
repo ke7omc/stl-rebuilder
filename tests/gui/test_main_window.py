@@ -331,3 +331,38 @@ def test_render_mode_menu_action_drives_the_viewport_not_a_local_copy(window):
     assert window.viewport._render_mode == "wireframe"
     window.render_mode_cycle_action.trigger()
     assert window.viewport._render_mode == "shaded"  # wraps around
+
+
+def test_station_cross_sections_radii_track_local_geometry_not_a_global_bound():
+    """Regression test for Brady's 2026-09-08 M9 report: the 3D station rings were all drawn at
+    ONE global max radius, so zoomed into a local feature the rings sat off-frame at the far
+    silhouette ("no stations here"). `_station_cross_sections` must return each station's OWN
+    local radius -- on a cone (apex +z), r varies linearly with z, so two stations must come
+    back with two DIFFERENT radii matching the cone's own r(z), not the base radius twice."""
+    from app.main_window import _station_cross_sections
+    cone = pv.Cone(center=(0, 0, 0), direction=(0, 0, 1), height=100.0, radius=40.0,
+                   resolution=64)
+    sections = _station_cross_sections(cone, [-25.0, 25.0], (0, 0, 1), (0, 0, 0))
+    (sec_a, radii_a), (sec_b, radii_b) = sections
+    # r(z) = 40 * (50 - z) / 100 -> 30 at z=-25, 10 at z=+25
+    assert radii_a[0] == pytest.approx(30.0, rel=0.05)
+    assert radii_b[0] == pytest.approx(10.0, rel=0.05)
+    # The traced loop geometry itself must come back renderable: line cells, RegionId intact.
+    for sec in (sec_a, sec_b):
+        assert sec is not None and sec.n_points
+        assert sec.n_lines > 0 or sec.n_cells > 0
+        assert "RegionId" in sec.point_data
+
+
+def test_station_rows_accepts_precomputed_sections_and_matches_self_computed():
+    """`_on_rebuilt` slices once and feeds BOTH the viewport rings and the table -- the shared
+    path must produce the same rows the standalone (self-slicing) path does."""
+    from app.main_window import _station_cross_sections
+    cyl = pv.Cylinder(center=(200, -30, 50), direction=(1, 0, 0), radius=5, height=100)
+    report = {"axial_origin_z": 0.0}
+    sections = _station_cross_sections(cyl, [200.0], (1, 0, 0), (0, -30, 50))
+    rows_shared = _station_rows(report, [200.0], set(), cyl, (1, 0, 0),
+                                axis_point=(0, -30, 50), sections=sections)
+    rows_self = _station_rows(report, [200.0], set(), cyl, (1, 0, 0), axis_point=(0, -30, 50))
+    assert rows_shared == rows_self
+    assert rows_shared[0][3] == pytest.approx(5, rel=0.15)

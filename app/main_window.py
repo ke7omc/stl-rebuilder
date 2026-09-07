@@ -861,6 +861,7 @@ class MainWindow(QMainWindow):
         axis_unit = (report.get("frame", {}).get("axis")
                     or (self._analysis.frame_axis if self._analysis else (0, 0, 1)))
         axis_point = None
+        sections = None
         try:
             # Run without a prior Analyze: the input mesh was never loaded into the scene,
             # which left the Input-mesh layer (and B-swap) empty (Brady, 2026-09-04)
@@ -878,9 +879,20 @@ class MainWindow(QMainWindow):
                 axial_origin_z = float(report.get("axial_origin_z") or 0.0)
                 self._last_axial_origin_z = axial_origin_z
                 stations_proj = [z + axial_origin_z for z in stations_z]
-                events_proj = [z + axial_origin_z for z in events_z]
-                self.viewport.show_station_planes(stations_proj, radial_mm, axis_unit, axis_point)
-                self.viewport.show_topology_events(events_proj, radial_mm, axis_unit, axis_point)
+                events_proj = sorted(z + axial_origin_z for z in events_z)
+                # Slice once, feed both the 3D ring layer AND the Stations table below -- each
+                # ring sized/shaped by its OWN station's cross-section, not one global radius
+                # (Brady's 2026-09-08 M9 report: rings at the full-body silhouette made zoomed-in
+                # feature regions look station-free, and edge-on views near-blank).
+                sections = _station_cross_sections(solid_mesh, stations_proj, axis_unit, axis_point)
+                self.viewport.show_station_planes(
+                    stations_proj, radial_mm, axis_unit, axis_point,
+                    radii_mm=[radii[0] if radii else None for _sec, radii in sections],
+                    sections=[sec for sec, _radii in sections])
+                event_sections = _station_cross_sections(solid_mesh, events_proj, axis_unit, axis_point)
+                self.viewport.show_topology_events(
+                    events_proj, radial_mm, axis_unit, axis_point,
+                    radii_mm=[radii[0] if radii else None for _sec, radii in event_sections])
                 self.viewport.show_axis_line(radial_mm, proj_max - proj_min, axis_unit,
                                              origin_z_mm=0.5 * (proj_min + proj_max),
                                              axis_point=axis_point)
@@ -891,7 +903,8 @@ class MainWindow(QMainWindow):
                 self.viewport.set_deviation_tolerance(dev_tol)
         except Exception as exc:
             self.log_line(f"viewport: could not load solid preview: {exc}", level="warn")
-        rows = _station_rows(report, stations_z, events_z, solid_mesh, axis_unit, axis_point)
+        rows = _station_rows(report, stations_z, events_z, solid_mesh, axis_unit, axis_point,
+                             sections=sections)
         self.page_stations.table.set_rows(rows)
         self.page_stations.chart.set_rows(rows)
         n_stations = len(stations_z)
@@ -1100,8 +1113,49 @@ def _axis_frame_metrics(mesh, axis_unit):
             float(proj.min()), float(proj.max()))
 
 
+def _station_cross_sections(solid_mesh, z_mesh_list, axis_unit, axis_point=None) -> list:
+    """Slice the rebuilt solid preview once per station plane and hand back BOTH consumers'
+    inputs: the labeled cross-section geometry (the viewport draws it as the literal station
+    ring) and the per-loop max radii, largest first (the Stations table's R_outer/R_bore).
+    One shared slice instead of the table and the 3D ring layer measuring the same thing two
+    divergent ways -- until 2026-09-08 the 3D layer didn't measure it at ALL (one global radius
+    for every ring), which is why a zoomed-in feature region looked station-free on Brady's M9
+    run even though adaptive placement had stations right there. `z_mesh_list` is in MESH frame
+    (caller applies `axial_origin_z`). Radii are measured from the motor axis line
+    ({axis_point + t*axis}); `axis_point` defaults to the origin, only correct when the motor
+    axis actually passes through it (2026-09-07 fix). Returns
+    [(section_polydata_or_None, radii_desc_list), ...] aligned to `z_mesh_list`."""
+    axis = np.array(axis_unit, dtype=float)
+    axis = axis / (np.linalg.norm(axis) or 1.0)
+    axis_point = np.zeros(3) if axis_point is None else np.asarray(axis_point, dtype=float)
+    out = []
+    for z_mesh in z_mesh_list:
+        section, radii = None, []
+        if solid_mesh is not None and solid_mesh.n_points:
+            try:
+                cross = solid_mesh.slice(normal=axis, origin=float(z_mesh) * axis)
+            except Exception:
+                cross = None
+            if cross is not None and cross.n_points:
+                # extract_surface(): connectivity() can hand back an UnstructuredGrid; the
+                # viewport needs line-celled PolyData to render the loop (RegionId and the
+                # line cells both survive the conversion).
+                labeled = cross.connectivity(extraction_mode="all").extract_surface(algorithm=None)
+                region_ids = labeled.point_data.get("RegionId")
+                if region_ids is not None and len(region_ids):
+                    for rid in np.unique(region_ids):
+                        pts = labeled.points[region_ids == rid]
+                        rel = pts - axis_point
+                        radial = rel - np.outer(rel @ axis, axis)
+                        radii.append(float(np.linalg.norm(radial, axis=1).max()))
+                    radii.sort(reverse=True)
+                    section = labeled
+        out.append((section, radii))
+    return out
+
+
 def _station_rows(report: dict, stations_z_mm, events_z_set, solid_mesh, axis_unit,
-                  axis_point=None) -> list:
+                  axis_point=None, sections=None) -> list:
     """Honest per-station diagnostics (G3 visual review #2, item 1): slice the rebuilt solid
     preview mesh EXACTLY at each station plane (instead of the old band-around-Z point sample,
     which could miss the outer loop entirely on a sparse mesh and misreport a bore radius as
@@ -1110,40 +1164,20 @@ def _station_rows(report: dict, stations_z_mm, events_z_set, solid_mesh, axis_un
     any) is R_bore. `report["axial_origin_z"]` (added alongside this fix) re-aligns report-frame
     Z, which is relative to the fore-dome apex, with the exported mesh's own Z; stations_z_mm
     itself already carries that offset. `stations_z_mm`/`events_z_set` are in report frame.
-    Radii are measured from the motor axis line ({axis_point + t*axis}), not the world-origin
-    line -- `axis_point` defaults to the origin for legacy/standalone callers, which is only
-    correct when the motor axis actually passes through it (2026-09-07 fix: was always the
-    origin line, silently wrong by the transverse offset for any off-origin input).
+    `sections` (optional): precomputed `_station_cross_sections` output aligned to
+    `stations_z_mm`, so `_on_rebuilt` slices once for both this table and the 3D ring layer.
     Returns rows of (index, z_mm, n_loops, r_outer_mm_or_None, r_bore_mm_or_None,
     classification, is_event_bool)."""
-    axis = np.array(axis_unit, dtype=float)
-    axis = axis / (np.linalg.norm(axis) or 1.0)
-    axis_point = np.zeros(3) if axis_point is None else np.asarray(axis_point, dtype=float)
     axial_origin_z = (report or {}).get("axial_origin_z") or 0.0
+    if sections is None:
+        sections = _station_cross_sections(
+            solid_mesh, [z + axial_origin_z for z in stations_z_mm], axis_unit, axis_point)
 
     prelim = []  # (i, z, n_loops, r_outer, r_bore, is_event)
-    for i, z in enumerate(stations_z_mm):
-        n_loops, r_outer, r_bore = 0, None, None
-        if solid_mesh is not None and solid_mesh.n_points:
-            z_mesh = z + axial_origin_z
-            try:
-                cross = solid_mesh.slice(normal=axis, origin=z_mesh * axis)
-            except Exception:
-                cross = None
-            if cross is not None and cross.n_points:
-                labeled = cross.connectivity(extraction_mode="all")
-                region_ids = labeled.point_data.get("RegionId")
-                if region_ids is not None and len(region_ids):
-                    radii = []
-                    for rid in np.unique(region_ids):
-                        pts = labeled.points[region_ids == rid]
-                        rel = pts - axis_point
-                        radial = rel - np.outer(rel @ axis, axis)
-                        radii.append(float(np.linalg.norm(radial, axis=1).max()))
-                    radii.sort(reverse=True)
-                    n_loops = len(radii)
-                    r_outer = radii[0]
-                    r_bore = radii[1] if len(radii) > 1 else None
+    for i, (z, (_section, radii)) in enumerate(zip(stations_z_mm, sections)):
+        n_loops = len(radii)
+        r_outer = radii[0] if radii else None
+        r_bore = radii[1] if len(radii) > 1 else None
         prelim.append((i, z, n_loops, r_outer, r_bore, round(z, 6) in events_z_set))
 
     max_outer = max((r[3] for r in prelim if r[3] is not None), default=None)

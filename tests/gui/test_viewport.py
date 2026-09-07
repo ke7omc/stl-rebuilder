@@ -356,3 +356,94 @@ def test_empty_hint_background_is_transparent(viewport):
     background, painting a visible rectangle over the new gradient viewport background instead
     of blending into it (2026-09-07 implementation review)."""
     assert "transparent" in viewport._empty_hint.styleSheet()
+
+
+def _actor_dataset(actor):
+    return pv.wrap(actor.GetMapper().GetInput())
+
+
+def test_station_rings_use_each_stations_own_local_radius(viewport):
+    """Regression test for Brady's 2026-09-08 M9 report: every station ring used to be drawn at
+    ONE shared global radius, so rings near a small local feature sat way out at the full-body
+    silhouette -- zoomed in, the region looked station-free. With per-station `radii_mm`, the
+    ring at each z must have that station's OWN radial extent, i.e. ring size must VARY with
+    local geometry rather than being constant."""
+    viewport.show_station_planes([0.0, 100.0], 20.0, (0, 0, 1), axis_point=(0, 0, 0),
+                                 radii_mm=[5.0, 20.0])
+    pts = np.asarray(_actor_dataset(viewport._station_actor).points)
+    near_a = pts[np.abs(pts[:, 2] - 0.0) < 1.0]
+    near_b = pts[np.abs(pts[:, 2] - 100.0) < 1.0]
+    r_a = np.hypot(near_a[:, 0], near_a[:, 1]).max()
+    r_b = np.hypot(near_b[:, 0], near_b[:, 1]).max()
+    assert r_a == pytest.approx(5.0 * 1.02, rel=0.02)
+    assert r_b == pytest.approx(20.0 * 1.02, rel=0.02)
+    assert r_b > r_a * 3  # genuinely varying, not one shared radius
+
+
+def test_station_rings_draw_the_true_section_loop_when_given_one(viewport):
+    """The optional `sections` path: given a real traced cross-section (here a non-circular
+    16-gon star-ish loop would be overkill -- a cone slice suffices to prove locality), the ring
+    drawn must BE that loop offset just off the surface, so its radial extent matches the local
+    slice, not the global fallback radius passed as `bounds_xy_mm`."""
+    from app.main_window import _station_cross_sections
+    cone = pv.Cone(center=(0, 0, 0), direction=(0, 0, 1), height=100.0, radius=40.0,
+                   resolution=64)
+    sections = _station_cross_sections(cone, [-25.0, 25.0], (0, 0, 1), (0, 0, 0))
+    viewport.show_station_planes(
+        [-25.0, 25.0], 40.0, (0, 0, 1), axis_point=(0, 0, 0),
+        radii_mm=[radii[0] for _s, radii in sections],
+        sections=[s for s, _r in sections])
+    pts = np.asarray(_actor_dataset(viewport._station_actor).points)
+    near_a = pts[np.abs(pts[:, 2] + 25.0) < 1.0]
+    near_b = pts[np.abs(pts[:, 2] - 25.0) < 1.0]
+    assert np.hypot(near_a[:, 0], near_a[:, 1]).max() == pytest.approx(30.0 * 1.02, rel=0.05)
+    assert np.hypot(near_b[:, 0], near_b[:, 1]).max() == pytest.approx(10.0 * 1.02, rel=0.05)
+
+
+def test_station_ticks_poke_past_the_local_silhouette_and_follow_the_layer_toggle(viewport):
+    """Edge-on visibility (the second half of Brady's 2026-09-08 M9 report): flat rings viewed
+    down a transverse axis collapse to invisible slivers, so a four-azimuth tick comb extends
+    past each station's own silhouette (local r * 1.03..1.10). It lives on the SAME "stations"
+    layer -- the View-menu / legend toggle must hide both actors together."""
+    viewport.show_station_planes([0.0, 100.0], 20.0, (0, 0, 1), axis_point=(0, 0, 0),
+                                 radii_mm=[5.0, 20.0])
+    assert viewport._station_tick_actor is not None
+    pts = np.asarray(_actor_dataset(viewport._station_tick_actor).points)
+    near_b = pts[np.abs(pts[:, 2] - 100.0) < 1.0]
+    r = np.hypot(near_b[:, 0], near_b[:, 1])
+    assert r.min() == pytest.approx(20.0 * 1.03, rel=0.02)  # starts just outside the ring
+    assert r.max() == pytest.approx(20.0 * 1.10, rel=0.02)
+    near_a = pts[np.abs(pts[:, 2] - 0.0) < 1.0]
+    assert np.hypot(near_a[:, 0], near_a[:, 1]).max() == pytest.approx(5.0 * 1.10, rel=0.02)
+    viewport.set_layer_visible("stations", False)
+    assert viewport._station_actor.GetVisibility() == 0
+    assert viewport._station_tick_actor.GetVisibility() == 0
+
+
+def test_highlight_station_uses_that_stations_local_radius(viewport):
+    """The single-ring highlight (Stations-table selection) must match the selected station's
+    own local silhouette -- a highlight out at the global radius around a small station would
+    circle empty space, missing the very geometry the row describes."""
+    viewport.show_station_planes([0.0, 100.0], 20.0, (0, 0, 1), axis_point=(0, 0, 0),
+                                 radii_mm=[5.0, 20.0])
+    viewport.highlight_station(0.0)
+    b = viewport.plotter.actors["station_highlight"].GetBounds()
+    assert (b[1] - b[0]) < 12  # diameter ~ 2 * 5 * 1.02 * 1.01, nowhere near the global 40+
+    viewport.highlight_station(100.0)
+    b = viewport.plotter.actors["station_highlight"].GetBounds()
+    assert (b[1] - b[0]) > 38
+
+
+def test_topology_events_use_local_radii_and_get_their_own_tick_comb(viewport):
+    """`show_topology_events` shared the fixed-global-radius bug; it takes per-event `radii_mm`
+    now, plus a longer red tick comb (same edge-on rationale as the station ticks) on the same
+    "events" layer."""
+    viewport.show_topology_events([50.0], 20.0, (0, 0, 1), axis_point=(0, 0, 0), radii_mm=[8.0])
+    ring_b = viewport._event_actor.GetBounds()
+    assert (ring_b[1] - ring_b[0]) == pytest.approx(2 * 8.0 * 1.04, rel=0.05)
+    assert viewport._event_tick_actor is not None
+    pts = np.asarray(_actor_dataset(viewport._event_tick_actor).points)
+    assert np.hypot(pts[:, 0], pts[:, 1]).max() == pytest.approx(8.0 * 1.16, rel=0.02)
+    viewport.set_layer_visible("events", False)
+    assert viewport._event_actor.GetVisibility() == 0
+    assert viewport._event_tick_actor.GetVisibility() == 0
