@@ -1,6 +1,31 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-08 — Dome-cap end-band viewport layer added (Fable 5.1, `389a27f`).** Brady looked
+  at the new station rings on M8 and asked why they stop abruptly ~190mm short of each dome tip,
+  wondering if rings were being hidden or if he misunderstood "Stations." Neither — genuinely
+  confirmed by reading the engine directly: `pipeline/engine.py:2360`'s `station_eps` deliberately
+  insets station PLACEMENT from both ends (~0.02·L, capped), because right where a dome curves
+  steeply the input STL's own facet tessellation biases a raw per-station circle-fit LOW and
+  one-signed (measured on M8: -0.24 to -0.08mm, doesn't average out — see
+  `_refine_dome_model_from_vertices`'s docstring, `engine.py:393`). So that end band is built by a
+  DIFFERENT, more careful method entirely — a quadratic-in-R² curve refit directly against the
+  mesh's own dense vertices there, extended analytically to the true tip — not by station-loft at
+  all, and it's already numerically verified (Bounds Z, Deviation), just invisible in the 3D view.
+  Fable's fix: a new mint "Dome-cap fit (not sectioned)" layer (own View-menu toggle + legend row,
+  independent of Stations/Topology) that slices the ALREADY-BUILT solid (not a re-derived fit —
+  deliberately chosen over exposing the engine's internal fit coefficients, to avoid any chance of
+  silently drifting from what was actually built) at tip-clustered z's inside each end band,
+  drawing faint rings + longitudinal meridian curves reaching the true axial extreme — visually
+  distinct from real stations in three channels (color, no tick comb, longitudinal not
+  circumferential) so it can't be mistaken for a real section. Closes at an on-axis apex only when
+  slices genuinely converge (M8's domes open into the star bore, so correctly no apex drawn there).
+  164 tests passing (+6). **Verified on M8 screenshots (both dome tips, edge-on, with/without
+  toggle) — NOT yet screenshot-verified on a closed-apex milestone like M2** (the apex-closing
+  branch is only unit-tested there, on synthetic sphere/cylinder geometry) — worth a look if this
+  matters for M2 specifically. Also flagged as a possible tuning knob: the meridian lines are
+  intentionally subtle (anti-wallpapering) — if it reads too faint live, `line_width`/opacity in
+  `Viewport.show_dome_caps` is a one-line change.
 - **2026-09-08 — Station/topology ring rendering fixed (Fable 5.1 design pass, `d22fc6a`).**
   Brady's M9 screenshot showed the yellow station rings nearly invisible looking down a
   transverse axis, and no rings at all visible when zoomed into a local fin feature — he asked
