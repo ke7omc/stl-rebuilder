@@ -4,7 +4,7 @@ import pyvista as pv
 import pytest
 from PySide6.QtWidgets import QDockWidget
 
-from app.main_window import MainWindow, _axis_frame_metrics, _station_rows
+from app.main_window import MainWindow, _axis_frame_metrics, _dome_cap_samples, _station_rows
 
 
 @pytest.fixture
@@ -366,3 +366,29 @@ def test_station_rows_accepts_precomputed_sections_and_matches_self_computed():
     rows_self = _station_rows(report, [200.0], set(), cyl, (1, 0, 0), axis_point=(0, -30, 50))
     assert rows_shared == rows_self
     assert rows_shared[0][3] == pytest.approx(5, rel=0.15)
+
+
+def test_dome_cap_samples_reach_the_true_extremes_and_cluster_at_the_tip():
+    """The end-band sampling behind the Dome-cap layer (Brady's 2026-09-08 M8 question: rings
+    stop ~2% of the length short of each dome tip because the engine deliberately places no
+    stations there). The extra slice z's must actually fill both bands out to within a hair of
+    the solid's true axial extremes -- the whole point is that the display no longer stops
+    short -- and cluster toward the tip, where the analytic dome fit differs most from any flat
+    assumption."""
+    fore, aft = _dome_cap_samples([200.0, 9700.0], 0.0, 9900.0)
+    assert fore and aft
+    assert all(0.0 < z < 200.0 for z in fore)
+    assert all(9700.0 < z < 9900.0 for z in aft)
+    # Reaches within 1% of the band width of each true extreme (tip_eps keeps the slice plane
+    # off the exactly-tangent apex, where the cross-section degenerates).
+    assert min(fore) < 0.01 * 200.0
+    assert max(aft) > 9900.0 - 0.01 * 200.0
+    gaps = np.diff(np.sort(np.asarray(aft)))
+    assert gaps[-1] < gaps[0]  # sine clustering: spacing shrinks approaching the tip
+
+
+def test_dome_cap_samples_empty_without_stations_or_band():
+    assert _dome_cap_samples([], 0.0, 100.0) == ([], [])
+    # Stations already at the extremes: no end band exists, nothing supplemental to draw.
+    fore, aft = _dome_cap_samples([0.0, 100.0], 0.0, 100.0)
+    assert fore == [] and aft == []

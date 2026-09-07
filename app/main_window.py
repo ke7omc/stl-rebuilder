@@ -3,6 +3,7 @@ Stations -> Output), Details dock for the selected node, central 3D viewport, bo
 status bar with progress + cancel."""
 import datetime
 import html
+import math
 import os
 import textwrap
 
@@ -159,8 +160,8 @@ class MainWindow(QMainWindow):
         view_menu = menubar.addMenu("&View")
         self._layer_actions = {}
         for key, label in (("input", "Input mesh"), ("solid", "Rebuilt solid"),
-                           ("stations", "Station rings"), ("events", "Topology events"),
-                           ("axis", "Axis line")):
+                           ("stations", "Station rings"), ("domecap", "Dome-cap fit"),
+                           ("events", "Topology events"), ("axis", "Axis line")):
             act = QAction(label, self)
             act.setCheckable(True)
             act.setChecked(True)
@@ -893,6 +894,26 @@ class MainWindow(QMainWindow):
                 self.viewport.show_topology_events(
                     events_proj, radial_mm, axis_unit, axis_point,
                     radii_mm=[radii[0] if radii else None for _sec, radii in event_sections])
+                # End-band "dome cap" layer (Brady's 2026-09-08 M8 question: "why do the rings
+                # stop partway up each dome?"): the engine deliberately places NO stations within
+                # `station_eps` of either tip -- a per-station circle fit is systematically
+                # biased low there, so that band is rebuilt from a vertex-refined dome fit
+                # instead (pipeline/engine.py, `_dome_model`). Correct, but it left the viewport
+                # dark exactly where the surface curves most, reading as "unverified." These
+                # extra slices come from the ALREADY-BUILT solid (not a re-derivation of the fit
+                # that could drift from what was actually built), tip-clustered out to the
+                # solid's true axial extremes (proj_min/proj_max -- the extent Bounds Z checks),
+                # and drawn by `show_dome_caps` in a deliberately non-station style.
+                cap_ends = []
+                for tip_z, cap_z in zip(
+                        (proj_min, proj_max),
+                        _dome_cap_samples(stations_proj, proj_min, proj_max)):
+                    if not cap_z:
+                        continue
+                    cap_secs = _station_cross_sections(solid_mesh, cap_z, axis_unit, axis_point)
+                    cap_ends.append((tip_z, [(z, sec, radii[0] if radii else None)
+                                             for z, (sec, radii) in zip(cap_z, cap_secs)]))
+                self.viewport.show_dome_caps(cap_ends, axis_unit, axis_point)
                 self.viewport.show_axis_line(radial_mm, proj_max - proj_min, axis_unit,
                                              origin_z_mm=0.5 * (proj_min + proj_max),
                                              axis_point=axis_point)
@@ -1152,6 +1173,39 @@ def _station_cross_sections(solid_mesh, z_mesh_list, axis_unit, axis_point=None)
                     section = labeled
         out.append((section, radii))
     return out
+
+
+def _dome_cap_samples(stations_proj, proj_min, proj_max, n=8):
+    """Extra slice z-values (mesh frame, aligned to `_station_cross_sections`'s convention)
+    filling the two station-free end bands of the rebuilt solid, from the outermost real
+    station on each side out to that side's true axial extreme. Returns (fore_list, aft_list),
+    each ordered from the station toward its tip; empty when there's no meaningful band (or no
+    stations at all).
+
+    Sine-clustered toward the tip, not uniform: the analytic dome fit that owns these bands
+    differs most from any flat/linear assumption exactly where curvature peaks -- at the apex --
+    so that's where the eye needs the densest evidence that the built surface really converges.
+    The tip-most sample stops a hair short of the extreme (`tip_eps`): a slice plane exactly
+    tangent to the apex yields a degenerate/empty cross-section, and the meridian curves close
+    the last fraction of a millimetre to the true tip point themselves (see
+    `_meridian_polylines` in app/viewport.py)."""
+    if not stations_proj:
+        return [], []
+    span = float(proj_max) - float(proj_min)
+    lo, hi = float(min(stations_proj)), float(max(stations_proj))
+    out = []
+    for tip, station_edge in ((float(proj_min), lo), (float(proj_max), hi)):
+        band = abs(station_edge - tip)
+        if band <= max(1e-9, 1e-4 * abs(span)):
+            out.append([])
+            continue
+        toward_tip = 1.0 if tip > station_edge else -1.0
+        tip_eps = max(2e-3 * band, 1e-9)
+        f_max = 1.0 - tip_eps / band
+        zs = [station_edge + toward_tip * band * min(math.sin(0.5 * math.pi * k / n), f_max)
+              for k in range(1, n + 1)]
+        out.append(zs)
+    return out[0], out[1]
 
 
 def _station_rows(report: dict, stations_z_mm, events_z_set, solid_mesh, axis_unit,

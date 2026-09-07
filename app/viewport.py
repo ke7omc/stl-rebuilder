@@ -8,8 +8,8 @@ GL widget involved) -- so `Viewport` uses a real `QtInteractor` normally, and in
 mode (only ever set by `app.smoke`) swaps in an off-screen `Plotter` composited into a `QLabel`.
 Both are `pyvista.Plotter` subclasses/instances, so all scene-building code below is shared.
 
-Layer model (added 2026-09-04, Brady's request): five named layers — input / solid / stations /
-events / axis — each with persistent user-controlled visibility (View menu), plus a "swap" mode
+Layer model (added 2026-09-04, Brady's request): named layers — input / solid / stations /
+domecap / events / axis — each with persistent user-controlled visibility (View menu), plus a "swap" mode
 that hides the rebuilt solid and shows the input mesh near-opaque for A/B comparison. ALL
 station rings are drawn (an earlier build silently subsampled to 16, which made the ring count
 contradict the report's n_stations — dishonest, removed).
@@ -44,6 +44,10 @@ SOLID_MESH_OPACITY_NORMAL = 1.0
 # whichever mesh is toggled translucent.
 SOLID_MESH_OPACITY_TRANSPARENT = 0.35
 STATION_RING_COLOR = "#f2c94c"
+# Mint-green, deliberately NOT the station yellow: the end bands this layer fills were never
+# sectioned (see `show_dome_caps`), and rendering them in station colors would recreate the
+# exact "looks like a real station" confusion the distinct layer exists to resolve.
+DOME_CAP_COLOR = "#5ad6a0"
 EVENT_RING_COLOR = "#e5534b"
 STATION_HIGHLIGHT_COLOR = "#ffd76a"
 DEVIATION_CMAP = "inferno"
@@ -87,6 +91,45 @@ def _radial_ticks(z_r_pairs, normal, base, inner_frac, outer_frac):
     return pv.PolyData(pts, lines=lines.ravel())
 
 
+def _meridian_polylines(z_r_pairs, normal, base, tip_z=None):
+    """Four longitudinal profile curves (one per tick-comb azimuth) through the given (z, local
+    outer radius) samples of an end band, closing at the true tip when the samples actually
+    converge there. Longitudinal on purpose: real stations read as CIRCUMFERENTIAL rings, so a
+    curve running ALONG the axis is distinguishable at a glance -- and unlike rings, it doesn't
+    collapse to a sliver edge-on (the very views where a shrinking dome-tip ring stack is
+    hardest to see). The 1.02 radial offset matches `_offset_section_loops`, so each curve
+    threads through its band's own rings just off the surface.
+
+    `tip_z` (the built solid's true axial extreme) is appended as an on-axis endpoint ONLY when
+    the tip-nearest sample has genuinely converged (r under half the band-start radius): on a
+    dome that visibly closes the curve at the actual apex, while on a flat/open end -- where the
+    surface does NOT meet the axis -- drawing a line to an on-axis point would invent geometry
+    that isn't there."""
+    z_r = [(float(z), float(r)) for z, r in z_r_pairs if r]
+    if len(z_r) < 2:
+        return None
+    u = _any_perpendicular(normal)
+    v = np.cross(normal, u)
+    closes_at_tip = tip_z is not None and z_r[-1][1] < 0.5 * z_r[0][1]
+    pts_per_curve = len(z_r) + (1 if closes_at_tip else 0)
+    pts = np.empty((4 * pts_per_curve, 3), dtype=float)
+    cells = []
+    k = 0
+    for d in (u, -u, v, -v):
+        cells.append(pts_per_curve)
+        for z, r in z_r:
+            pts[k] = base + normal * z + d * (r * 1.02)
+            cells.append(k)
+            k += 1
+        if closes_at_tip:
+            pts[k] = base + normal * float(tip_z)
+            cells.append(k)
+            k += 1
+    poly = pv.PolyData(pts)
+    poly.lines = np.asarray(cells, dtype=np.int64)
+    return poly
+
+
 def _offset_section_loops(section, normal, base):
     """Nudge a station's true traced cross-section loops slightly OFF the surface they lie
     exactly on (a slice IS the surface; drawn in place it z-fights and gets occluded): the outer
@@ -109,11 +152,12 @@ def _offset_section_loops(section, normal, base):
     out.points = base + ax_c + radial * scale[:, None]
     return out
 
-LAYERS = ("input", "solid", "stations", "events", "axis")
+LAYERS = ("input", "solid", "stations", "domecap", "events", "axis")
 # Layers that get a clickable legend row (axis is a reference line, not a data layer -- it never
 # had a legend entry even before the legend became interactive).
 LEGEND_LAYERS = {"Input mesh": ("input", INPUT_MESH_COLOR), "Rebuilt solid": ("solid", SOLID_MESH_COLOR),
                  "Stations": ("stations", STATION_RING_COLOR),
+                 "Dome-cap fit (not sectioned)": ("domecap", DOME_CAP_COLOR),
                  "Topology change": ("events", EVENT_RING_COLOR)}
 
 
@@ -311,12 +355,15 @@ class Viewport(QWidget):
         self._solid_mesh_data = None
         self._station_actor = None
         self._station_tick_actor = None
+        self._dome_cap_ring_actor = None
+        self._dome_cap_meridian_actor = None
         self._event_actor = None
         self._event_tick_actor = None
         self._axis_actor = None
         self._feature_edges_actor = None
         self._camera_widget = None  # created once by `_add_axis_triad`, never recreated
         self._has_events = False
+        self._has_dome_caps = False
         self._station_radius = 1.0
         self._station_local_radii = []  # sorted (z, local r_outer) pairs for highlight_station
         self._station_axis = np.array([0.0, 0.0, 1.0])
@@ -485,11 +532,14 @@ class Viewport(QWidget):
         self._solid_mesh_data = None
         self._station_actor = None
         self._station_tick_actor = None
+        self._dome_cap_ring_actor = None
+        self._dome_cap_meridian_actor = None
         self._event_actor = None
         self._event_tick_actor = None
         self._axis_actor = None
         self._feature_edges_actor = None
         self._has_events = False
+        self._has_dome_caps = False
         self._station_local_radii = []
         self._axis_frame = None
         self._section_frac = None
@@ -864,6 +914,7 @@ class Viewport(QWidget):
         self._sync_solid_opacity()
         pairs = (("input", self._input_actor), ("solid", self._solid_actor),
                  ("stations", self._station_actor), ("stations", self._station_tick_actor),
+                 ("domecap", self._dome_cap_ring_actor), ("domecap", self._dome_cap_meridian_actor),
                  ("events", self._event_actor), ("events", self._event_tick_actor),
                  ("axis", self._axis_actor), ("solid", self._feature_edges_actor))
         for key, actor in pairs:
@@ -928,6 +979,8 @@ class Viewport(QWidget):
             active.add("solid")
         if active:
             active.add("stations")
+            if self._has_dome_caps:
+                active.add("domecap")
             if self._has_events:
                 active.add("events")
         for key, row in self._legend_rows.items():
@@ -1049,6 +1102,63 @@ class Viewport(QWidget):
             except Exception:
                 pass
         self._apply_visibility()
+        self.render()
+
+    def show_dome_caps(self, ends, axis_unit=(0, 0, 1), axis_point=(0.0, 0.0, 0.0)):
+        """The end-band layer that closes the visual gap Brady asked about (2026-09-08, M8):
+        station rings stop ~2% of the length short of each dome tip, and the viewport just went
+        dark right where the surface curves the most -- which read as "unverified" even though
+        that band is deliberately reconstructed by a BETTER method than sectioning (the engine's
+        `station_eps` inset + `_dome_model` vertex-refined quadratic fit -- raw per-station
+        circle fits are systematically biased low on a steep faceted dome, see
+        `_refine_dome_model_from_vertices` in pipeline/engine.py). This layer shows that the
+        built surface is present, smooth, and converges to the true tip, WITHOUT implying real
+        sectioning happened: what's drawn is sliced from the actual rebuilt solid the engine
+        produced (honest -- it's the real built surface, not a re-derivation of the fit), but
+        styled apart from stations in every channel available -- its own mint color, no tick
+        comb (the comb is the station layer's edge-on signature), and longitudinal meridian
+        curves (`_meridian_polylines`) where stations are circumferential rings.
+
+        `ends`: per end, `(tip_z, samples)` -- `tip_z` the built solid's true axial extreme on
+        that side (what Bounds Z verifies numerically; the meridians visibly reach it), and
+        `samples` a list of `(z, section_polydata_or_None, r_outer_or_None)` ordered from the
+        outermost real station toward the tip. All axial values share `axis_point`'s frame,
+        same convention as `show_station_planes`."""
+        self.plotter.remove_actor("dome_cap_rings", render=False)
+        self.plotter.remove_actor("dome_cap_meridians", render=False)
+        self._dome_cap_ring_actor = None
+        self._dome_cap_meridian_actor = None
+        self._has_dome_caps = False
+        normal = np.array(axis_unit, dtype=float)
+        normal = normal / (np.linalg.norm(normal) or 1.0)
+        base = np.asarray(axis_point, dtype=float)
+        rings = pv.MultiBlock()
+        meridians = pv.MultiBlock()
+        for tip_z, samples in (ends or []):
+            z_r = []
+            for z, sec, r_outer in samples:
+                if sec is not None and getattr(sec, "n_points", 0):
+                    rings.append(_offset_section_loops(sec, normal, base))
+                if r_outer:
+                    z_r.append((float(z), float(r_outer)))
+            poly = _meridian_polylines(z_r, normal, base, tip_z=tip_z)
+            if poly is not None:
+                meridians.append(poly)
+        if rings.n_blocks:
+            # Lighter than the stations' own 0.35 -- supplemental context, and the tip-clustered
+            # sampling stacks rings close together right at the apex, where heavier weight would
+            # wallpaper the very convergence it exists to show.
+            self._dome_cap_ring_actor = self.plotter.add_mesh(
+                rings.combine(), color=DOME_CAP_COLOR, opacity=0.25, line_width=1.2,
+                name="dome_cap_rings")
+        if meridians.n_blocks:
+            self._dome_cap_meridian_actor = self.plotter.add_mesh(
+                meridians.combine(), color=DOME_CAP_COLOR, opacity=0.85, line_width=1.6,
+                name="dome_cap_meridians")
+        self._has_dome_caps = (self._dome_cap_ring_actor is not None
+                               or self._dome_cap_meridian_actor is not None)
+        self._apply_visibility()
+        self._update_legend()
         self.render()
 
     def show_topology_events(self, events_z_mm, bounds_xy_mm, axis_unit=(0, 0, 1),

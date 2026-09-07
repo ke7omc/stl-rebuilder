@@ -447,3 +447,94 @@ def test_topology_events_use_local_radii_and_get_their_own_tick_comb(viewport):
     viewport.set_layer_visible("events", False)
     assert viewport._event_actor.GetVisibility() == 0
     assert viewport._event_tick_actor.GetVisibility() == 0
+
+
+def _sphere_cap_ends(radius=10.0, stations=(-5.0, 5.0)):
+    """Build a real `show_dome_caps` payload the way `_on_rebuilt` does: sample the end bands
+    (`_dome_cap_samples`), slice the actual solid at each z (`_station_cross_sections`)."""
+    from app.main_window import _dome_cap_samples, _station_cross_sections
+    solid = pv.Sphere(radius=radius, theta_resolution=60, phi_resolution=60)
+    fore, aft = _dome_cap_samples(list(stations), -radius, radius)
+    ends = []
+    for tip_z, cap_z in ((-radius, fore), (radius, aft)):
+        secs = _station_cross_sections(solid, cap_z, (0, 0, 1), (0, 0, 0))
+        ends.append((tip_z, [(z, sec, radii[0] if radii else None)
+                             for z, (sec, radii) in zip(cap_z, secs)]))
+    return solid, ends
+
+
+def test_dome_caps_are_a_distinct_layer_from_station_rings(viewport):
+    """The end-band layer must be visually and structurally its OWN thing (Brady's 2026-09-08 M8
+    question): those bands were never sectioned -- the engine rebuilds them from a vertex-refined
+    dome fit -- so drawing them as more yellow station rings would recreate the exact "looks like
+    a real station" confusion this layer exists to resolve. Distinct actors, distinct color,
+    its own legend row, and toggling either layer must not touch the other."""
+    solid, ends = _sphere_cap_ends()
+    viewport.show_solid_mesh(solid)
+    viewport.show_station_planes([-5.0, 5.0], 10.0, (0, 0, 1), axis_point=(0, 0, 0),
+                                 radii_mm=[8.66, 8.66])
+    viewport.show_dome_caps(ends, (0, 0, 1), (0, 0, 0))
+    assert viewport._dome_cap_ring_actor is not None
+    assert viewport._dome_cap_meridian_actor is not None
+    assert viewport._dome_cap_ring_actor is not viewport._station_actor
+    cap_rgb = viewport._dome_cap_ring_actor.GetProperty().GetColor()
+    station_rgb = viewport._station_actor.GetProperty().GetColor()
+    assert cap_rgb != station_rgb
+    assert viewport._legend_rows["domecap"].isVisible()
+
+    viewport.set_layer_visible("domecap", False)
+    assert viewport._dome_cap_ring_actor.GetVisibility() == 0
+    assert viewport._dome_cap_meridian_actor.GetVisibility() == 0
+    assert viewport._station_actor.GetVisibility() == 1
+    viewport.set_layer_visible("domecap", True)
+    viewport.set_layer_visible("stations", False)
+    assert viewport._station_actor.GetVisibility() == 0
+    assert viewport._dome_cap_ring_actor.GetVisibility() == 1
+
+
+def test_dome_cap_layer_reaches_the_true_axial_extremes(viewport):
+    """The whole point of the layer: the display must no longer stop ~2% short of each tip.
+    Rings must extend well past the outermost station into both bands, and the meridian curves
+    must close at the built solid's actual axial extreme points (the same extent Bounds Z
+    verifies numerically) -- on a converging dome, exactly at the on-axis apex."""
+    solid, ends = _sphere_cap_ends(radius=10.0, stations=(-5.0, 5.0))
+    viewport.show_solid_mesh(solid)
+    viewport.show_dome_caps(ends, (0, 0, 1), (0, 0, 0))
+    ring_pts = np.asarray(_actor_dataset(viewport._dome_cap_ring_actor).points)
+    assert ring_pts[:, 2].max() > 9.9  # tip-most ring a hair short of z=+10, far past z=+5
+    assert ring_pts[:, 2].min() < -9.9
+    mer_pts = np.asarray(_actor_dataset(viewport._dome_cap_meridian_actor).points)
+    assert mer_pts[:, 2].max() == pytest.approx(10.0, abs=1e-9)
+    assert mer_pts[:, 2].min() == pytest.approx(-10.0, abs=1e-9)
+
+
+def test_dome_cap_meridians_do_not_invent_an_apex_on_a_non_converging_end(viewport):
+    """A flat/open end's surface never meets the axis -- closing the meridians to an on-axis
+    point there would draw geometry the solid doesn't have (dishonest in exactly the way this
+    layer must not be). On a cylinder the band slices all keep the full radius, so no meridian
+    point may approach the axis."""
+    from app.main_window import _dome_cap_samples, _station_cross_sections
+    solid = pv.Cylinder(center=(0, 0, 0), direction=(0, 0, 1), radius=5.0, height=20.0,
+                        resolution=60, capping=True)
+    fore, aft = _dome_cap_samples([-5.0, 5.0], -10.0, 10.0)
+    ends = []
+    for tip_z, cap_z in ((-10.0, fore), (10.0, aft)):
+        secs = _station_cross_sections(solid, cap_z, (0, 0, 1), (0, 0, 0))
+        ends.append((tip_z, [(z, sec, radii[0] if radii else None)
+                             for z, (sec, radii) in zip(cap_z, secs)]))
+    viewport.show_solid_mesh(solid)
+    viewport.show_dome_caps(ends, (0, 0, 1), (0, 0, 0))
+    mer_pts = np.asarray(_actor_dataset(viewport._dome_cap_meridian_actor).points)
+    assert np.hypot(mer_pts[:, 0], mer_pts[:, 1]).min() > 4.0
+
+
+def test_dome_caps_clear_and_legend_row_hides_when_empty(viewport):
+    solid, ends = _sphere_cap_ends()
+    viewport.show_solid_mesh(solid)
+    viewport.show_dome_caps(ends, (0, 0, 1), (0, 0, 0))
+    assert viewport._has_dome_caps
+    viewport.show_dome_caps([], (0, 0, 1), (0, 0, 0))
+    assert not viewport._has_dome_caps
+    assert viewport._dome_cap_ring_actor is None
+    assert viewport._dome_cap_meridian_actor is None
+    assert not viewport._legend_rows["domecap"].isVisible()
