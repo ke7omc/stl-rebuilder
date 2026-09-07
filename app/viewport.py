@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider, QVBoxLayout, QWidget
 
-from app.theme import MONO_FAMILY, SOLID_STEEL, TELEMETRY, TEXT_DISABLED, TEXT_PRIMARY
+from app.theme import MONO_FAMILY, TELEMETRY, TEXT_DISABLED, TEXT_PRIMARY
 
 try:
     from pyvistaqt import QtInteractor
@@ -32,10 +32,10 @@ INPUT_MESH_COLOR = "lightsteelblue"
 INPUT_MESH_OPACITY_ONLY = 0.35
 INPUT_MESH_OPACITY_OVER_SOLID = 0.10
 INPUT_MESH_OPACITY_SWAP = 0.9
-# Machined-metal grey (was a saturated blue that competed visually with the UI's own interaction/
-# telemetry colors and read as "highlighted" rather than "a real part" -- 2026-09-07 design
-# review, Brady's call). Amber station rings and the ghost input mesh pop against it instead.
-SOLID_MESH_COLOR = SOLID_STEEL
+# Brady, 2026-09-07 (live testing the design-review pass): tried the steel-grey judgment call
+# from that review and preferred the original blue after all -- reverted. Keep the input mesh
+# as a translucent grey-blue ghost (INPUT_MESH_COLOR above) and the rebuilt solid as this blue.
+SOLID_MESH_COLOR = "#3f9fdc"
 SOLID_MESH_OPACITY_NORMAL = 1.0
 # Matches INPUT_MESH_OPACITY_ONLY's "ghost" look, for a consistent transparent appearance
 # whichever mesh is toggled translucent.
@@ -100,9 +100,6 @@ class LegendRow(QWidget):
         super().mousePressEvent(event)
 
 
-AXIS_COLORS = {"x": "#e5534b", "y": "#4caf6f", "z": "#4a9eff"}
-
-
 class _ClickableLabel(QLabel):
     clicked = Signal()
 
@@ -112,12 +109,13 @@ class _ClickableLabel(QLabel):
 
 
 class AxisGizmo(QWidget):
-    """Three small X/Y/Z hotspots over the viewport's bottom-left corner, next to the
-    (non-interactive) VTK axis triad `_add_axis_triad` already draws there -- click one to snap
-    the camera to a canonical view looking straight down that axis. A Qt overlay rather than
-    picking the VTK triad actor itself, for the same reason the legend became one (2026-09-04):
-    reliable click handling beats wrestling widget/actor picking for a 3-item hit target."""
-    axis_clicked = Signal(str)  # "x" | "y" | "z"
+    """A single home hotspot at the viewport's very bottom-left corner. Used to be four buttons
+    (X/Y/Z + home); Brady tried the new VTK camera-orientation widget live (`_add_axis_triad`)
+    and confirmed its own click/drag interaction already snaps to each axis view reliably, so
+    the redundant X/Y/Z buttons were dropped (2026-09-07) -- only "reset to home" has no VTK-
+    native equivalent (dragging back to iso by hand isn't the same as a precise snap), so it
+    keeps its own reliable Qt click target, sitting below-left of the VTK widget rather than
+    overlapping it."""
     home_clicked = Signal()
 
     def __init__(self, parent=None):
@@ -125,18 +123,6 @@ class AxisGizmo(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
-        for axis, color in AXIS_COLORS.items():
-            lbl = _ClickableLabel(axis.upper())
-            lbl.setFixedSize(20, 20)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setCursor(Qt.CursorShape.PointingHandCursor)
-            lbl.setToolTip(f"View down the {axis.upper()} axis")
-            lbl.setStyleSheet(
-                f"color: {color}; font-weight: 700; font-size: 12px; "
-                "background-color: rgba(20, 22, 26, 0.7); border: 1px solid rgba(255,255,255,0.15); "
-                "border-radius: 3px;")
-            lbl.clicked.connect(lambda a=axis: self.axis_clicked.emit(a))
-            layout.addWidget(lbl)
         home = _ClickableLabel("⌂")
         home.setFixedSize(20, 20)
         home.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -180,6 +166,11 @@ class _SectionSliderOverlay(QWidget):
 
 class Viewport(QWidget):
     layer_toggled = Signal(str, bool)  # layer key, new visibility -- for View-menu sync
+
+    # Bottom-left orientation corner geometry (2026-09-07). Kept small and named so either can
+    # be nudged in one place if the live layout still overlaps -- see `_reposition_axis_gizmo`.
+    _CAMERA_WIDGET_SIZE = 70
+    _AXIS_GIZMO_BOTTOM_MARGIN = 8
 
     def __init__(self, parent=None, offscreen: bool = False):
         super().__init__(parent)
@@ -275,7 +266,6 @@ class Viewport(QWidget):
         self._legend.hide()
 
         self._axis_gizmo = AxisGizmo(self)
-        self._axis_gizmo.axis_clicked.connect(self.view_along_axis)
         self._axis_gizmo.home_clicked.connect(lambda: (self._iso_camera(), self.render()))
 
         self._section_overlay = _SectionSliderOverlay(self)
@@ -304,17 +294,22 @@ class Viewport(QWidget):
     def _reposition_legend(self):
         if self._legend.isVisible():
             self._legend.adjustSize()
-            # The camera-orientation widget (V5) docks top-right by default -- give it room
-            # instead of overlapping the legend there.
-            top = 82 if getattr(self, "_has_camera_widget", False) else 12
-            self._legend.move(max(self.width() - self._legend.width() - 14, 0), top)
+            # The camera-orientation widget now anchors bottom-left (see `_add_axis_triad`), not
+            # top-right, so the legend no longer needs to dodge it.
+            self._legend.move(max(self.width() - self._legend.width() - 14, 0), 12)
             self._legend.raise_()
 
     def _reposition_axis_gizmo(self):
-        # Bottom-left, where `_add_axis_triad`'s VTK widget already renders -- sits right next
-        # to (not on top of) that live orientation reference rather than covering it.
+        # The single home button sits at the pane's own bottom-left corner, below-left of the
+        # camera-orientation widget's own bottom-left anchor (`_add_axis_triad`, sized to
+        # `_CAMERA_WIDGET_SIZE` there) -- Brady, 2026-09-07: the X/Y/Z buttons were dropped once
+        # he confirmed the VTK widget's own click/drag already snaps to each axis view; only
+        # "reset to home" keeps its own reliable Qt click target since dragging back to iso by
+        # hand isn't a precise snap. Exact pixel placement relative to the VTK widget couldn't
+        # be rendered/verified in this environment (no live display here) -- nudge
+        # `_AXIS_GIZMO_BOTTOM_MARGIN` if it still overlaps on a real screen.
         self._axis_gizmo.adjustSize()
-        self._axis_gizmo.move(8, self.height() - self._axis_gizmo.height() - 60)
+        self._axis_gizmo.move(8, self.height() - self._axis_gizmo.height() - self._AXIS_GIZMO_BOTTOM_MARGIN)
         self._axis_gizmo.raise_()
 
     def reset_scene(self):
@@ -348,17 +343,24 @@ class Viewport(QWidget):
         self.render()
 
     def _add_axis_triad(self):
-        try:
-            self.plotter.add_axes(interactive=False, color="white")
-        except Exception:
-            pass
-        # Standard CAD-app drag-to-orbit widget (2026-09-07 design review, V5) -- coarse/visual,
-        # complements rather than replaces the AxisGizmo's precise X/Y/Z snap buttons. Guarded:
-        # not every pyvista/VTK build exposes it, and it's meaningless off-screen.
+        # ONE orientation indicator, not two (Brady, 2026-09-07 live-testing feedback: the
+        # camera-orientation widget's default top-right dock overlapped the legend, AND having
+        # it alongside the existing bottom-left AxisGizmo read as two competing axis displays).
+        # Consolidated into the bottom-left corner: the plain white arrow triad this project
+        # started with is dropped in favor of the camera-orientation widget's nicer ball-and-
+        # stick look, re-anchored there via VTK's own `AnchorToLowerLeft` (pyvista's wrapper
+        # doesn't expose positioning, so this drops one level to the raw widget representation).
+        # `AxisGizmo`'s Qt overlay buttons (X/Y/Z/home) are UNCHANGED and stay the actual click
+        # target -- this project already learned that lesson once (see AxisGizmo's own
+        # docstring: "reliable click handling beats wrestling widget/actor picking"), so the
+        # native widget's own click/drag interactivity is a bonus, not something relied on.
         self._has_camera_widget = False
         if not self._offscreen:
             try:
-                self.plotter.add_camera_orientation_widget()
+                widget = self.plotter.add_camera_orientation_widget()
+                rep = widget.GetRepresentation()
+                rep.AnchorToLowerLeft()
+                rep.SetSize(self._CAMERA_WIDGET_SIZE, self._CAMERA_WIDGET_SIZE)
                 self._has_camera_widget = True
             except Exception:
                 pass

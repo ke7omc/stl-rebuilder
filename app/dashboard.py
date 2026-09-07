@@ -86,9 +86,19 @@ class GaugeDial(QWidget):
         # show was invisible during real runs (2026-09-07 design review, confirmed on a live
         # screenshot: "scanning cross-sections 84/200" cut off mid-line). 148 gives the caption
         # band its full ~28px instead of the ~16px it was squeezed into.
+        # Brady, 2026-09-07 (live testing): "should scale with the pane... give the dials a lot
+        # of real estate" -- this dashboard is the app's main "it's still working" feedback
+        # surface, not a decoration, so it should grow to fill whatever room the dock is given.
+        # Policy.Fixed vertically used to leave the dial rendering at its small minimum size no
+        # matter how tall the dock's splitter pane actually was (confirmed on a live screenshot:
+        # a generously tall dock, tiny dials, a large blank gap around them) -- Expanding in
+        # both directions lets `paintEvent`'s own `min(w, h)`-based sizing (already correct)
+        # actually receive the extra space. `setMaximumWidth` raised well past the old 190 (a
+        # hard cap that fought the same goal) but still bounded, so 5 dials can't sprawl into
+        # comically oversized circles on an extreme window width either.
         self.setMinimumSize(100, 148)
-        self.setMaximumWidth(190)  # keeps 5 dials a tight instrument bank, not scattered widgets
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMaximumWidth(340)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._timer = QTimer(self)
         self._timer.setInterval(33)
         self._timer.timeout.connect(self._tick)
@@ -166,12 +176,34 @@ class GaugeDial(QWidget):
             self._display = target
         self.update()
 
+    # Vertical layout budget (2026-09-07, Brady's live-testing feedback: the "100%" readout was
+    # overlapping the dial's own bottom rim, and the "0"/"100" end-tick labels were getting
+    # clipped at the widget's edge with too little room between neighboring dials). Named
+    # constants instead of magic numbers, so the geometry stays provably consistent: the dial's
+    # own size is DERIVED from what's left after every other band claims its own fixed space,
+    # both vertically (title/readout/caption) and horizontally (the end-tick labels, which
+    # protrude diagonally past the dial's own radius -- see `_HORZ_LABEL_MARGIN`'s comment).
+    _TOP_MARGIN = 18       # title band
+    _GAP_TO_PCT = 8        # clears the dial's own bottom rim -- was 4px INTO the rim before
+    _PCT_ROW_H = 20
+    _GAP_TO_CAPTION = 2
+    _CAPTION_H = 14
+    _BOTTOM_MARGIN = 4
+    # Horizontal margin reserved on each side for the "0"/"100" end-tick labels, which sit at
+    # radius+5 outward from the dial center at a 45-degree angle (cos(45 deg) ~= 0.707) plus
+    # their own ~14px text-box half-width. Provably safe for ANY widget width: with dial_size
+    # capped at `w - 2*margin`, the label's own box edge can be shown algebraically to never go
+    # negative or exceed `w` regardless of how wide or narrow the dial ends up.
+    _HORZ_LABEL_MARGIN = 26
+
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w = self.width()
-        dial_size = max(min(w - 8, self.height() - 62), 20)
-        rect = QRectF((w - dial_size) / 2, 18, dial_size, dial_size)
+        vert_budget = (self._TOP_MARGIN + self._GAP_TO_PCT + self._PCT_ROW_H
+                      + self._GAP_TO_CAPTION + self._CAPTION_H + self._BOTTOM_MARGIN)
+        dial_size = max(min(w - 2 * self._HORZ_LABEL_MARGIN, self.height() - vert_budget), 20)
+        rect = QRectF((w - dial_size) / 2, self._TOP_MARGIN, dial_size, dial_size)
         color = QColor(_STATE_COLORS.get(self._state, TEXT_DISABLED))
         center = rect.center()
         radius = dial_size / 2
@@ -230,9 +262,9 @@ class GaugeDial(QWidget):
             (1.0, "100", Qt.AlignmentFlag.AlignRight),
         ):
             angle = math.radians(_START_ANGLE_DEG + _SWEEP_DEG * frac)
-            lx = center.x() + math.cos(angle) * (radius + 7)
-            ly = center.y() - math.sin(angle) * (radius + 7)
-            p.drawText(QRectF(lx - 16, ly - 6, 32, 12), align | Qt.AlignmentFlag.AlignVCenter, text)
+            lx = center.x() + math.cos(angle) * (radius + 5)
+            ly = center.y() - math.sin(angle) * (radius + 5)
+            p.drawText(QRectF(lx - 14, ly - 6, 28, 12), align | Qt.AlignmentFlag.AlignVCenter, text)
 
         # Progress ring: a filled arc tracking `display` on top of a dim full-sweep track,
         # giving an at-a-glance "how much" read that doesn't require judging the needle's exact
@@ -276,7 +308,9 @@ class GaugeDial(QWidget):
         # otherwise the digits would sit frozen at the last real checkpoint while the needle
         # visibly moves past it, which reads as MORE broken than not creeping at all would.
         pct_text = "--" if self._state == "idle" else f"{int(round(self._display * 100))}%"
-        p.drawText(QRectF(0, rect.bottom() - 4, w, 16), Qt.AlignmentFlag.AlignHCenter, pct_text)
+        pct_top = rect.bottom() + self._GAP_TO_PCT
+        p.drawText(QRectF(0, pct_top, w, self._PCT_ROW_H),
+                  Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, pct_text)
         if self._caption:
             p.setPen(QColor(TEXT_SECONDARY))
             cap_font = QFont(self.font())
@@ -284,7 +318,9 @@ class GaugeDial(QWidget):
             p.setFont(cap_font)
             metrics = p.fontMetrics()
             elided = metrics.elidedText(self._caption, Qt.TextElideMode.ElideRight, w - 6)
-            p.drawText(QRectF(0, rect.bottom() + 12, w, 14), Qt.AlignmentFlag.AlignHCenter, elided)
+            cap_top = pct_top + self._PCT_ROW_H + self._GAP_TO_CAPTION
+            p.drawText(QRectF(0, cap_top, w, self._CAPTION_H),
+                      Qt.AlignmentFlag.AlignHCenter, elided)
         p.end()
 
 
@@ -393,7 +429,10 @@ class Dashboard(QWidget):
             "border-radius: 4px; }")
         cluster_layout = QHBoxLayout(cluster)
         cluster_layout.setContentsMargins(10, 6, 10, 6)
-        cluster_layout.setSpacing(4)
+        # Brady, 2026-09-07: "not enough spacing between the dials" -- was 4px, tight enough
+        # that neighboring dials' own end-tick labels (each already fully inside its own widget
+        # bounds, see GaugeDial._HORZ_LABEL_MARGIN) still read as crowded together.
+        cluster_layout.setSpacing(20)
 
         telemetry_col = QVBoxLayout()
         telemetry_col.setSpacing(4)
@@ -405,11 +444,12 @@ class Dashboard(QWidget):
         telemetry_col.addStretch(1)
         cluster_layout.addLayout(telemetry_col)
 
-        cluster_layout.addStretch(1)
+        # No flanking stretches here (2026-09-07): with the dials now Expanding in both
+        # directions, they should CLAIM the row's real estate themselves rather than stay
+        # small and centered inside padding -- see GaugeDial's own size-policy comment.
         self.dials = [GaugeDial(title) for title in DIAL_TITLES]
         for dial in self.dials:
             cluster_layout.addWidget(dial)
-        cluster_layout.addStretch(1)
 
         # A QSplitter, not a plain stacked layout, so the dial cluster and the log can be
         # resized independently of each other (Brady, 2026-09-06: "make the log box smaller and
@@ -423,7 +463,11 @@ class Dashboard(QWidget):
         for i in range(splitter.count()):
             splitter.setCollapsible(i, False)  # explicit per-pane override, not just the
                                                 # splitter-wide default `setChildrenCollapsible`
-        splitter.setStretchFactor(0, 0)
+        # Equal stretch (2026-09-07, was cluster=0/log=1): the dials are a main feedback
+        # feature, not secondary chrome -- when Brady drags the dock bigger, the gauge cluster
+        # should keep growing right along with the log, not sit fixed while the log eats
+        # every new pixel of height.
+        splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 1)
         layout.addWidget(splitter)
 

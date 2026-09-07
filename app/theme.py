@@ -24,10 +24,6 @@ WARNING = "#e0a336"
 # green = nominal, amber = caution, red = fault, cyan/white = live data -- this is the missing
 # "live data" token.
 TELEMETRY = "#35b8c8"
-# Machined-metal render color for the rebuilt solid (viewport.py), replacing a saturated blue
-# that competed visually with ACCENT/TELEMETRY and read as "highlighted" rather than "a real
-# part." Brady's call, 2026-09-07 design review.
-SOLID_STEEL = "#7f8fa0"
 # Monospace stack for every numeric/technical readout (dial percentages, property-tree values,
 # station-table numbers, the mission clock) -- the cheapest, highest-value authenticity upgrade
 # the design review found: the log console was already monospace and was consistently the

@@ -86,11 +86,13 @@ def test_legend_does_not_collapse_when_rebuilt_after_first_show(viewport):
     assert ys[0] < ys[1] < ys[2]
 
 
-def test_axis_gizmo_click_sets_the_view(viewport):
-    """Clicking an X/Y/Z hotspot (app/viewport.py's AxisGizmo, 2026-09-06 Brady's request) must
-    look straight down that axis -- verified empirically (not just "some view changed") against
-    a box with axis-marker spheres: looking down an axis puts that axis's +marker sphere near
-    dead-center (foreshortened toward the camera), not off to a side."""
+def test_view_along_axis_looks_straight_down_the_given_axis(viewport):
+    """`Viewport.view_along_axis` (formerly wired to AxisGizmo's own X/Y/Z buttons, dropped
+    2026-09-07 once Brady confirmed the VTK camera-orientation widget's own click/drag already
+    does this) must look straight down the given axis -- verified empirically (not just "some
+    view changed") against a box with axis-marker spheres: looking down an axis puts that
+    axis's +marker sphere near dead-center (foreshortened toward the camera), not off to a
+    side."""
     viewport.plotter.clear()
     viewport.plotter.add_mesh(pv.Box(bounds=(-1, 1, -2, 2, -3, 3)), color="lightgray")
     markers = {"x": (3, 0, 0), "y": (0, 3, 0), "z": (0, 0, 3)}
@@ -99,7 +101,7 @@ def test_axis_gizmo_click_sets_the_view(viewport):
     viewport.plotter.reset_camera()
 
     for axis in ("x", "y", "z"):
-        viewport._axis_gizmo.axis_clicked.emit(axis)
+        viewport.view_along_axis(axis)
         # The clicked axis's own marker should now project near the viewport center (looking
         # straight down that axis foreshortens it to ~0 in screen space); the other two remain
         # off-center. Compare screen-space distance from center via the renderer's world-to-
