@@ -1,6 +1,42 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-07 — Fable design review + 3-phase GUI polish, complete.** Brady asked for an
+  honest design evaluation ("make it look fantastic... enterprise like grade... NASA rocket
+  theme") plus fresh ideas for the 3D viewport. Fable ran the app offscreen, took ~15 real
+  screenshots (M2 + a trickier M8 finocyl/star-bore run), found the bones (dark shell,
+  verification checklist, error presentation, the dial-cluster concept) already solid but
+  flagged two real bugs — dial captions clipped by the widget's own bottom edge, and 40-60+
+  full-opacity station rings completely wallpapering the solid on real geometry — plus a phased
+  polish/capability plan. Implemented all 3 phases directly (not deferred):
+  - **Phase 1** (finishing): both bugs fixed; monospace numerals everywhere data lives; toolbar
+    text+shortcuts (F5/Ctrl+R/Esc/Ctrl+E/F/O/S/W) + a Run menu; window title tracks the loaded
+    file; version string (status bar + About); path elision; viewport image export; Fit/Ortho
+    camera actions; a real empty state; outline badges ("Stations (60)", "Output ✓").
+  - **Phase 2** (mission-control identity): new `TELEMETRY` cyan color token so "the machine is
+    working" no longer looks identical to "you clicked a button" (dials/spinner/progress bar);
+    a `T+ 00:00:00` mission clock + NOMINAL/RUNNING/FAULT/ABORTED status strip; dial bezel
+    depth; rebuilt-solid render color switched to machined-steel grey (Brady's call, replacing a
+    saturated blue that competed with the UI's own accent colors).
+  - **Phase 3** (viewport as a verification instrument — Brady's "more stuff for geometric
+    viewing" ask): Stations table ↔ 3D ring ↔ new pyqtgraph radius-profile chart are now one
+    linked selection; a draggable section-view slider clips the solid+input mesh along the
+    motor axis (finally see the bore interior instead of squinting through transparency); a
+    deviation heatmap colors the solid by actual per-point distance to the input mesh (scipy
+    cKDTree) against the run's own tolerance; render-mode cycle (shaded/edges/wireframe); a
+    camera-orientation widget alongside the existing precise axis-snap buttons.
+  - Verified against real rendered screenshots at every stage, not code reading alone — M2
+    (axis=Z) confirmed unaffected, M8 confirmed the ring/steel/highlight/section/heatmap
+    features all work together. 20 new regression tests; full suite 137 passed. Committed at
+    `59aa943` (plus `e0af0d4` from the same session fixing the giant/misplaced station rings
+    when the detected motor axis isn't Z — see below). **Brady: `git push`** — 3 commits ahead
+    of `origin/main` as of this entry.
+  - **Known limitation, not yet fixed**: the deviation-heatmap color scale can read as
+    uniformly mid-tone rather than sharply highlighting hotspots — it uses nearest-VERTEX
+    distance between the two differently-tessellated meshes (input STL vs. OCCT preview STL),
+    which is systematically coarser than the engine's own point-to-triangle verification metric
+    (`_compute_verification`'s approx deviation). Real, working, just not the tightest possible
+    signal; a future pass could swap in a point-to-triangle distance (e.g. `vtkImplicitPolyDataDistance`) if it turns out to matter in practice.
 - **2026-09-06 — Interactive GUI hardening from Brady's live testing, plan complete.** Ran the
   GUI by hand against real-scale synthetic STLs (M8, M13) and fixed everything that surfaced,
   closing out the plan at `~/.claude/plans/serialized-percolating-bachman.md` end to end:
