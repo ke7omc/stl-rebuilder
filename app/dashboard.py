@@ -51,6 +51,78 @@ def _scale_font(font: QFont, factor: float):
         font.setPixelSize(max(1, round(font.pixelSize() * factor)))
 
 
+# Seven-segment digit readout (2026-09-08, Brady's request: "old LED alarm clock" style for the
+# percentage below each dial, keeping the existing state colors rather than clock-red). No
+# segment-style font is installed on this machine and none can be fetched (this repo's Bash
+# guard blocks network tools), so the digits are hand-drawn -- segments a(top)/b(top-right)/
+# c(bottom-right)/d(bottom)/e(bottom-left)/f(top-left)/g(middle), the standard 7-segment layout.
+# "-" (used for the idle "--" readout) lights only the middle segment, matching how a real LED
+# clock shows a dash.
+_SEGMENTS_ON = {
+    "0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc",
+    "5": "afgcd", "6": "afgecd", "7": "abc", "8": "abcdefg", "9": "abcdfg",
+    "-": "g", " ": "",
+}
+
+
+def _draw_seven_segment_digit(p: QPainter, rect: QRectF, char: str, on_color: QColor,
+                               off_color: QColor, thickness: float):
+    """One digit position. Unlit segments are drawn faintly (`off_color`, expected to already
+    carry a low alpha) rather than omitted -- a real LED display shows the whole segment
+    template, not just the lit strokes, which is a real part of why it reads as "LED" rather
+    than an arbitrary shape."""
+    on = set(_SEGMENTS_ON.get(char, ""))
+    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+    t = thickness
+    mid_y = y + h / 2
+    segments = {
+        "a": (x + t, y, x + w - t, y),
+        "b": (x + w, y + t, x + w, mid_y - t * 0.6),
+        "c": (x + w, mid_y + t * 0.6, x + w, y + h - t),
+        "d": (x + t, y + h, x + w - t, y + h),
+        "e": (x, mid_y + t * 0.6, x, y + h - t),
+        "f": (x, y + t, x, mid_y - t * 0.6),
+        "g": (x + t * 0.6, mid_y, x + w - t * 0.6, mid_y),
+    }
+    for name, (x1, y1, x2, y2) in segments.items():
+        pen = QPen(on_color if name in on else off_color, t)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+
+
+def _draw_led_readout(p: QPainter, box: QRectF, text: str, color: QColor):
+    """The full bezeled LED display: a dark rounded housing (flat, no gradient/bevel -- matches
+    the dial face's own restrained styling) containing one 7-segment digit per character of
+    `text` (non-digit/dash characters, e.g. "%", fall back to plain small text alongside the
+    segment digits rather than being forced into a segment shape they don't suit)."""
+    p.setPen(QPen(QColor(BORDER), 1.0))
+    p.setBrush(QColor("#0a0b0d"))
+    p.drawRoundedRect(box, 3, 3)
+
+    digits = [c for c in text if c in _SEGMENTS_ON]
+    suffix = text[len(digits):]  # e.g. "%" -- rendered as plain text, not a segment shape
+    pad = box.height() * 0.16
+    digit_w = box.width() * 0.62 / max(len(digits), 1) if digits else 0
+    digit_h = box.height() - 2 * pad
+    gap = digit_w * 0.18
+    total_digits_w = len(digits) * digit_w + max(len(digits) - 1, 0) * gap
+    x = box.x() + (box.width() - total_digits_w - (box.width() * 0.22 if suffix else 0)) / 2
+    off_color = QColor(color)
+    off_color.setAlpha(38)
+    for ch in digits:
+        digit_rect = QRectF(x, box.y() + pad, digit_w * 0.78, digit_h)
+        _draw_seven_segment_digit(p, digit_rect, ch, color, off_color, max(1.4, digit_h * 0.11))
+        x += digit_w + gap
+    if suffix:
+        suffix_font = QFont(p.font())
+        _scale_font(suffix_font, 0.6)
+        p.setFont(suffix_font)
+        p.setPen(color)
+        p.drawText(QRectF(x, box.y(), box.width() * 0.22, box.height()),
+                  Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, suffix)
+
+
 class GaugeDial(QWidget):
     """One analog instrument: a needle over a 270° arc, tick marks, a digital percentage readout,
     and a one-line caption. Modeled on `app/widgets.py::BusySpinner` (a QTimer-driven paintEvent,
@@ -293,19 +365,15 @@ class GaugeDial(QWidget):
         p.setBrush(color)
         p.drawEllipse(center, 4.0, 4.0)
 
-        # Digital readout + caption, below the dial.
-        p.setPen(color)
-        pct_font = QFont(self.font())
-        pct_font.setFamilies(_MONO_FAMILIES)
-        pct_font.setBold(True)
-        p.setFont(pct_font)
-        # The readout number tracks the (possibly creeping) DISPLAY value, not the raw target --
-        # otherwise the digits would sit frozen at the last real checkpoint while the needle
-        # visibly moves past it, which reads as MORE broken than not creeping at all would.
+        # Digital readout (LED-clock style, Brady's request 2026-09-08) + caption, below the
+        # dial. The readout number tracks the (possibly creeping) DISPLAY value, not the raw
+        # target -- otherwise the digits would sit frozen at the last real checkpoint while the
+        # needle visibly moves past it, which reads as MORE broken than not creeping at all would.
         pct_text = "--" if self._state == "idle" else f"{int(round(self._display * 100))}%"
         pct_top = rect.bottom() + self._GAP_TO_PCT
-        p.drawText(QRectF(0, pct_top, w, self._PCT_ROW_H),
-                  Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, pct_text)
+        box_w = min(w - 8, dial_size * 0.85)
+        led_box = QRectF((w - box_w) / 2, pct_top, box_w, self._PCT_ROW_H)
+        _draw_led_readout(p, led_box, pct_text, color)
         if self._caption:
             p.setPen(QColor(TEXT_SECONDARY))
             cap_font = QFont(self.font())

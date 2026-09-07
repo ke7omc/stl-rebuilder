@@ -24,14 +24,14 @@ WARNING = "#e0a336"
 # green = nominal, amber = caution, red = fault, cyan/white = live data -- this is the missing
 # "live data" token.
 TELEMETRY = "#35b8c8"
-# Viewport-specific gradient background + floor tint (2026-09-07, premium-CAD research pass):
-# kept distinct from the BG_* panel-chrome tokens above -- every reference tool researched
-# (SpaceClaim's radial gradient, Siemens NX's gradient canvas even in dark mode, KeyShot's
-# separately-lit ground) frames the 3D canvas as a different "material" from the surrounding
-# UI, never the same flat hex as the docks around it.
+# Viewport-specific gradient background (2026-09-07, premium-CAD research pass): kept distinct
+# from the BG_* panel-chrome tokens above -- every reference tool researched (SpaceClaim's
+# radial gradient, Siemens NX's gradient canvas even in dark mode, KeyShot's separately-lit
+# ground) frames the 3D canvas as a different "material" from the surrounding UI, never the same
+# flat hex as the docks around it. (A matching floor-plane tint lived here too, briefly --
+# removed 2026-09-08, see `Viewport._update_ssao`'s docstring for why.)
 VIEWPORT_BG_BOTTOM = "#0d0f12"
 VIEWPORT_BG_TOP = "#20252c"
-VIEWPORT_FLOOR = "#15171b"
 # Monospace stack for every numeric/technical readout (dial percentages, property-tree values,
 # station-table numbers, the mission clock) -- the cheapest, highest-value authenticity upgrade
 # the design review found: the log console was already monospace and was consistently the

@@ -267,9 +267,23 @@ def test_render_mode_edges_adds_a_feature_edge_overlay_not_raw_wireframe(viewpor
     assert viewport.plotter.actors.get("solid_feature_edges") is None
 
 
-def test_ssao_and_floor_are_set_up_after_showing_a_solid(viewport):
-    assert viewport._floor_actor is not None
-    assert viewport.plotter.actors.get("Floor(-z)") is not None
+def test_ssao_is_enabled_after_showing_a_solid_with_no_floor_plane(viewport):
+    """SSAO (self-occlusion within the part's own geometry) stays enabled -- confirmed via the
+    renderer's own active render pass, since pyvista doesn't expose a plain getter. The ground
+    floor plane that used to live alongside it is GONE (2026-09-08, Brady's call after live-
+    testing: it read as a stray artifact and got in the way of transparency comparisons) --
+    assert there's no floor actor left over from that removed feature."""
+    # SSAA (anti-aliasing) wraps SSAO as its delegate pass, so the renderer's OUTERMOST active
+    # pass is the AA one -- walk the delegate chain to find SSAO nested inside it.
+    pass_names = []
+    p = viewport.plotter.renderer.GetPass()
+    for _ in range(5):
+        if p is None:
+            break
+        pass_names.append(type(p).__name__)
+        p = p.GetDelegatePass() if hasattr(p, "GetDelegatePass") else None
+    assert "vtkSSAOPass" in pass_names
+    assert not any("loor" in k for k in viewport.plotter.actors)
 
 
 def test_display_overlay_buttons_drive_viewport_state_and_emit_sync_signals(viewport):

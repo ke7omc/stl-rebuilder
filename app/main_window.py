@@ -969,11 +969,21 @@ def _with_hint(check: dict, text: str) -> str:
     here pre-wrapped into explicit lines, PASSING rows included, or it silently overflows the
     column with no wrap and no elide (found 2026-09-05 verifying this same fix: wrapping only
     the failing branch here fixed the hint but left passing Bounds rows overflowing, since they
-    never went through `textwrap.fill` at all)."""
-    wrapped_text = textwrap.fill(text, width=34, subsequent_indent="   ")
+    never went through `textwrap.fill` at all).
+
+    Wrap width 34->40 and a blank-line-separated "WHAT TO DO" label, not just a small "↳" arrow
+    (2026-09-08, Brady's feedback: "the user directions... kind of just get lost in the text and
+    its not clear what I should do") -- some hints are now full sentences explaining WHY a fix
+    won't help (see `_axial_bounds_hint`), and at the old 34-char width those wrapped into many
+    short, choppy lines that read as more text-noise than guidance. The blank line + label gives
+    the eye a clear place to stop reading "what happened" and start reading "what to do about
+    it," without needing a second color (PropertyTree's value column is one foreground color per
+    row -- see `_verification_group`'s own `row.setForeground` -- so structure/whitespace is the
+    tool available here, not color, for calling out the hint)."""
+    wrapped_text = textwrap.fill(text, width=40, subsequent_indent="   ")
     if check.get("pass") is False and check.get("hint"):
-        wrapped_hint = textwrap.fill(check["hint"], width=34, subsequent_indent="   ")
-        return wrapped_text + "\n↳ " + wrapped_hint
+        wrapped_hint = textwrap.fill(check["hint"], width=40, subsequent_indent="   ")
+        return wrapped_text + "\n\nWHAT TO DO:\n" + wrapped_hint
     return wrapped_text
 
 

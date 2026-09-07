@@ -23,7 +23,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider, QVBoxLayout, QWidget
 
 from app.theme import (
     MONO_FAMILY, TELEMETRY, TEXT_DISABLED, TEXT_PRIMARY, TEXT_SECONDARY, VIEWPORT_BG_BOTTOM,
-    VIEWPORT_BG_TOP, VIEWPORT_FLOOR,
+    VIEWPORT_BG_TOP,
 )
 
 try:
@@ -263,7 +263,6 @@ class Viewport(QWidget):
         self._station_actor = None
         self._event_actor = None
         self._axis_actor = None
-        self._floor_actor = None
         self._feature_edges_actor = None
         self._camera_widget = None  # created once by `_add_axis_triad`, never recreated
         self._has_events = False
@@ -435,7 +434,6 @@ class Viewport(QWidget):
         self._station_actor = None
         self._event_actor = None
         self._axis_actor = None
-        self._floor_actor = None
         self._feature_edges_actor = None
         self._has_events = False
         self._axis_frame = None
@@ -456,15 +454,18 @@ class Viewport(QWidget):
         self._reposition_display_overlay()
         self.render()
 
-    def _update_ssao_and_floor(self):
-        """(Re)compute SSAO's radius/bias from the CURRENT scene's own scale and refresh the
-        ground floor plane -- both must track whatever mesh is actually loaded (a fixed default
-        radius tuned for a small part, e.g. pyvista's own SSAO example, is meaningless at this
-        app's scale: these motors range from ~1m to ~10m). SSAO occluding the gap between the
-        part and the floor is a cheap, real substitute for a full shadow-map pass (VTK's
-        `enable_shadows` is pricier and fussier to tune) -- KeyShot calls the equivalent
-        technique "Occlusion Ground Shadows"."""
-        diag = self.plotter.bounds_size if hasattr(self.plotter, "bounds_size") else None
+    def _update_ssao(self):
+        """(Re)compute SSAO's radius/bias from the CURRENT scene's own scale -- a fixed default
+        radius tuned for a small part (e.g. pyvista's own SSAO example) is meaningless at this
+        app's scale, these motors range from ~1m to ~10m.
+
+        A ground floor plane used to live here too (KeyShot-style "Occlusion Ground Shadows").
+        Removed 2026-09-08, Brady's call after live-testing: the flat plane read as a stray
+        artifact at the origin rather than a deliberate ground reference, and actively got in
+        the way of the transparency/ghost-overlay comparison mode (a second translucent surface
+        added to the two the input/solid overlay was already juggling). SSAO itself stays --
+        that's the part that actually made the render look better, per direct feedback -- it's
+        just self-occlusion within the part's own geometry, no floor actor involved."""
         try:
             b = self.plotter.bounds
             diag = ((b[1] - b[0]) ** 2 + (b[3] - b[2]) ** 2 + (b[5] - b[4]) ** 2) ** 0.5
@@ -476,13 +477,6 @@ class Viewport(QWidget):
             self.plotter.enable_ssao(radius=0.02 * diag, bias=0.0005 * diag, kernel_size=128)
         except Exception:
             pass
-        try:
-            if self._floor_actor is not None:
-                self.plotter.remove_actor(self._floor_actor, render=False)
-            self._floor_actor = self.plotter.add_floor(
-                face="-z", color=VIEWPORT_FLOOR, lighting=False, opacity=0.6, pad=0.3)
-        except Exception:
-            self._floor_actor = None
 
     def _add_axis_triad(self):
         # ONE orientation indicator, not two (Brady, 2026-09-07 live-testing feedback: the
@@ -826,24 +820,6 @@ class Viewport(QWidget):
                 actor.SetVisibility(bool(visible))
             except Exception:
                 pass
-        # The floor isn't a named layer of its own -- it's a ground reference for WHATEVER mesh
-        # is actually on screen, so it follows the same effective visibility as the input/solid
-        # actors rather than a fixed always-on state (hiding the last visible mesh should hide
-        # its floor too, not leave it floating with nothing on it).
-        if self._floor_actor is not None:
-            # `_layer_visible` is a PREFERENCE dict that defaults every key True regardless of
-            # whether that layer has any actual mesh loaded -- gate on the real actor too, or a
-            # solid-only scene (no input mesh ever shown) leaves the floor visible forever
-            # (confirmed by a test failure: hiding the only mesh in the scene left a non-black
-            # background because `_layer_visible["input"]`'s default-True preference, with no
-            # input actor ever created, still counted as "input is visible").
-            solid_visible = (self._layer_visible["solid"] and not self._swap
-                             and self._solid_actor is not None)
-            input_visible = self._layer_visible["input"] and self._input_actor is not None
-            try:
-                self._floor_actor.SetVisibility(bool(solid_visible or input_visible))
-            except Exception:
-                pass
 
     @property
     def has_input_mesh(self) -> bool:
@@ -861,7 +837,7 @@ class Viewport(QWidget):
         self._apply_visibility()
         self._iso_camera()
         self._update_legend()
-        self._update_ssao_and_floor()
+        self._update_ssao()
         self.render()
 
     def show_solid_mesh(self, mesh: pv.PolyData):
@@ -876,7 +852,7 @@ class Viewport(QWidget):
         self._apply_visibility()
         self._iso_camera()
         self._update_legend()
-        self._update_ssao_and_floor()
+        self._update_ssao()
         self.render()
 
     def _iso_camera(self):

@@ -1683,6 +1683,47 @@ def _deviation_hint(worst_z: float, stations_z_mm, topology_events_z_mm,
     return loc + " — " + ", ".join(remedies)
 
 
+def _axial_bounds_hint(ax_name: str, axiality: float, max_dev_mm: float, deviation: dict) -> str:
+    """Actionable one-liner for a FAILED bounds check on Cartesian axis `ax_name`.
+
+    Real incident, 2026-09-08 (M9, Brady's own report): a bounds-Z failure kept recurring at its
+    OFFICIAL, historically-validated settings (`--axis z --sections 80 --adaptive --chord-tol
+    5`) — the solid stopped 21mm short of the input's aft-dome tip. Brady tried finer chord-tol
+    (down to 3.5, which crashed), coarser (4.25), the auto-suggested value (4.93), and adaptive
+    on/off: NONE of it moved the number, because the old hint's suggested fix (a chord-tol/
+    --adaptive problem) was the wrong diagnosis. Direct investigation confirmed why: M9's input
+    is a genuinely noisy/coarse marching-cubes mesh (its own median edge length is 40mm, the
+    grid's coarsest axis spacing) whose true surface position at the very apex carries real
+    uncertainty on that scale — independent of how finely the SOLID's own surface is
+    tessellated. The milestone's own deviation check (a robust p95 statistic across the whole
+    surface, not a single extreme point) passed comfortably at 2.29mm against a 10mm gate the
+    whole time, confirming the reconstruction itself is accurate; only the single most-extreme
+    point at the very tip disagrees by more than this axis-aligned bounding-box check's tighter
+    tolerance allows.
+
+    So: when the failing axis IS the motor axis AND the deviation check passed with real margin,
+    say so plainly and stop suggesting a fix that doesn't address the actual cause -- a future,
+    more careful pass could loosen this specific check's tolerance for genuinely coarse/noisy
+    inputs (using e.g. the mesh's own median edge length as a per-input noise scale), but that's
+    a deliberate follow-up, not something to paper over here with a wrong suggestion."""
+    if axiality <= 0.9:
+        return (f"check --axis (is the motor axis really {ax_name.upper()}?) and --units "
+                f"— a wrong one rotates/rescales the whole part")
+    dev_p95 = deviation.get("approx_p95_mm")
+    dev_tol = deviation.get("tol_mm")
+    if deviation.get("pass") is True and dev_p95 is not None and dev_tol and dev_p95 <= 0.5 * dev_tol:
+        return (f"solid stops {max_dev_mm:.2g} mm short of the input's axial extreme(s), but "
+                f"Deviation passed comfortably (p95 {dev_p95:.2g} mm ≤ {dev_tol:.2g} mm) — this "
+                f"is very likely the input mesh's own noise/coarseness right at the tip (a "
+                f"single extreme point, not a systematic fit problem), NOT something --chord-tol "
+                f"or --adaptive will move. Check Deviation's own numbers before changing "
+                f"anything; this specific check is informational only and does not affect the "
+                f"output's correctness")
+    return (f"solid stops {max_dev_mm:.2g} mm short of the input's axial extreme(s) — "
+            f"dome/end fit at the current --chord-tol; try a finer --chord-tol or --adaptive, "
+            f"and check the Deviation row for where the worst point actually is")
+
+
 def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm: float,
                           expected_bodies: int, preview_stl=None, stations_z_mm=None,
                           topology_events_z_mm=None, axial_origin_z: float = 0.0,
@@ -1772,6 +1813,7 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
             x0, y0, z0, x1, y1, z1 = box.Get()
             sol_b = np.array([[x0, y0, z0], [x1, y1, z1]], dtype=float)
         bounds = {}
+        bounds_axiality = {}  # ax_name -> axiality, stashed for the hint pass AFTER deviation
         for ai, ax_name in enumerate("xyz"):
             lo_i, hi_i = float(in_b[0][ai]), float(in_b[1][ai])
             lo_s, hi_s = float(sol_b[0][ai]), float(sol_b[1][ai])
@@ -1780,24 +1822,7 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
                                "max_dev_mm": max_dev, "tol_mm": bounds_tol_mm,
                                "pass": bool(max_dev <= bounds_tol_mm)}
             if not bounds[ax_name]["pass"]:
-                # Which failure mode this is depends on whether ax_name IS the motor axis (row 2
-                # of R_axis maps engine-z, i.e. the axis direction, back into this input-frame
-                # Cartesian axis -- see the "engine z == axis . p" relationship documented where
-                # R_axis is built above): a wrong --axis/--units rotates or rescales the WHOLE
-                # part, so it shows up on a RADIAL axis; a real axis failing here instead means
-                # the solid is short/long at its axial extremes (dome/end-cap fit), not misoriented
-                # -- the old one-size-hint below was actively misleading in that case (2026-09-06
-                # incident: X was both detected AND correct, yet told to "check --axis").
-                axiality = abs(float(np.asarray(R_axis, dtype=float)[2, ai]))
-                if axiality > 0.9:
-                    bounds[ax_name]["hint"] = (
-                        f"solid stops {max_dev:.2g} mm short of the input's axial extreme(s) — "
-                        f"dome/end fit at the current --chord-tol; try a finer --chord-tol or "
-                        f"--adaptive")
-                else:
-                    bounds[ax_name]["hint"] = (
-                        f"check --axis (is the motor axis really {ax_name.upper()}?) and --units "
-                        f"— a wrong one rotates/rescales the whole part")
+                bounds_axiality[ax_name] = abs(float(np.asarray(R_axis, dtype=float)[2, ai]))
         out["bounds"] = bounds
 
         # --- approximate sampled deviation (input vertices -> solid tessellation) ----------
@@ -1863,6 +1888,15 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
                         worst_z, stations_z_mm, topology_events_z_mm, adaptive, sections)
             except Exception as exc:
                 out["deviation"] = {"pass": None, "error": f"{type(exc).__name__}: {exc}"}
+
+        # Bounds hints, decided AFTER deviation so a failed axial-extreme check can be told
+        # apart from a genuinely fixable one -- see `_axial_bounds_hint`'s own docstring for the
+        # real incident (M9, 2026-09-08) that made this necessary: chord-tol/--adaptive changes
+        # provably did not move a 21mm axial shortfall, because it wasn't a chord-tol problem.
+        dev = out.get("deviation") or {}
+        for ax_name, axiality in bounds_axiality.items():
+            bounds[ax_name]["hint"] = _axial_bounds_hint(
+                ax_name, axiality, bounds[ax_name]["max_dev_mm"], dev)
     except Exception as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     out["elapsed_s"] = round(time.perf_counter() - t0, 3)

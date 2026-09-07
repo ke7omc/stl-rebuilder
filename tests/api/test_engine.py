@@ -263,3 +263,46 @@ def test_non_axisymmetric_hint_blames_axis_when_center_is_genuinely_off(tmp_path
         zz=50.0, cx=5.0, cy=3.0, max_resid=0.05, chord_tol=0.1)
     assert "check --axis" in msg
     assert "retry with --chord-tol" not in msg
+
+
+def test_axial_bounds_hint_does_not_suggest_a_fix_that_cannot_help(tmp_path):
+    """Real incident, 2026-09-08 (M9): a bounds-Z failure recurred at M9's own OFFICIAL,
+    historically-validated settings, and Brady tried every combination of finer/coarser
+    --chord-tol and --adaptive on/off -- NONE of it moved the number, because the failure was
+    the input mesh's own noise at the dome tip (a single extreme point), not a fixable chord-tol
+    problem. When the failing axis IS the motor axis AND Deviation passed with real margin
+    (p95 well under half its own tolerance), the hint must say so plainly and NOT repeat the
+    "try a finer --chord-tol or --adaptive" suggestion that provably does not help."""
+    msg = engine._axial_bounds_hint(
+        "z", axiality=0.999, max_dev_mm=21.1,
+        deviation={"pass": True, "approx_p95_mm": 2.29, "tol_mm": 10.0})
+    # It's fine (good, even) to name --chord-tol/--adaptive explicitly to rule them out -- what
+    # must NOT happen is telling the user to "try" them as if that would help.
+    assert "try a finer --chord-tol" not in msg
+    assert "NOT something --chord-tol or --adaptive will move" in msg
+    assert "Deviation passed comfortably" in msg
+    assert "informational only" in msg
+
+
+def test_axial_bounds_hint_still_suggests_chord_tol_when_deviation_is_also_borderline(tmp_path):
+    """The other branch: when Deviation ISN'T comfortably passing (no deviation data, or its own
+    p95 is close to its tolerance), a chord-tol/adaptive problem is still plausible -- keep the
+    original actionable suggestion."""
+    msg = engine._axial_bounds_hint("z", axiality=0.999, max_dev_mm=5.0, deviation={})
+    assert "chord-tol" in msg
+    assert "adaptive" in msg
+
+    borderline = engine._axial_bounds_hint(
+        "z", axiality=0.999, max_dev_mm=5.0,
+        deviation={"pass": True, "approx_p95_mm": 9.0, "tol_mm": 10.0})
+    assert "chord-tol" in borderline
+
+
+def test_axial_bounds_hint_blames_axis_when_the_failing_direction_is_radial(tmp_path):
+    """Unchanged behavior: a bounds failure on a Cartesian axis that ISN'T the motor axis still
+    means a wrong --axis/--units, regardless of deviation stats."""
+    msg = engine._axial_bounds_hint(
+        "x", axiality=0.02, max_dev_mm=50.0,
+        deviation={"pass": True, "approx_p95_mm": 1.0, "tol_mm": 10.0})
+    assert "check --axis" in msg
+    assert "Deviation" not in msg

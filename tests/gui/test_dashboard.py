@@ -356,3 +356,29 @@ def test_sections_are_independently_resizable_via_splitter(dashboard):
     # Exact pixel sizes aren't guaranteed (minimum-size constraints can adjust them), but the
     # requested RATIO -- log much bigger than the dial cluster -- must survive.
     assert sizes[1] > sizes[0]
+
+
+def test_seven_segment_map_covers_every_readout_character():
+    """The LED-style percentage readout (2026-09-08, Brady's request: "old LED alarm clock"
+    style, keeping the existing state colors) can only ever be asked to render digits 0-9, "-"
+    (the idle "--" readout), or " " -- every character `GaugeDial.paintEvent` can actually
+    produce via `f"{int(round(display*100))}%"` or the idle case must have a segment mapping,
+    or that character would silently render as a blank digit position."""
+    from app.dashboard import _SEGMENTS_ON
+    for ch in "0123456789- ":
+        assert ch in _SEGMENTS_ON
+    # Every mapped segment must be one of the 7 real segment names -- a typo here would silently
+    # draw nothing (a segment name that doesn't match `_draw_seven_segment_digit`'s own dict).
+    for ch, segs in _SEGMENTS_ON.items():
+        assert set(segs) <= set("abcdefg")
+
+
+def test_dial_paints_without_error_across_every_led_readout_case(dashboard):
+    """Smoke test: 0%, a 2-digit value, 100%, and idle "--" all exercise a different digit count/
+    layout branch in `_draw_led_readout` -- none of them should raise."""
+    dial = dashboard.dials[0]
+    for state, value in (("active", 0.0), ("active", 0.42), ("done", 1.0), ("idle", 0.0)):
+        dial.set_state(state)
+        dial.set_value(value)
+        dial._display = value
+        dial.grab()  # forces a real paintEvent
