@@ -188,3 +188,19 @@ def test_legend_visibility_toggle_actually_rerenders(qtbot):
 
     assert hidden_pixel != shown_pixel
     assert hidden_pixel == (0, 0, 0)  # nothing left but the black background
+
+
+def test_station_planes_sized_and_centered_on_an_off_origin_x_axis(viewport):
+    """Regression test for Brady's 2026-09-06 report: a real motor with detected axis X (not Z)
+    and an axis that doesn't pass through the world origin got station rings ~12x too big and
+    offset onto the wrong line -- the old call site (`bounds_xy = max(abs(x), abs(y))`, ring
+    center `normal * z`) assumed axis == Z and axis-through-origin. This fails against that old
+    code path: it would compute a radius from raw X bounds (~hundreds of mm here if X carried
+    the axial span) and center rings on the origin line instead of (0, -30, 50)."""
+    viewport.show_station_planes([180.0, 220.0], 5.0, (1, 0, 0), axis_point=(0, -30, 50))
+    b = viewport._station_actor.GetBounds()  # (xmin, xmax, ymin, ymax, zmin, zmax)
+    assert 179.0 <= b[0] and b[1] <= 221.0  # rings at the given axial projections, not spread out
+    assert (b[3] - b[2]) <= 12  # ring diameter ~10.2 (radius 5 * 1.02 margin), NOT ~1000
+    assert (b[5] - b[4]) <= 12
+    assert -32 <= (b[2] + b[3]) / 2 <= -28  # centered near y=-30
+    assert 48 <= (b[4] + b[5]) / 2 <= 52  # centered near z=50

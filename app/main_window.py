@@ -611,6 +611,7 @@ class MainWindow(QMainWindow):
         # `wrong_axis * z` instead of the true axis.
         axis_unit = (report.get("frame", {}).get("axis")
                     or (self._analysis.frame_axis if self._analysis else (0, 0, 1)))
+        axis_point = None
         try:
             # Run without a prior Analyze: the input mesh was never loaded into the scene,
             # which left the Input-mesh layer (and B-swap) empty (Brady, 2026-09-04)
@@ -618,15 +619,25 @@ class MainWindow(QMainWindow):
                 self.viewport.show_input_mesh(input_mesh)
             if solid_mesh is not None:
                 self.viewport.show_solid_mesh(solid_mesh)
-                xmin, xmax, ymin, ymax, _zmin, _zmax = solid_mesh.bounds
-                bounds_xy = float(max(abs(xmin), abs(xmax), abs(ymin), abs(ymax)))
-                self.viewport.show_station_planes(stations_z, bounds_xy, axis_unit)
-                self.viewport.show_topology_events(list(events_z), bounds_xy, axis_unit)
-                self.viewport.show_axis_line(bounds_xy, report.get("axial_extent_mm", bounds_xy), axis_unit)
+                # Radius/centering/axial-offset computed axis-generically (2026-09-07 fix): the
+                # old `max(abs(x), abs(y))` bounds-box radius and `normal * z` ring center both
+                # silently assumed the motor axis is Z and passes through the world origin --
+                # true for every synthetic milestone, false for Brady's 2026-09-06 real motor
+                # (axis == X, axis offset ~58mm off-origin), which inflated the ring radius 12x
+                # and shifted every ring/axis-line off both center and its true axial position.
+                radial_mm, axis_point, proj_min, proj_max = _axis_frame_metrics(solid_mesh, axis_unit)
+                axial_origin_z = float(report.get("axial_origin_z") or 0.0)
+                stations_proj = [z + axial_origin_z for z in stations_z]
+                events_proj = [z + axial_origin_z for z in events_z]
+                self.viewport.show_station_planes(stations_proj, radial_mm, axis_unit, axis_point)
+                self.viewport.show_topology_events(events_proj, radial_mm, axis_unit, axis_point)
+                self.viewport.show_axis_line(radial_mm, proj_max - proj_min, axis_unit,
+                                             origin_z_mm=0.5 * (proj_min + proj_max),
+                                             axis_point=axis_point)
         except Exception as exc:
             self.log_line(f"viewport: could not load solid preview: {exc}", level="warn")
         self.page_stations.table.set_rows(
-            _station_rows(report, stations_z, events_z, solid_mesh, axis_unit))
+            _station_rows(report, stations_z, events_z, solid_mesh, axis_unit, axis_point))
         self.outline.setCurrentItem(self.node_output)
 
     def _on_failed(self, kind, message):
@@ -785,7 +796,37 @@ def _manifest_property_groups(man: dict) -> list:
     return groups
 
 
-def _station_rows(report: dict, stations_z_mm, events_z_set, solid_mesh, axis_unit) -> list:
+def _axis_frame_metrics(mesh, axis_unit):
+    """Radial/axial extents of `mesh` about the (arbitrary) motor axis direction.
+
+    The motor axis generally does NOT pass through the world origin (`frame.origin_xy_mm` is
+    in the engine's internal transverse basis and cannot be mapped back to world coordinates
+    from the report alone); the transverse part of the mesh point centroid is a point on the
+    axis to well under a millimetre for a body that's actually a body of revolution. Returns
+    (radial_extent_mm, axis_point, proj_min, proj_max): axis_point is that on-axis point,
+    proj_min/proj_max the mesh's axial-projection range along axis_unit, radial_extent the max
+    distance of any mesh point from the line {axis_point + t*axis_unit}.
+
+    Fixes the 2026-09-06 giant-rings bug: the old call site assumed axis == Z and took raw X/Y
+    bounds as the radial extent, which is wrong -- and badly wrong, not just off-axis-slightly
+    wrong -- whenever the detected motor axis isn't Z (it folded the axial span into what was
+    supposed to be a radial estimate)."""
+    axis = np.asarray(axis_unit, dtype=float)
+    axis = axis / (np.linalg.norm(axis) or 1.0)
+    pts = np.asarray(mesh.points, dtype=float)
+    if pts.size == 0:
+        return 1.0, np.zeros(3), 0.0, 0.0
+    proj = pts @ axis
+    c = pts.mean(axis=0)
+    axis_point = c - (c @ axis) * axis
+    rel = pts - axis_point
+    radial = rel - np.outer(rel @ axis, axis)
+    return (float(np.linalg.norm(radial, axis=1).max()), axis_point,
+            float(proj.min()), float(proj.max()))
+
+
+def _station_rows(report: dict, stations_z_mm, events_z_set, solid_mesh, axis_unit,
+                  axis_point=None) -> list:
     """Honest per-station diagnostics (G3 visual review #2, item 1): slice the rebuilt solid
     preview mesh EXACTLY at each station plane (instead of the old band-around-Z point sample,
     which could miss the outer loop entirely on a sparse mesh and misreport a bore radius as
@@ -794,10 +835,15 @@ def _station_rows(report: dict, stations_z_mm, events_z_set, solid_mesh, axis_un
     any) is R_bore. `report["axial_origin_z"]` (added alongside this fix) re-aligns report-frame
     Z, which is relative to the fore-dome apex, with the exported mesh's own Z; stations_z_mm
     itself already carries that offset. `stations_z_mm`/`events_z_set` are in report frame.
+    Radii are measured from the motor axis line ({axis_point + t*axis}), not the world-origin
+    line -- `axis_point` defaults to the origin for legacy/standalone callers, which is only
+    correct when the motor axis actually passes through it (2026-09-07 fix: was always the
+    origin line, silently wrong by the transverse offset for any off-origin input).
     Returns rows of (index, z_mm, n_loops, r_outer_mm_or_None, r_bore_mm_or_None,
     classification, is_event_bool)."""
     axis = np.array(axis_unit, dtype=float)
     axis = axis / (np.linalg.norm(axis) or 1.0)
+    axis_point = np.zeros(3) if axis_point is None else np.asarray(axis_point, dtype=float)
     axial_origin_z = (report or {}).get("axial_origin_z") or 0.0
 
     prelim = []  # (i, z, n_loops, r_outer, r_bore, is_event)
@@ -816,7 +862,8 @@ def _station_rows(report: dict, stations_z_mm, events_z_set, solid_mesh, axis_un
                     radii = []
                     for rid in np.unique(region_ids):
                         pts = labeled.points[region_ids == rid]
-                        radial = pts - np.outer(pts @ axis, axis)
+                        rel = pts - axis_point
+                        radial = rel - np.outer(rel @ axis, axis)
                         radii.append(float(np.linalg.norm(radial, axis=1).max()))
                     radii.sort(reverse=True)
                     n_loops = len(radii)

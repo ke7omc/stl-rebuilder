@@ -456,12 +456,17 @@ class Viewport(QWidget):
         self.set_layer_visible(key, on)
         self.layer_toggled.emit(key, on)
 
-    def show_station_planes(self, stations_z_mm, bounds_xy_mm, axis_unit=(0, 0, 1)):
-        """`stations_z_mm`: axial coordinates along the reconstruction axis (mm). Drawn as thin
-        rings hugging the outer surface silhouette (not full discs, which the opaque solid
-        occludes almost entirely -- G3 review #4). ALL stations are drawn — the ring count must
-        match the report's n_stations (adaptive sets legitimately stack rings at features; the
-        View menu can hide the layer if it reads busy)."""
+    def show_station_planes(self, stations_z_mm, bounds_xy_mm, axis_unit=(0, 0, 1),
+                            axis_point=(0.0, 0.0, 0.0)):
+        """`stations_z_mm`: axial coordinates along the reconstruction axis (mm), in the SAME
+        frame as `axis_point` (both input-frame axial projections — caller applies
+        `axial_origin_z` before calling this). Drawn as thin rings hugging the outer surface
+        silhouette (not full discs, which the opaque solid occludes almost entirely -- G3 review
+        #4), centered on `axis_point + z*axis_unit` -- the actual motor axis, which generally
+        does NOT pass through the world origin (2026-09-07 fix; the old `axis_point`-less version
+        assumed it did, offsetting every ring by the motor axis's true transverse position).
+        ALL stations are drawn — the ring count must match the report's n_stations (adaptive sets
+        legitimately stack rings at features; the View menu can hide the layer if it reads busy)."""
         self.plotter.remove_actor("station_planes", render=False)
         self._station_actor = None
         if not stations_z_mm:
@@ -471,9 +476,10 @@ class Viewport(QWidget):
         radius = max(bounds_xy_mm, 1.0) * 1.02
         normal = np.array(axis_unit, dtype=float)
         normal = normal / (np.linalg.norm(normal) or 1.0)
+        base = np.asarray(axis_point, dtype=float)
         rings = pv.MultiBlock()
         for z in stations_sorted:
-            center = normal * float(z)
+            center = base + normal * float(z)
             rings.append(pv.Disc(center=center, inner=radius * 0.96, outer=radius, normal=normal, r_res=1, c_res=48))
         merged = rings.combine()
         self._station_actor = self.plotter.add_mesh(
@@ -481,7 +487,8 @@ class Viewport(QWidget):
         self._apply_visibility()
         self.render()
 
-    def show_topology_events(self, events_z_mm, bounds_xy_mm, axis_unit=(0, 0, 1)):
+    def show_topology_events(self, events_z_mm, bounds_xy_mm, axis_unit=(0, 0, 1),
+                             axis_point=(0.0, 0.0, 0.0)):
         self.plotter.remove_actor("topology_events", render=False)
         self._event_actor = None
         self._has_events = bool(events_z_mm)
@@ -492,9 +499,10 @@ class Viewport(QWidget):
         radius = max(bounds_xy_mm, 1.0) * 1.08
         normal = np.array(axis_unit, dtype=float)
         normal = normal / (np.linalg.norm(normal) or 1.0)
+        base = np.asarray(axis_point, dtype=float)
         rings = pv.MultiBlock()
         for z in events_z_mm:
-            center = normal * float(z)
+            center = base + normal * float(z)
             rings.append(pv.Disc(center=center, inner=radius * 0.97, outer=radius, normal=normal, r_res=1, c_res=48))
         merged = rings.combine()
         self._event_actor = self.plotter.add_mesh(
@@ -503,14 +511,20 @@ class Viewport(QWidget):
         self._update_legend()
         self.render()
 
-    def show_axis_line(self, bounds_xy_mm, axial_extent_mm, axis_unit=(0, 0, 1), origin_z_mm=0.0):
-        """Faint centerline through the detected reconstruction axis (G3 review #4)."""
+    def show_axis_line(self, bounds_xy_mm, axial_extent_mm, axis_unit=(0, 0, 1), origin_z_mm=0.0,
+                       axis_point=(0.0, 0.0, 0.0)):
+        """Faint centerline through the detected reconstruction axis (G3 review #4), through
+        `axis_point` -- the motor axis's true position, not assumed to pass through the world
+        origin (2026-09-07 fix)."""
         self.plotter.remove_actor("axis_line", render=False)
         normal = np.array(axis_unit, dtype=float)
         normal = normal / (np.linalg.norm(normal) or 1.0)
-        half = max(axial_extent_mm, bounds_xy_mm, 1.0) * 0.6
-        p1 = normal * (origin_z_mm - half)
-        p2 = normal * (origin_z_mm + half)
+        # `bounds_xy_mm` dropped from this max (2026-09-07): it used to paper over the old
+        # inflated radial estimate: a line 1.1x the actual axial span is the right length.
+        half = max(axial_extent_mm, 1.0) * 0.55
+        base = np.asarray(axis_point, dtype=float)
+        p1 = base + normal * (origin_z_mm - half)
+        p2 = base + normal * (origin_z_mm + half)
         line = pv.Line(p1, p2)
         self._axis_actor = self.plotter.add_mesh(
             line, color="#7a8290", opacity=0.5, line_width=1.5, name="axis_line")

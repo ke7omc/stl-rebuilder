@@ -1780,9 +1780,24 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
                                "max_dev_mm": max_dev, "tol_mm": bounds_tol_mm,
                                "pass": bool(max_dev <= bounds_tol_mm)}
             if not bounds[ax_name]["pass"]:
-                bounds[ax_name]["hint"] = (
-                    f"check --axis (is the motor axis really {ax_name.upper()}?) and --units "
-                    f"— a wrong one rotates/rescales the whole part")
+                # Which failure mode this is depends on whether ax_name IS the motor axis (row 2
+                # of R_axis maps engine-z, i.e. the axis direction, back into this input-frame
+                # Cartesian axis -- see the "engine z == axis . p" relationship documented where
+                # R_axis is built above): a wrong --axis/--units rotates or rescales the WHOLE
+                # part, so it shows up on a RADIAL axis; a real axis failing here instead means
+                # the solid is short/long at its axial extremes (dome/end-cap fit), not misoriented
+                # -- the old one-size-hint below was actively misleading in that case (2026-09-06
+                # incident: X was both detected AND correct, yet told to "check --axis").
+                axiality = abs(float(np.asarray(R_axis, dtype=float)[2, ai]))
+                if axiality > 0.9:
+                    bounds[ax_name]["hint"] = (
+                        f"solid stops {max_dev:.2g} mm short of the input's axial extreme(s) — "
+                        f"dome/end fit at the current --chord-tol; try a finer --chord-tol or "
+                        f"--adaptive")
+                else:
+                    bounds[ax_name]["hint"] = (
+                        f"check --axis (is the motor axis really {ax_name.upper()}?) and --units "
+                        f"— a wrong one rotates/rescales the whole part")
         out["bounds"] = bounds
 
         # --- approximate sampled deviation (input vertices -> solid tessellation) ----------

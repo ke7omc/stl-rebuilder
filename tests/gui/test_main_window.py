@@ -1,8 +1,10 @@
 """Widget-level GUI tests (pytest-qt, offscreen). MISSION §12/G2 layout contract."""
+import numpy as np
+import pyvista as pv
 import pytest
 from PySide6.QtWidgets import QDockWidget
 
-from app.main_window import MainWindow
+from app.main_window import MainWindow, _axis_frame_metrics, _station_rows
 
 
 @pytest.fixture
@@ -206,3 +208,41 @@ def test_analyze_log_line_flags_multiple_bodies(window):
     window._on_analyzed(_make_analysis(body_count=3), None)
     text = window.log.toPlainText()
     assert "3 bodies detected" in text
+
+
+def test_axis_frame_metrics_off_origin_non_z_axis():
+    """Regression test for Brady's 2026-09-06 report: a real motor whose detected axis is X
+    (not Z) and whose axis does not pass through the world origin produced station/topology
+    rings ~12x too big -- `main_window.py`'s old `bounds_xy = max(abs(x), abs(y))` hardcoded
+    "radial = X/Y plane", i.e. assumed axis == Z. This is a cylinder along X, offset in Y/Z, so
+    the correct radial extent (5) is nowhere near the raw X bound (250) the old code would have
+    used."""
+    cyl = pv.Cylinder(center=(200, -30, 50), direction=(1, 0, 0), radius=5, height=100)
+    radial, axis_point, proj_min, proj_max = _axis_frame_metrics(cyl, (1, 0, 0))
+    assert radial == pytest.approx(5, rel=0.1)
+    assert axis_point == pytest.approx([0, -30, 50], abs=0.5)
+    assert proj_min == pytest.approx(150, abs=0.5)
+    assert proj_max == pytest.approx(250, abs=0.5)
+
+
+def test_axis_frame_metrics_answers_per_axis_not_per_frame():
+    """Same mesh, a different (wrong-for-this-mesh) axis: the helper must not silently reuse a
+    cached/frame-level answer -- it measures radial extent relative to WHATEVER axis it's given."""
+    cyl = pv.Cylinder(center=(200, -30, 50), direction=(1, 0, 0), radius=5, height=100)
+    radial, *_ = _axis_frame_metrics(cyl, (0, 0, 1))
+    # Along Z, the cylinder's 100-long/10-wide profile is what's radial -- much bigger than 5.
+    assert radial > 40
+
+
+def test_station_rows_measures_radius_from_the_motor_axis_not_the_origin():
+    """Regression test for the same 2026-09-06 incident: `_station_rows`' radius math measured
+    distance from the line through the WORLD ORIGIN along the axis, not from the actual motor
+    axis -- wrong by the axis's transverse offset for any off-origin input (measured on Brady's
+    real run: 97.5mm reported vs 39.7mm correct). A legacy caller passing no `axis_point`
+    preserves the old (documented-wrong) origin-line behavior, matching the previous default."""
+    cyl = pv.Cylinder(center=(200, -30, 50), direction=(1, 0, 0), radius=5, height=100)
+    report = {"axial_origin_z": 0.0}
+    rows_correct = _station_rows(report, [200.0], set(), cyl, (1, 0, 0), axis_point=(0, -30, 50))
+    rows_legacy = _station_rows(report, [200.0], set(), cyl, (1, 0, 0), axis_point=None)
+    assert rows_correct[0][3] == pytest.approx(5, rel=0.15)  # r_outer
+    assert rows_legacy[0][3] == pytest.approx(np.hypot(30, 50) + 5, rel=0.1)
