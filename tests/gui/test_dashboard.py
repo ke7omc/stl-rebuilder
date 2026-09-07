@@ -275,6 +275,24 @@ def test_gauge_dial_reserves_room_for_the_caption_band(dashboard):
     assert caption_bottom <= min_h
 
 
+def test_gauge_dial_centers_vertically_when_width_binds_the_dial_size(dashboard):
+    """Regression test (2026-09-07 implementation review, LOW/polish item): in a tall, narrow
+    pane where WIDTH (not height) caps `dial_size`, the leftover vertical room used to collect
+    entirely as dead space below the caption (everything top-anchored at `_TOP_MARGIN`) instead
+    of centering the whole stack. Reproduce the same `paintEvent` math here to confirm a real
+    top_offset is now computed whenever there's leftover room."""
+    from app.dashboard import GaugeDial
+    dial = dashboard.dials[0]
+    dial.resize(100, 400)  # narrow and tall -- width binds dial_size, height has slack
+    w, h = dial.width(), dial.height()
+    vert_budget = (GaugeDial._TOP_MARGIN + GaugeDial._GAP_TO_PCT + GaugeDial._PCT_ROW_H
+                  + GaugeDial._GAP_TO_CAPTION + GaugeDial._CAPTION_H + GaugeDial._BOTTOM_MARGIN)
+    dial_size = max(min(w - 2 * GaugeDial._HORZ_LABEL_MARGIN, h - vert_budget), 20)
+    used_height = vert_budget + dial_size
+    expected_top_offset = max(0.0, (h - used_height) / 2)
+    assert expected_top_offset > 50  # a real, meaningfully large offset at this aspect ratio
+
+
 def test_mission_clock_starts_freezes_and_resets(dashboard, monkeypatch):
     import app.dashboard as dashboard_mod
     now = [1000.0]

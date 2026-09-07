@@ -3,6 +3,7 @@ transparency, input-mesh opacity. See app/viewport.py's module docstring and PRO
 Qt layout timing bug this guards against (a legend rebuilt after already having shown once used
 to collapse to a tiny box with overlapping row text -- widgets inserted into an already-visible
 parent's layout don't become visible, and so don't get sized, until the event loop spins)."""
+import numpy as np
 import pyvista as pv
 import pytest
 
@@ -296,3 +297,48 @@ def test_display_overlay_buttons_drive_viewport_state_and_emit_sync_signals(view
     assert viewport._deviation_mode is True
     assert deviation_states == [True]
     assert viewport._display_overlay.deviation_btn._checked is True
+
+
+def test_deviation_scalars_are_point_to_surface_not_nearest_vertex(viewport):
+    """Regression test for a real bug caught by the 2026-09-07 implementation review:
+    `_ensure_deviation_scalars` used to measure nearest-VERTEX distance (cKDTree over the input
+    mesh's own points), which is wrong by however sparse that mesh's vertex spacing is -- on a
+    real motor this reported p95 ~19mm against a ~1.9mm tolerance on a run that actually passed
+    at p95 0.32mm, rendering the whole solid as a saturated, meaningless "everything over
+    tolerance" field. Build two meshes where the two metrics give CLEARLY different answers (a
+    coarse/sparse-vertex sphere as input, a slightly larger fine-vertex concentric sphere as the
+    "solid") and assert the ACTUAL (surface-distance) metric is substantially smaller than what
+    the old (vertex-distance) metric would have reported on the same pair -- proving the fix
+    without hard-coding an exact magnitude that would be fragile to tessellation specifics."""
+    import pyvista as pv
+    from scipy.spatial import cKDTree
+    input_sphere = pv.Sphere(radius=10.0, theta_resolution=8, phi_resolution=8)  # coarse/sparse
+    solid_sphere = pv.Sphere(radius=10.5, theta_resolution=60, phi_resolution=60)  # fine
+    viewport.show_input_mesh(input_sphere)
+    viewport.show_solid_mesh(solid_sphere)
+    viewport.set_deviation_mode(True)
+    surface_d = viewport._solid_mesh_data["deviation_mm"]
+
+    old_vertex_d, _ = cKDTree(input_sphere.points).query(solid_sphere.points, k=1)
+    # The old metric is inflated by the coarse input's own vertex spacing on top of the real
+    # 0.5-unit radius gap; the fixed metric should track much closer to that true gap.
+    assert float(np.percentile(surface_d, 95)) < float(np.percentile(old_vertex_d, 95)) * 0.6
+
+
+def test_home_button_does_not_overlap_the_camera_widget_footprint(viewport):
+    """Regression test: the home button used to sit at a fixed (8, ...) offset that landed
+    INSIDE the corner-anchored camera-orientation widget's own footprint (verified by the
+    2026-09-07 implementation review via geometry, since the VTK widget itself can't render
+    offscreen to check directly). The button must clear the widget's box
+    (`_CAMERA_WIDGET_PADDING` to `_CAMERA_WIDGET_PADDING + _CAMERA_WIDGET_SIZE`) on the x axis."""
+    viewport.resize(900, 700)
+    viewport._reposition_axis_gizmo()
+    gizmo_right_edge = viewport._CAMERA_WIDGET_PADDING + viewport._CAMERA_WIDGET_SIZE
+    assert viewport._axis_gizmo.pos().x() >= gizmo_right_edge
+
+
+def test_empty_hint_background_is_transparent(viewport):
+    """Regression test: the empty-state container picked up the app's global opaque QWidget
+    background, painting a visible rectangle over the new gradient viewport background instead
+    of blending into it (2026-09-07 implementation review)."""
+    assert "transparent" in viewport._empty_hint.styleSheet()

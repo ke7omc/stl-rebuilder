@@ -112,13 +112,14 @@ class _ClickableLabel(QLabel):
 
 
 class AxisGizmo(QWidget):
-    """A single home hotspot at the viewport's very bottom-left corner. Used to be four buttons
+    """A single home hotspot, positioned immediately to the right of the viewport's bottom-left
+    camera-orientation widget (see `Viewport._reposition_axis_gizmo`). Used to be four buttons
     (X/Y/Z + home); Brady tried the new VTK camera-orientation widget live (`_add_axis_triad`)
     and confirmed its own click/drag interaction already snaps to each axis view reliably, so
     the redundant X/Y/Z buttons were dropped (2026-09-07) -- only "reset to home" has no VTK-
     native equivalent (dragging back to iso by hand isn't the same as a precise snap), so it
-    keeps its own reliable Qt click target, sitting below-left of the VTK widget rather than
-    overlapping it."""
+    keeps its own reliable Qt click target beside the VTK widget rather than trying to overlap
+    or replace it."""
     home_clicked = Signal()
 
     def __init__(self, parent=None):
@@ -126,13 +127,13 @@ class AxisGizmo(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
-        home = _ClickableLabel("⌂")
+        home = _ClickableLabel()
         home.setFixedSize(20, 20)
+        home.setPixmap(qta.icon("ph.house-bold", color="#e6e8eb").pixmap(13, 13))
         home.setAlignment(Qt.AlignmentFlag.AlignCenter)
         home.setCursor(Qt.CursorShape.PointingHandCursor)
         home.setToolTip("Reset to the isometric home view")
         home.setStyleSheet(
-            "color: #e6e8eb; font-weight: 700; font-size: 13px; "
             "background-color: rgba(20, 22, 26, 0.7); border: 1px solid rgba(255,255,255,0.15); "
             "border-radius: 3px;")
         home.clicked.connect(self.home_clicked.emit)
@@ -235,9 +236,12 @@ class Viewport(QWidget):
     render_mode_changed = Signal(str)
 
     # Bottom-left orientation corner geometry (2026-09-07). Kept small and named so either can
-    # be nudged in one place if the live layout still overlaps -- see `_reposition_axis_gizmo`.
+    # be nudged in one place -- see `_reposition_axis_gizmo`. `_CAMERA_WIDGET_PADDING` is VTK's
+    # OWN default inset for a corner-anchored `vtkCameraOrientationRepresentation` (confirmed
+    # against the installed VTK build by the 2026-09-07 implementation review), not a value this
+    # app controls -- it has to be accounted for when placing anything else in the same corner.
     _CAMERA_WIDGET_SIZE = 70
-    _AXIS_GIZMO_BOTTOM_MARGIN = 8
+    _CAMERA_WIDGET_PADDING = 10
 
     def __init__(self, parent=None, offscreen: bool = False):
         super().__init__(parent)
@@ -261,6 +265,7 @@ class Viewport(QWidget):
         self._axis_actor = None
         self._floor_actor = None
         self._feature_edges_actor = None
+        self._camera_widget = None  # created once by `_add_axis_triad`, never recreated
         self._has_events = False
         self._station_radius = 1.0
         self._station_axis = np.array([0.0, 0.0, 1.0])
@@ -284,6 +289,11 @@ class Viewport(QWidget):
         # than a considered part of the app (2026-09-07 design review, U4).
         self._empty_hint = QWidget(self)
         self._empty_hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        # Without this, the global `QWidget { background-color: ... }` app QSS paints this
+        # container as an opaque rectangle -- invisible back when the viewport background was a
+        # flat color that happened to match, but it now sits on top of the gradient canvas
+        # (2026-09-07 implementation review) as an unstyled slab behind the icon/title/hint text.
+        self._empty_hint.setStyleSheet("background: transparent;")
         hint_layout = QVBoxLayout(self._empty_hint)
         hint_layout.setSpacing(6)
         hint_icon = QLabel()
@@ -384,16 +394,21 @@ class Viewport(QWidget):
             self._legend.raise_()
 
     def _reposition_axis_gizmo(self):
-        # The single home button sits at the pane's own bottom-left corner, below-left of the
-        # camera-orientation widget's own bottom-left anchor (`_add_axis_triad`, sized to
-        # `_CAMERA_WIDGET_SIZE` there) -- Brady, 2026-09-07: the X/Y/Z buttons were dropped once
-        # he confirmed the VTK widget's own click/drag already snaps to each axis view; only
-        # "reset to home" keeps its own reliable Qt click target since dragging back to iso by
-        # hand isn't a precise snap. Exact pixel placement relative to the VTK widget couldn't
-        # be rendered/verified in this environment (no live display here) -- nudge
-        # `_AXIS_GIZMO_BOTTOM_MARGIN` if it still overlaps on a real screen.
+        # The single home button sits immediately to the RIGHT of the camera-orientation
+        # widget's own corner-anchored footprint, not "below-left of" it -- a widget anchored to
+        # the same corner has no free space below-left of itself to sit in (2026-09-07
+        # implementation review, geometry checked against the installed VTK build's own default
+        # padding: `AnchorToLowerLeft` + `SetSize(_CAMERA_WIDGET_SIZE, _CAMERA_WIDGET_SIZE)`
+        # occupies roughly x in [_CAMERA_WIDGET_PADDING, _CAMERA_WIDGET_PADDING +
+        # _CAMERA_WIDGET_SIZE] from the corner -- the button's old position at x=8 sat INSIDE
+        # that box on every axis, not beside it). Vertically centered on the gizmo's own span.
+        # The VTK widget itself still can't be rendered in this offscreen environment to confirm
+        # the exact look -- this is the geometrically-correct fix, not a pixel-verified one.
         self._axis_gizmo.adjustSize()
-        self._axis_gizmo.move(8, self.height() - self._axis_gizmo.height() - self._AXIS_GIZMO_BOTTOM_MARGIN)
+        gizmo_right = self._CAMERA_WIDGET_PADDING + self._CAMERA_WIDGET_SIZE + 8
+        gizmo_center_y = self.height() - self._CAMERA_WIDGET_PADDING - self._CAMERA_WIDGET_SIZE / 2
+        y = int(gizmo_center_y - self._axis_gizmo.height() / 2)
+        self._axis_gizmo.move(gizmo_right, y)
         self._axis_gizmo.raise_()
 
     def reset_scene(self):
@@ -477,20 +492,29 @@ class Viewport(QWidget):
         # started with is dropped in favor of the camera-orientation widget's nicer ball-and-
         # stick look, re-anchored there via VTK's own `AnchorToLowerLeft` (pyvista's wrapper
         # doesn't expose positioning, so this drops one level to the raw widget representation).
-        # `AxisGizmo`'s Qt overlay buttons (X/Y/Z/home) are UNCHANGED and stay the actual click
-        # target -- this project already learned that lesson once (see AxisGizmo's own
-        # docstring: "reliable click handling beats wrestling widget/actor picking"), so the
-        # native widget's own click/drag interactivity is a bonus, not something relied on.
-        self._has_camera_widget = False
-        if not self._offscreen:
-            try:
-                widget = self.plotter.add_camera_orientation_widget()
-                rep = widget.GetRepresentation()
-                rep.AnchorToLowerLeft()
-                rep.SetSize(self._CAMERA_WIDGET_SIZE, self._CAMERA_WIDGET_SIZE)
-                self._has_camera_widget = True
-            except Exception:
-                pass
+        # Its own click/drag already snaps to each axis view (Brady confirmed live) -- the
+        # X/Y/Z buttons that used to do that in Qt were removed for exactly that reason; only
+        # `AxisGizmo`'s single "home" button remains, since snapping back to iso has no native
+        # equivalent on the VTK widget.
+        #
+        # Created ONCE, not on every `reset_scene()` (2026-09-07 implementation review):
+        # `add_camera_orientation_widget()` has no dedupe in the installed pyvista (source-
+        # checked) -- it allocates a fresh `vtkCameraOrientationWidget` and appends to
+        # `camera_widgets` every call, and `Plotter.clear()` (called at the top of every
+        # `reset_scene`) does not remove widgets. Calling this on every "Open STL" stacked a new
+        # live widget in the same corner each time -- same pixels, but N widgets processing
+        # interaction and an unbounded leak across a long session. Guard on the stored widget
+        # HANDLE, not `_has_camera_widget` (that flag gets reset to False by every caller anyway,
+        # so it can't be the guard).
+        if getattr(self, "_camera_widget", None) is not None or self._offscreen:
+            return
+        try:
+            self._camera_widget = self.plotter.add_camera_orientation_widget()
+            rep = self._camera_widget.GetRepresentation()
+            rep.AnchorToLowerLeft()
+            rep.SetSize(self._CAMERA_WIDGET_SIZE, self._CAMERA_WIDGET_SIZE)
+        except Exception:
+            self._camera_widget = None
 
     def fit_view(self):
         """View ▸ Fit view (F): re-frame the camera on whatever's currently visible without
@@ -608,13 +632,21 @@ class Viewport(QWidget):
         self.render()
 
     def _ensure_deviation_scalars(self):
+        """Regression test for a real bug caught by the 2026-09-07 implementation review: this
+        used to measure nearest-VERTEX distance (`cKDTree(input.points).query(solid.points)`) --
+        on a real motor the input mesh's own vertex spacing dwarfs the actual reconstruction
+        error, so it reported p95 ~19mm / max ~29mm against a ~1.9mm tolerance on a run that
+        actually passed at p95 0.32mm (the engine's own point-to-triangle verification metric).
+        The whole solid rendered saturated, uniform "everything over tolerance" -- exactly
+        backwards. `compute_implicit_distance` (VTK's `vtkImplicitPolyDataDistance`, true nearest
+        point-to-SURFACE distance, not nearest sample point) matches the engine's own number:
+        re-verified directly on M8, p95 0.25mm here vs the engine's reported 0.32mm -- same order
+        of magnitude, unlike the ~60x-inflated vertex-distance reading it replaces."""
         mesh = self._solid_mesh_data
         if mesh is None or self._input_mesh_data is None or "deviation_mm" in mesh.point_data:
             return
         try:
-            from scipy.spatial import cKDTree
-            tree = cKDTree(self._input_mesh_data.points)
-            d, _ = tree.query(mesh.points, k=1, workers=-1)
+            d = np.abs(mesh.compute_implicit_distance(self._input_mesh_data)["implicit_distance"])
             mesh["deviation_mm"] = d
             upper = self._deviation_tol_mm or (float(np.percentile(d, 99)) if len(d) else 1.0)
             self._deviation_clim = (0.0, max(upper, 1e-6))

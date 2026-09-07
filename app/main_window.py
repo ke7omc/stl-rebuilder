@@ -235,6 +235,13 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         render_menu = view_menu.addMenu("Render mode")
         self._render_mode_actions = {}
+        render_mode_tooltips = {
+            # Edges only exist where the geometry genuinely has one -- a smooth revolved wall
+            # (most of a burnback solid, viewed from the side) has none, so this mode can look
+            # identical to Shaded from a typical view. That's correct, not a bug: check a bore,
+            # rim, or slot transition instead (2026-09-07 implementation review).
+            "edges": "Real geometric edges only, at rims/bores/slots -- a smooth wall has none",
+        }
         for mode, label, shortcut in (
                 ("shaded", "Shaded", "Ctrl+1"), ("edges", "Shaded + edges", "Ctrl+2"),
                 ("wireframe", "Wireframe", "Ctrl+3")):
@@ -242,6 +249,8 @@ class MainWindow(QMainWindow):
             act.setCheckable(True)
             act.setChecked(mode == "shaded")
             act.setShortcut(shortcut)
+            if mode in render_mode_tooltips:
+                act.setToolTip(render_mode_tooltips[mode])
             act.triggered.connect(lambda checked, m=mode: checked and self.viewport.set_render_mode(m))
             render_menu.addAction(act)
             self._render_mode_actions[mode] = act

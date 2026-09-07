@@ -203,7 +203,13 @@ class GaugeDial(QWidget):
         vert_budget = (self._TOP_MARGIN + self._GAP_TO_PCT + self._PCT_ROW_H
                       + self._GAP_TO_CAPTION + self._CAPTION_H + self._BOTTOM_MARGIN)
         dial_size = max(min(w - 2 * self._HORZ_LABEL_MARGIN, self.height() - vert_budget), 20)
-        rect = QRectF((w - dial_size) / 2, self._TOP_MARGIN, dial_size, dial_size)
+        # Center the whole title/dial/readout/caption stack vertically when WIDTH (not height)
+        # is the binding constraint on dial_size -- otherwise a tall, narrow pane collects all
+        # its extra room as dead space below the caption instead of growing the dial to fill it
+        # (2026-09-07 implementation review, confirmed on a very tall dock/narrow-window shot).
+        used_height = vert_budget + dial_size
+        top_offset = max(0.0, (self.height() - used_height) / 2)
+        rect = QRectF((w - dial_size) / 2, self._TOP_MARGIN + top_offset, dial_size, dial_size)
         color = QColor(_STATE_COLORS.get(self._state, TEXT_DISABLED))
         center = rect.center()
         radius = dial_size / 2
@@ -215,7 +221,7 @@ class GaugeDial(QWidget):
         title_font.setBold(True)
         title_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0)
         p.setFont(title_font)
-        p.drawText(QRectF(0, 0, w, 14), Qt.AlignmentFlag.AlignHCenter, self._title)
+        p.drawText(QRectF(0, top_offset, w, 14), Qt.AlignmentFlag.AlignHCenter, self._title)
 
         # Matte face, single hairline ring -- no bezel, no gradient highlight, no fake bevel
         # shading. 2026-09-07 (premium-CAD/instrument research pass): DaVinci Resolve's color-
