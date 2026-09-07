@@ -256,6 +256,70 @@ def test_reset_rebuild_dials_leaves_analyze_alone(dashboard):
     assert _states(dashboard) == ["done", "idle", "idle", "idle", "idle"]
 
 
+def test_gauge_dial_reserves_room_for_the_caption_band(dashboard):
+    """Regression test for a real bug (2026-09-07 design review): the caption line (drawn at
+    rect.bottom()+12..+26) fell partly or fully past the widget's own minimum height, so a
+    stage's status message was invisible during real runs. The dial's minimum height must leave
+    enough room below the dial face for BOTH the percentage readout and the caption line."""
+    dial = dashboard.dials[0]
+    dial.set_state("active")
+    dial.set_caption("scanning cross-sections 84/200")
+    min_h = dial.minimumSizeHint().height() if dial.minimumSizeHint().height() > 0 else \
+        dial.minimumSize().height()
+    dial.resize(dial.width(), min_h)
+    # rect.bottom() (dial face bottom) + 12 (caption gap) + 14 (caption line height) must fit
+    # inside the widget's own minimum height -- this is exactly the arithmetic that used to
+    # overflow (dial_size = height-34 left only ~16px below the face for a ~28px caption band).
+    dial_size = max(min(dial.width() - 8, min_h - 62), 20)
+    caption_bottom = 18 + dial_size + 12 + 14
+    assert caption_bottom <= min_h
+
+
+def test_mission_clock_starts_freezes_and_resets(dashboard, monkeypatch):
+    import app.dashboard as dashboard_mod
+    now = [1000.0]
+    monkeypatch.setattr(dashboard_mod.time, "monotonic", lambda: now[0])
+    clock = dashboard.mission_clock
+    clock.start()
+    now[0] += 5.0
+    assert clock._current_elapsed() == pytest.approx(5.0)
+    clock.freeze()
+    now[0] += 100.0  # elapsed must not keep advancing once frozen
+    assert clock._current_elapsed() == pytest.approx(5.0)
+    clock.reset()
+    assert clock._current_elapsed() == 0.0
+
+
+def test_mission_clock_start_is_idempotent_across_a_chained_analyze_into_rebuild(dashboard, monkeypatch):
+    """A Run that silently chains Analyze->Rebuild calls `Dashboard.mission_start()` at both
+    entry points (main_window.py's run_analyze and _start_rebuild) -- the second call must NOT
+    reset the clock, since it's one mission (one elapsed-time reading), not two."""
+    import app.dashboard as dashboard_mod
+    now = [2000.0]
+    monkeypatch.setattr(dashboard_mod.time, "monotonic", lambda: now[0])
+    dashboard.mission_start()
+    now[0] += 30.0
+    dashboard.mission_start()  # the chained rebuild's own call
+    assert dashboard.mission_clock._current_elapsed() == pytest.approx(30.0)
+
+
+def test_status_strip_reflects_stage_done_and_failure(dashboard):
+    dashboard.on_stage("scan", 0.4, "scanning cross-sections")
+    assert "SCAN" in dashboard.status_strip.text()
+    dashboard.on_done()
+    assert dashboard.status_strip.text() == "NOMINAL"
+    dashboard.on_failed("build", "GeometryError")
+    assert "FAULT" in dashboard.status_strip.text()
+    assert "GeometryError" in dashboard.status_strip.text()
+
+
+def test_status_strip_labels_a_cancel_as_aborted_not_a_fault(dashboard):
+    """A user-requested Cancel isn't an engine fault -- distinct, less alarming wording."""
+    dashboard.on_failed("build", "Cancelled")
+    assert "ABORTED" in dashboard.status_strip.text()
+    assert "Cancelled" not in dashboard.status_strip.text()
+
+
 def test_sections_are_independently_resizable_via_splitter(dashboard):
     """Brady, 2026-09-06: "can the user independently size the various boxes... make the log
     box smaller and the geometry box bigger". The dial cluster/log must be a real QSplitter

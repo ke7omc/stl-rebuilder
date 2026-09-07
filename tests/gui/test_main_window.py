@@ -246,3 +246,62 @@ def test_station_rows_measures_radius_from_the_motor_axis_not_the_origin():
     rows_legacy = _station_rows(report, [200.0], set(), cyl, (1, 0, 0), axis_point=None)
     assert rows_correct[0][3] == pytest.approx(5, rel=0.15)  # r_outer
     assert rows_legacy[0][3] == pytest.approx(np.hypot(30, 50) + 5, rel=0.1)
+
+
+def test_elide_path_keeps_head_and_tail_of_a_long_path():
+    from app.main_window import _elide_path
+    long_path = "/Users/bradyhales/Projects/stl-rebuilder/out/very/deep/nested/M8_rebuilt.step"
+    elided = _elide_path(long_path, keep=38)
+    assert len(elided) <= 39  # allows for the single ellipsis character
+    assert elided.startswith(long_path[:5])
+    assert elided.endswith(long_path[-5:])
+    assert "…" in elided
+
+
+def test_elide_path_leaves_a_short_path_untouched():
+    from app.main_window import _elide_path
+    assert _elide_path("out/rebuilt.step", keep=38) == "out/rebuilt.step"
+
+
+def test_selecting_a_station_row_highlights_it_in_the_viewport_and_chart(window, monkeypatch):
+    """Regression test for the station-table <-> viewport <-> profile-chart sync (2026-09-07
+    design review, V1): selecting a row must convert its REPORT-frame z into the input-frame
+    axial projection the viewport was drawn in (report z + axial_origin_z) before calling
+    `highlight_station`, not pass the raw report z straight through."""
+    calls = []
+    monkeypatch.setattr(window.viewport, "highlight_station", lambda z, label="": calls.append((z, label)))
+    chart_calls = []
+    monkeypatch.setattr(window.page_stations.chart, "set_highlight", lambda z: chart_calls.append(z))
+    window._last_axial_origin_z = 99.18
+    window.page_stations.table.set_rows([(1, 100.0, 2, 39.7, None, "barrel", False)])
+    window.page_stations.table.setCurrentItem(window.page_stations.table.topLevelItem(0))
+    assert calls == [(199.18, "z=100.0  R=39.7")]
+    assert chart_calls == [100.0]
+
+    window.page_stations.table.setCurrentItem(None)
+    assert calls[-1] == (None, "")  # clearing the row selection clears the highlight too
+    assert chart_calls[-1] is None
+
+
+def test_window_title_shows_the_loaded_file(window):
+    window._update_window_title("harness/truth/M8.stl")
+    assert "M8.stl" in window.windowTitle()
+    window._update_window_title(None)
+    assert window.windowTitle() == "STL Rebuilder"
+
+
+def test_outline_gains_count_and_status_badges_after_a_rebuild(window):
+    """Brady, 2026-09-07 design review (U7): "Stations (60)", "Output check-mark" badges give
+    quick orientation without opening either page."""
+    from pipeline.engine import Result
+    # `_on_rebuilt` reads the STEP back via `manifest.build` -> OCCT's `STEPControl_Reader` --
+    # on a path that doesn't exist on disk at all, that read SEGFAULTS instead of raising a
+    # catchable Python exception (confirmed the hard way writing this test). Point at a real
+    # STEP file already produced by an earlier milestone run instead of a fake path.
+    result = Result(
+        report={"stations_z_mm": [1.0, 2.0], "topology_events_z_mm": [],
+               "verification": {"watertight": {"pass": True}}},
+        output_path="out/M1.step", stl_path=None)
+    window._on_rebuilt(result, None, None)
+    assert window.node_stations.text(0) == "Stations (2)"
+    assert "✓" in window.node_output.text(0)

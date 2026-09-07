@@ -16,11 +16,12 @@ contradict the report's n_stations — dishonest, removed).
 """
 import numpy as np
 import pyvista as pv
+import qtawesome as qta
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider, QVBoxLayout, QWidget
 
-from app.theme import TEXT_DISABLED
+from app.theme import MONO_FAMILY, SOLID_STEEL, TELEMETRY, TEXT_DISABLED, TEXT_PRIMARY
 
 try:
     from pyvistaqt import QtInteractor
@@ -31,15 +32,30 @@ INPUT_MESH_COLOR = "lightsteelblue"
 INPUT_MESH_OPACITY_ONLY = 0.35
 INPUT_MESH_OPACITY_OVER_SOLID = 0.10
 INPUT_MESH_OPACITY_SWAP = 0.9
-SOLID_MESH_COLOR = "#3f9fdc"
+# Machined-metal grey (was a saturated blue that competed visually with the UI's own interaction/
+# telemetry colors and read as "highlighted" rather than "a real part" -- 2026-09-07 design
+# review, Brady's call). Amber station rings and the ghost input mesh pop against it instead.
+SOLID_MESH_COLOR = SOLID_STEEL
 SOLID_MESH_OPACITY_NORMAL = 1.0
 # Matches INPUT_MESH_OPACITY_ONLY's "ghost" look, for a consistent transparent appearance
 # whichever mesh is toggled translucent.
 SOLID_MESH_OPACITY_TRANSPARENT = 0.35
 STATION_RING_COLOR = "#f2c94c"
 EVENT_RING_COLOR = "#e5534b"
+STATION_HIGHLIGHT_COLOR = "#ffd76a"
+DEVIATION_CMAP = "inferno"
 
 EMPTY_HINT_TEXT = "Open a burnback STL to begin — File ▸ Open or the Input panel"
+
+
+def _any_perpendicular(axis):
+    """A unit vector perpendicular to `axis` -- used to place a station callout label out at the
+    ring's edge rather than at its (occluded, inside-the-solid) center."""
+    axis = np.asarray(axis, dtype=float)
+    seed = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    perp = seed - (seed @ axis) * axis
+    n = np.linalg.norm(perp)
+    return perp / n if n > 1e-9 else np.array([0.0, 0.0, 1.0])
 
 LAYERS = ("input", "solid", "stations", "events", "axis")
 # Layers that get a clickable legend row (axis is a reference line, not a data layer -- it never
@@ -102,6 +118,7 @@ class AxisGizmo(QWidget):
     picking the VTK triad actor itself, for the same reason the legend became one (2026-09-04):
     reliable click handling beats wrestling widget/actor picking for a 3-item hit target."""
     axis_clicked = Signal(str)  # "x" | "y" | "z"
+    home_clicked = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -120,6 +137,45 @@ class AxisGizmo(QWidget):
                 "border-radius: 3px;")
             lbl.clicked.connect(lambda a=axis: self.axis_clicked.emit(a))
             layout.addWidget(lbl)
+        home = _ClickableLabel("⌂")
+        home.setFixedSize(20, 20)
+        home.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        home.setCursor(Qt.CursorShape.PointingHandCursor)
+        home.setToolTip("Reset to the isometric home view")
+        home.setStyleSheet(
+            "color: #e6e8eb; font-weight: 700; font-size: 13px; "
+            "background-color: rgba(20, 22, 26, 0.7); border: 1px solid rgba(255,255,255,0.15); "
+            "border-radius: 3px;")
+        home.clicked.connect(self.home_clicked.emit)
+        layout.addWidget(home)
+
+
+class _SectionSliderOverlay(QWidget):
+    """Bottom-edge Qt overlay for View ▸ Section view (Phase 3, V2) -- same pattern as the
+    legend/axis-gizmo overlays (a plain Qt widget floated over the plotter, reliable and simple,
+    versus fighting VTK's own interactive clip-plane widget inside a QtInteractor)."""
+    fraction_changed = Signal(float)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(
+            "background-color: rgba(20, 22, 26, 0.85); border: 1px solid #3a3f47; "
+            "border-radius: 4px;")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 4, 12, 4)
+        layout.setSpacing(8)
+        label = QLabel("SECTION")
+        label.setStyleSheet(
+            f"color: {TELEMETRY}; font-weight: 700; font-size: 11px; letter-spacing: 1px; "
+            "background: transparent;")
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(0, 1000)
+        self.slider.setValue(500)
+        self.slider.setFixedWidth(220)
+        self.slider.valueChanged.connect(lambda v: self.fraction_changed.emit(v / 1000.0))
+        layout.addWidget(label)
+        layout.addWidget(self.slider)
+        self.hide()
 
 
 class Viewport(QWidget):
@@ -146,17 +202,47 @@ class Viewport(QWidget):
         self._event_actor = None
         self._axis_actor = None
         self._has_events = False
+        self._station_radius = 1.0
+        self._station_axis = np.array([0.0, 0.0, 1.0])
+        self._station_axis_point = np.zeros(3)
+        # axis-frame cache for the section-view clip plane (Phase 3, V2) -- set by
+        # `set_axis_frame`, which `_on_rebuilt` already has all four values for.
+        self._axis_frame = None  # (axis_unit, axis_point, proj_min, proj_max) or None
+        self._section_frac = None  # 0..1 along the axis, or None (off)
+        self._deviation_mode = False
+        self._deviation_clim = None
+        self._deviation_tol_mm = None
+        self._render_mode = "shaded"  # "shaded" | "edges" | "wireframe"
         # user preferences survive scene resets (a new run should respect the View menu)
         self._layer_visible = {k: True for k in LAYERS}
         self._swap = False
         self._solid_transparent = False
         self._input_opaque = False
 
-        self._empty_hint = QLabel(EMPTY_HINT_TEXT, self)
-        self._empty_hint.setObjectName("emptyHint")
-        self._empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_hint.setWordWrap(True)
+        # A small centered stack (icon/title/hint/shortcuts), not a single sentence -- the empty
+        # viewport was the first thing a user sees and read as an unstyled placeholder rather
+        # than a considered part of the app (2026-09-07 design review, U4).
+        self._empty_hint = QWidget(self)
         self._empty_hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        hint_layout = QVBoxLayout(self._empty_hint)
+        hint_layout.setSpacing(6)
+        hint_icon = QLabel()
+        hint_icon.setPixmap(qta.icon("fa5s.cube", color=TEXT_DISABLED).pixmap(48, 48))
+        hint_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint_title = QLabel("No geometry loaded")
+        hint_title.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 15px; background: transparent;")
+        hint_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint_text = QLabel(EMPTY_HINT_TEXT)
+        hint_text.setObjectName("emptyHint")
+        hint_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint_text.setWordWrap(True)
+        hint_shortcuts = QLabel("Ctrl+O — open  ·  F5 — analyze  ·  Ctrl+R — rebuild")
+        hint_shortcuts.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint_shortcuts.setStyleSheet(
+            f"color: {TEXT_DISABLED}; font-family: {MONO_FAMILY}; font-size: 11px; "
+            "background: transparent;")
+        for w in (hint_icon, hint_title, hint_text, hint_shortcuts):
+            hint_layout.addWidget(w)
 
         # Qt overlay legend (replaces VTK's add_legend, whose text renders independent of its
         # box and clipped at every size we tried — 2026-09-04). Clickable rows (2026-09-05,
@@ -190,6 +276,10 @@ class Viewport(QWidget):
 
         self._axis_gizmo = AxisGizmo(self)
         self._axis_gizmo.axis_clicked.connect(self.view_along_axis)
+        self._axis_gizmo.home_clicked.connect(lambda: (self._iso_camera(), self.render()))
+
+        self._section_overlay = _SectionSliderOverlay(self)
+        self._section_overlay.fraction_changed.connect(self.set_section_fraction)
 
         self.reset_scene()
 
@@ -198,16 +288,26 @@ class Viewport(QWidget):
         self._reposition_hint()
         self._reposition_legend()
         self._reposition_axis_gizmo()
+        self._reposition_section_overlay()
+
+    def _reposition_section_overlay(self):
+        self._section_overlay.adjustSize()
+        w, h = self._section_overlay.width(), self._section_overlay.height()
+        self._section_overlay.move(max((self.width() - w) // 2, 0), self.height() - h - 14)
+        self._section_overlay.raise_()
 
     def _reposition_hint(self):
-        h = 60
+        h = 160  # icon + title + hint text + shortcuts row (U4, 2026-09-07)
         self._empty_hint.setGeometry(20, (self.height() - h) // 2, max(self.width() - 40, 0), h)
         self._empty_hint.raise_()
 
     def _reposition_legend(self):
         if self._legend.isVisible():
             self._legend.adjustSize()
-            self._legend.move(max(self.width() - self._legend.width() - 14, 0), 12)
+            # The camera-orientation widget (V5) docks top-right by default -- give it room
+            # instead of overlapping the legend there.
+            top = 82 if getattr(self, "_has_camera_widget", False) else 12
+            self._legend.move(max(self.width() - self._legend.width() - 14, 0), top)
             self._legend.raise_()
 
     def _reposition_axis_gizmo(self):
@@ -235,6 +335,11 @@ class Viewport(QWidget):
         self._event_actor = None
         self._axis_actor = None
         self._has_events = False
+        self._axis_frame = None
+        self._section_frac = None
+        self._deviation_mode = False
+        self._deviation_clim = None
+        self._section_overlay.hide()
         self._legend.hide()
         self._add_axis_triad()
         self._empty_hint.show()
@@ -247,6 +352,34 @@ class Viewport(QWidget):
             self.plotter.add_axes(interactive=False, color="white")
         except Exception:
             pass
+        # Standard CAD-app drag-to-orbit widget (2026-09-07 design review, V5) -- coarse/visual,
+        # complements rather than replaces the AxisGizmo's precise X/Y/Z snap buttons. Guarded:
+        # not every pyvista/VTK build exposes it, and it's meaningless off-screen.
+        self._has_camera_widget = False
+        if not self._offscreen:
+            try:
+                self.plotter.add_camera_orientation_widget()
+                self._has_camera_widget = True
+            except Exception:
+                pass
+
+    def fit_view(self):
+        """View ▸ Fit view (F): re-frame the camera on whatever's currently visible without
+        changing its orientation."""
+        self.plotter.reset_camera()
+        self.render()
+
+    def set_orthographic(self, on: bool):
+        """View ▸ Orthographic projection (O): engineers verify silhouettes/alignment in ortho,
+        where parallel edges stay parallel regardless of depth -- perspective distorts that."""
+        try:
+            if on:
+                self.plotter.enable_parallel_projection()
+            else:
+                self.plotter.disable_parallel_projection()
+        except Exception:
+            pass
+        self.render()
 
     # Named pyvista camera preset that looks straight down each axis (confirmed empirically,
     # 2026-09-06: view_xy looks down Z, view_yz down X, view_xz down Y).
@@ -291,6 +424,76 @@ class Viewport(QWidget):
         self._apply_visibility()
         self.render()
 
+    def set_axis_frame(self, axis_unit, axis_point, proj_min: float, proj_max: float):
+        """Cache the current rebuild's axis frame for the section-view clip plane (V2) --
+        `main_window._on_rebuilt` already computes all four values via `_axis_frame_metrics`
+        for the station rings, this just keeps a copy so the slider doesn't need them re-passed
+        on every drag."""
+        self._axis_frame = (np.asarray(axis_unit, dtype=float), np.asarray(axis_point, dtype=float),
+                            float(proj_min), float(proj_max))
+
+    def set_section_active(self, on: bool):
+        """View ▸ Section view (S): shows/hides the bottom slider overlay and applies (or
+        clears) the clip at its current position."""
+        if on:
+            self._section_overlay.show()
+            self._reposition_section_overlay()
+            self.set_section_fraction(self._section_overlay.slider.value() / 1000.0)
+        else:
+            self._section_overlay.hide()
+            self.set_section_fraction(None)
+
+    def set_section_fraction(self, frac):
+        self._section_frac = None if frac is None else max(0.0, min(1.0, float(frac)))
+        if self._solid_mesh_data is not None:
+            self._readd_solid_actor()
+        if self._input_mesh_data is not None:
+            self._readd_input_actor()
+        self._apply_visibility()
+        self.render()
+
+    def set_deviation_tolerance(self, tol_mm):
+        """`report["verification"]["deviation"]["tol_mm"]` -- gives the heatmap's color scale a
+        real engineering reference (the gate the run was actually checked against) instead of an
+        arbitrary percentile of whatever this one mesh happens to measure."""
+        self._deviation_tol_mm = float(tol_mm) if tol_mm else None
+
+    def set_deviation_mode(self, on: bool):
+        """View ▸ Deviation heatmap (Phase 3, V3): color the solid by its actual per-point
+        distance to the input mesh, computed lazily on first use (both meshes are already
+        loaded in the viewport by the time this can be toggled) rather than unconditionally on
+        every rebuild, since not every session will use it."""
+        self._deviation_mode = bool(on)
+        if self._deviation_mode:
+            self._ensure_deviation_scalars()
+        self._readd_solid_actor()
+        self._apply_visibility()
+        self.render()
+
+    def _ensure_deviation_scalars(self):
+        mesh = self._solid_mesh_data
+        if mesh is None or self._input_mesh_data is None or "deviation_mm" in mesh.point_data:
+            return
+        try:
+            from scipy.spatial import cKDTree
+            tree = cKDTree(self._input_mesh_data.points)
+            d, _ = tree.query(mesh.points, k=1, workers=-1)
+            mesh["deviation_mm"] = d
+            upper = self._deviation_tol_mm or (float(np.percentile(d, 99)) if len(d) else 1.0)
+            self._deviation_clim = (0.0, max(upper, 1e-6))
+        except Exception:
+            self._deviation_mode = False
+
+    def set_render_mode(self, mode: str):
+        """View ▸ Render mode (W cycles): "shaded" (current default look), "edges" (shaded +
+        facet outlines), "wireframe"."""
+        if mode not in ("shaded", "edges", "wireframe"):
+            return
+        self._render_mode = mode
+        self._readd_solid_actor()
+        self._apply_visibility()
+        self.render()
+
     def _input_opacity(self) -> float:
         if self._input_opaque:
             return 1.0
@@ -330,6 +533,22 @@ class Viewport(QWidget):
             return
         self._readd_solid_actor()
 
+    def _clip_for_section(self, mesh):
+        """Section view (Phase 3, V2): clip `mesh` at the current slider fraction along the
+        motor axis, so the bore interior is actually visible instead of relying on transparency
+        alone (which stays muddy with two overlapping translucent surfaces -- see
+        `_solid_opacity`'s own docstring on that tradeoff). No-op when section view is off or
+        the axis frame hasn't been set yet (before the first rebuild)."""
+        if mesh is None or self._section_frac is None or self._axis_frame is None:
+            return mesh
+        axis_unit, axis_point, proj_min, proj_max = self._axis_frame
+        span = proj_max - proj_min
+        plane_origin = axis_point + axis_unit * (proj_min + self._section_frac * span)
+        try:
+            return mesh.clip(normal=axis_unit, origin=plane_origin)
+        except Exception:
+            return mesh
+
     def _readd_input_actor(self):
         if self._input_mesh_data is None:
             return
@@ -337,9 +556,27 @@ class Viewport(QWidget):
         if self._input_actor is not None:
             self.plotter.remove_actor(self._input_actor)
         self._input_actor = self.plotter.add_mesh(
-            self._input_mesh_data, color=INPUT_MESH_COLOR, opacity=self._input_opacity(),
-            show_edges=False, name="input_mesh", label="Input mesh")
+            self._clip_for_section(self._input_mesh_data), color=INPUT_MESH_COLOR,
+            opacity=self._input_opacity(), show_edges=False, name="input_mesh",
+            label="Input mesh")
         self.plotter.camera_position = cam  # re-adding a mesh must not reset the user's view
+
+    def _solid_render_kwargs(self) -> dict:
+        """Material/coloring kwargs for the solid actor, composing the render-mode (V7) and
+        deviation-heatmap (V3) toggles -- both mutate the SAME actor, so they're resolved in one
+        place rather than each maintaining its own ad hoc re-add path."""
+        kwargs = dict(
+            smooth_shading=False, specular=0.1, ambient=0.25, diffuse=0.8,
+            show_edges=self._render_mode == "edges", edge_color="#1c2026", line_width=0.5,
+            style="wireframe" if self._render_mode == "wireframe" else "surface")
+        mesh = self._solid_mesh_data
+        if self._deviation_mode and mesh is not None and "deviation_mm" in mesh.point_data:
+            clim = self._deviation_clim or (0.0, float(np.max(mesh["deviation_mm"])) or 1.0)
+            kwargs.update(scalars="deviation_mm", cmap=DEVIATION_CMAP, clim=clim,
+                          scalar_bar_args=dict(title="deviation (mm)", color="#e6e8eb", fmt="%.2f"))
+        else:
+            kwargs["color"] = SOLID_MESH_COLOR
+        return kwargs
 
     def _readd_solid_actor(self):
         if self._solid_mesh_data is None:
@@ -348,9 +585,8 @@ class Viewport(QWidget):
         if self._solid_actor is not None:
             self.plotter.remove_actor(self._solid_actor)
         self._solid_actor = self.plotter.add_mesh(
-            self._solid_mesh_data, color=SOLID_MESH_COLOR, opacity=self._solid_opacity(),
-            show_edges=False, smooth_shading=False, specular=0.1, ambient=0.25, diffuse=0.8,
-            name="solid_mesh", label="Rebuilt solid")
+            self._clip_for_section(self._solid_mesh_data), opacity=self._solid_opacity(),
+            name="solid_mesh", label="Rebuilt solid", **self._solid_render_kwargs())
         self.plotter.camera_position = cam
 
     def _apply_visibility(self):
@@ -393,28 +629,25 @@ class Viewport(QWidget):
         self.render()
 
     def show_solid_mesh(self, mesh: pv.PolyData):
+        # FLAT shading, not smooth (still the default in `_solid_render_kwargs`):
+        # `smooth_shading=True` makes VTK average per-vertex normals across adjacent facets
+        # (Gouraud/Phong interpolation) -- fine on the gently-curved outer wall, but at ANY
+        # bore/hole (where the mesh's radial facets all converge toward a small circle) that
+        # per-vertex normal averaging creates a spurious pinwheel of bright/dark spokes
+        # radiating from the hole under specular lighting. On a milestone whose bore already has
+        # real fin/slot geometry (e.g. M9) this reads as literally "a second set of fins"
+        # superimposed on the real ones (Brady, 2026-09-04) -- confirmed by rendering the same
+        # STL both ways: `smooth_shading=True` reproduces the pinwheel at ANY tessellation
+        # fidelity tested (0.3 down to 0.015 rad angular deflection, i.e. up to 250k triangles --
+        # more resolution only sharpens the spokes, it doesn't remove them, since the artifact is
+        # the shading model, not facet size); flat shading (each triangle lit by its own true
+        # normal, no interpolation) removes it completely at the same tessellation
+        # `pipeline/export.py::write_stl` already produces, while the outer wall still reads as
+        # smoothly curved at that facet density.
         self._empty_hint.hide()
         self._solid_mesh_data = mesh
-        if self._solid_actor is not None:
-            self.plotter.remove_actor(self._solid_actor)
-        # FLAT shading, not smooth: `smooth_shading=True` makes VTK average per-vertex normals
-        # across adjacent facets (Gouraud/Phong interpolation) -- fine on the gently-curved
-        # outer wall, but at ANY bore/hole (where the mesh's radial facets all converge toward
-        # a small circle) that per-vertex normal averaging creates a spurious pinwheel of
-        # bright/dark spokes radiating from the hole under specular lighting. On a milestone
-        # whose bore already has real fin/slot geometry (e.g. M9) this reads as literally "a
-        # second set of fins" superimposed on the real ones (Brady, 2026-09-04) -- confirmed by
-        # rendering the same STL both ways: `smooth_shading=True` reproduces the pinwheel at
-        # ANY tessellation fidelity tested (0.3 down to 0.015 rad angular deflection, i.e. up
-        # to 250k triangles -- more resolution only sharpens the spokes, it doesn't remove
-        # them, since the artifact is the shading model, not facet size); flat shading (each
-        # triangle lit by its own true normal, no interpolation) removes it completely at the
-        # same tessellation `pipeline/export.py::write_stl` already produces, while the outer
-        # wall still reads as smoothly curved at that facet density.
-        self._solid_actor = self.plotter.add_mesh(
-            mesh, color=SOLID_MESH_COLOR, opacity=self._solid_opacity(), show_edges=False,
-            smooth_shading=False, specular=0.1, ambient=0.25, diffuse=0.8,
-            name="solid_mesh", label="Rebuilt solid")
+        self._deviation_clim = None
+        self._readd_solid_actor()
         # once the rebuilt solid is present, the input mesh fades to a reference overlay
         # (G3 review #4); _apply_visibility owns the opacity/visibility rules incl. swap.
         self._apply_visibility()
@@ -472,18 +705,56 @@ class Viewport(QWidget):
         if not stations_z_mm:
             self.render()
             return
+        self._station_radius = max(bounds_xy_mm, 1.0) * 1.02
+        self._station_axis = np.array(axis_unit, dtype=float)
+        self._station_axis = self._station_axis / (np.linalg.norm(self._station_axis) or 1.0)
+        self._station_axis_point = np.asarray(axis_point, dtype=float)
         stations_sorted = sorted(stations_z_mm)
-        radius = max(bounds_xy_mm, 1.0) * 1.02
-        normal = np.array(axis_unit, dtype=float)
-        normal = normal / (np.linalg.norm(normal) or 1.0)
-        base = np.asarray(axis_point, dtype=float)
+        radius = self._station_radius
+        normal = self._station_axis
+        base = self._station_axis_point
         rings = pv.MultiBlock()
         for z in stations_sorted:
             center = base + normal * float(z)
-            rings.append(pv.Disc(center=center, inner=radius * 0.96, outer=radius, normal=normal, r_res=1, c_res=48))
+            # Thin, near-transparent rings (0.85 -> 0.35 opacity, thinner band): at real section
+            # counts (40-60+) full-opacity rings completely wallpaper the solid, hiding the very
+            # geometry they're meant to annotate (2026-09-07 design review, seen on M8's fins/
+            # star bore). `highlight_station` draws ONE full-weight ring on top for the case a
+            # user actually wants one station to stand out.
+            rings.append(pv.Disc(center=center, inner=radius * 0.99, outer=radius, normal=normal, r_res=1, c_res=48))
         merged = rings.combine()
         self._station_actor = self.plotter.add_mesh(
-            merged, color=STATION_RING_COLOR, opacity=0.85, name="station_planes")
+            merged, color=STATION_RING_COLOR, opacity=0.35, name="station_planes")
+        self._apply_visibility()
+        self.render()
+
+    def highlight_station(self, z_mm, label: str = ""):
+        """Draw ONE full-weight ring at `z_mm` (report-frame-adjusted, same convention as
+        `show_station_planes`) with an optional text callout (e.g. "z=207.9  R=39.7"), or clear
+        both if `z_mm` is None. Companion to the Stations table: selecting a row calls this so
+        the table and the 3D view are two views of the same selection, not two disconnected
+        displays (2026-09-07 design review, V1)."""
+        self.plotter.remove_actor("station_highlight", render=False)
+        self.plotter.remove_actor("station_label", render=False)
+        if z_mm is None or self._station_actor is None:
+            self.render()
+            return
+        radius = self._station_radius
+        normal = self._station_axis
+        center = self._station_axis_point + normal * float(z_mm)
+        ring = pv.Disc(center=center, inner=radius * 0.955, outer=radius * 1.01,
+                       normal=normal, r_res=1, c_res=64)
+        self.plotter.add_mesh(ring, color=STATION_HIGHLIGHT_COLOR, opacity=1.0,
+                              name="station_highlight")
+        if label:
+            try:
+                label_point = center + _any_perpendicular(normal) * radius
+                self.plotter.add_point_labels(
+                    [label_point], [label], name="station_label", font_size=12,
+                    text_color=STATION_HIGHLIGHT_COLOR, shape_opacity=0.35, shape_color="#14161a",
+                    always_visible=True, show_points=False)
+            except Exception:
+                pass
         self._apply_visibility()
         self.render()
 

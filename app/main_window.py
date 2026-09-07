@@ -7,9 +7,10 @@ import os
 import textwrap
 
 import numpy as np
+import pyqtgraph as pg
 import qtawesome as qta
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QFont
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDockWidget, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton,
@@ -17,21 +18,87 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from app import manifest as manifest_mod
+from app import __version__, manifest as manifest_mod
 from app.dashboard import Dashboard
-from app.theme import ACCENT, ERROR, SUCCESS, TEXT_DISABLED, TEXT_SECONDARY, WARNING
-from app.viewport import Viewport
+from app.theme import (
+    ACCENT, BG_DARKEST, ERROR, MONO_FAMILY, SUCCESS, TELEMETRY, TEXT_DISABLED, TEXT_SECONDARY,
+    WARNING,
+)
+from app.viewport import EVENT_RING_COLOR, STATION_HIGHLIGHT_COLOR, STATION_RING_COLOR, Viewport
 from app.widgets import BusySpinner, PropertyTree, StationTable, axis_label, fmt_bounds, fmt_num
 from app.worker import AnalyzeWorker, PreviewWorker, RebuildWorker, run_in_thread
 from pipeline.engine import RebuildOptions
 
 NODE_INPUT, NODE_DETECTED, NODE_STATIONS, NODE_OUTPUT = "Input", "Detected", "Stations", "Output"
 
+APP_TITLE = "STL Rebuilder"
+
+
+def _elide_path(path: str, keep: int = 38) -> str:
+    """Middle-elide a long path for a single-line display (Output-page STEP/Preview rows and log
+    lines overflowed their column with no wrap or elide -- 2026-09-07 design review). The full
+    path is always still available in the tooltip/log; this only shortens the visible text."""
+    if not path or len(path) <= keep:
+        return path or "-"
+    head = keep // 2 - 2
+    tail = keep - head - 1
+    return f"{path[:head]}…{path[-tail:]}"
+
+
+class _RadiusProfileChart(pg.PlotWidget):
+    """Bore/outer-radius-vs-axial-position profile (2026-09-07 design review, V8) -- the actual
+    grain-geometry picture a propulsion engineer reads, using the same report-frame z the
+    Stations table already shows (so a table row and a chart position use the same numbers,
+    with no separate axial-origin conversion for the user to reason about). `pyqtgraph` was
+    already an installed dependency, unused anywhere in the app until this."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setBackground(BG_DARKEST)
+        self.showGrid(x=True, y=True, alpha=0.15)
+        self.setLabel("bottom", "z (mm, report frame)")
+        self.setLabel("left", "R (mm)")
+        for axis in ("bottom", "left"):
+            self.getAxis(axis).setTextPen(TEXT_SECONDARY)
+            self.getAxis(axis).setPen(TEXT_SECONDARY)
+        self.setMaximumHeight(160)
+        self.addLegend(offset=(8, 8), labelTextColor=TEXT_SECONDARY)
+        self._outer_curve = self.plot([], [], pen=pg.mkPen(STATION_RING_COLOR, width=1.6), name="R_outer")
+        self._bore_curve = self.plot([], [], pen=pg.mkPen(TELEMETRY, width=1.6), name="R_bore")
+        self._highlight = pg.InfiniteLine(
+            angle=90, pen=pg.mkPen(STATION_HIGHLIGHT_COLOR, width=1.2, style=Qt.PenStyle.DashLine))
+        self._highlight.hide()
+        self.addItem(self._highlight)
+        self._event_lines = []
+
+    def set_rows(self, rows):
+        for line in self._event_lines:
+            self.removeItem(line)
+        self._event_lines = []
+        zs, outers, bores = [], [], []
+        for _idx, z, _n_loops, r_outer, r_bore, _cls, is_event in rows:
+            zs.append(z)
+            outers.append(r_outer if r_outer is not None else float("nan"))
+            bores.append(r_bore if r_bore is not None else float("nan"))
+            if is_event:
+                line = pg.InfiniteLine(pos=z, angle=90, pen=pg.mkPen(EVENT_RING_COLOR, width=1.0))
+                self.addItem(line)
+                self._event_lines.append(line)
+        self._outer_curve.setData(zs, outers)
+        self._bore_curve.setData(zs, bores)
+
+    def set_highlight(self, z):
+        if z is None:
+            self._highlight.hide()
+        else:
+            self._highlight.setPos(z)
+            self._highlight.show()
+
 
 class MainWindow(QMainWindow):
     def __init__(self, offscreen: bool = False):
         super().__init__()
-        self.setWindowTitle("stl-rebuilder")
+        self.setWindowTitle(APP_TITLE)
         self.setWindowIcon(qta.icon("fa5s.cube", color=ACCENT))
         self.resize(1400, 900)
 
@@ -74,12 +141,20 @@ class MainWindow(QMainWindow):
         open_action = QAction(qta.icon("fa5s.folder-open", color=TEXT_SECONDARY), "&Open STL...", self)
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self._browse_input)
+        self.export_image_action = QAction(
+            qta.icon("fa5s.camera", color=TEXT_SECONDARY), "&Export viewport image...", self)
+        self.export_image_action.setShortcut("Ctrl+E")
+        self.export_image_action.setToolTip("Save the current 3D view as a PNG (Ctrl+E)")
+        self.export_image_action.triggered.connect(self._export_viewport_image)
         quit_action = QAction("&Quit", self)
         quit_action.setShortcut("Ctrl+Q")
         quit_action.triggered.connect(self.close)
         file_menu.addAction(open_action)
+        file_menu.addAction(self.export_image_action)
         file_menu.addSeparator()
         file_menu.addAction(quit_action)
+
+        run_menu = menubar.addMenu("&Run")
 
         view_menu = menubar.addMenu("&View")
         self._layer_actions = {}
@@ -100,7 +175,7 @@ class MainWindow(QMainWindow):
         self.swap_action = QAction("Swap input ↔ rebuilt", self)
         self.swap_action.setCheckable(True)
         self.swap_action.setShortcut("B")
-        self.swap_action.setToolTip("A/B compare: show the input mesh near-opaque, hide the rebuilt solid")
+        self.swap_action.setToolTip("A/B compare: show the input mesh near-opaque, hide the rebuilt solid (B)")
         self.swap_action.toggled.connect(self.viewport.set_swap)
         view_menu.addAction(self.swap_action)
         self.solid_transparent_action = QAction("Rebuilt solid: transparent", self)
@@ -117,8 +192,58 @@ class MainWindow(QMainWindow):
         self.input_opaque_action.toggled.connect(self.viewport.set_input_opaque)
         view_menu.addAction(self.input_opaque_action)
 
+        view_menu.addSeparator()
+        self.fit_view_action = QAction("Fit view", self)
+        self.fit_view_action.setShortcut("F")
+        self.fit_view_action.setToolTip("Re-frame the camera on the current scene (F)")
+        self.fit_view_action.triggered.connect(self.viewport.fit_view)
+        view_menu.addAction(self.fit_view_action)
+        self.ortho_action = QAction("Orthographic projection", self)
+        self.ortho_action.setCheckable(True)
+        self.ortho_action.setShortcut("O")
+        self.ortho_action.setToolTip(
+            "Parallel projection for silhouette/alignment checks -- parallel edges stay "
+            "parallel regardless of depth (O)")
+        self.ortho_action.toggled.connect(self.viewport.set_orthographic)
+        view_menu.addAction(self.ortho_action)
+
+        view_menu.addSeparator()
+        self.section_view_action = QAction("Section view", self)
+        self.section_view_action.setCheckable(True)
+        self.section_view_action.setShortcut("S")
+        self.section_view_action.setToolTip(
+            "Clip the model along its motor axis with a draggable slider, to see the bore "
+            "interior directly instead of through transparency (S)")
+        self.section_view_action.toggled.connect(self.viewport.set_section_active)
+        view_menu.addAction(self.section_view_action)
+        self.deviation_action = QAction("Deviation heatmap", self)
+        self.deviation_action.setCheckable(True)
+        self.deviation_action.setToolTip(
+            "Color the rebuilt solid by its measured distance to the input mesh, instead of a "
+            "single p95/max scalar -- shows WHERE the reconstruction deviates")
+        self.deviation_action.toggled.connect(self.viewport.set_deviation_mode)
+        view_menu.addAction(self.deviation_action)
+
+        view_menu.addSeparator()
+        render_menu = view_menu.addMenu("Render mode")
+        self._render_mode_actions = {}
+        for mode, label, shortcut in (
+                ("shaded", "Shaded", "Ctrl+1"), ("edges", "Shaded + edges", "Ctrl+2"),
+                ("wireframe", "Wireframe", "Ctrl+3")):
+            act = QAction(label, self)
+            act.setCheckable(True)
+            act.setChecked(mode == "shaded")
+            act.setShortcut(shortcut)
+            act.triggered.connect(lambda checked, m=mode: checked and self._set_render_mode(m))
+            render_menu.addAction(act)
+            self._render_mode_actions[mode] = act
+        self.render_mode_cycle_action = QAction("Cycle render mode", self)
+        self.render_mode_cycle_action.setShortcut("W")
+        self.render_mode_cycle_action.triggered.connect(self._cycle_render_mode)
+        self.addAction(self.render_mode_cycle_action)  # shortcut-only, not shown in any menu
+
         help_menu = menubar.addMenu("&Help")
-        about_action = QAction("&About stl-rebuilder", self)
+        about_action = QAction(f"&About {APP_TITLE}", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
 
@@ -126,13 +251,24 @@ class MainWindow(QMainWindow):
         toolbar.setObjectName("main_toolbar")
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(18, 18))
+        # Text beside every icon (2026-09-07 design review, U1): an icon-only toolbar with four
+        # cryptic glyphs and no labels tested as unclear on its own.
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.analyze_action = QAction(qta.icon("fa5s.search", color=TEXT_SECONDARY), "Analyze", self)
+        self.analyze_action.setShortcut("F5")
+        self.analyze_action.setToolTip("Detect axis/frame/scale from the input mesh (F5)")
         self.analyze_action.triggered.connect(self.run_analyze)
         self.run_action = QAction(qta.icon("fa5s.play", color=ACCENT), "Run", self)
+        self.run_action.setShortcut("Ctrl+R")
+        self.run_action.setToolTip("Analyze (if needed) then rebuild the solid (Ctrl+R)")
         self.run_action.triggered.connect(self.run_rebuild)
         self.cancel_action = QAction(qta.icon("fa5s.stop", color=ERROR), "Cancel", self)
         self.cancel_action.setEnabled(False)
+        self.cancel_action.setShortcut("Esc")
+        self.cancel_action.setToolTip("Cancel the in-flight run (Esc)")
         self.cancel_action.triggered.connect(self.cancel_rebuild)
+        for act in (self.analyze_action, self.run_action, self.cancel_action):
+            run_menu.addAction(act)
         toolbar.addAction(open_action)
         toolbar.addSeparator()
         toolbar.addAction(self.analyze_action)
@@ -140,11 +276,40 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.cancel_action)
         self.addToolBar(toolbar)
 
+    def _set_render_mode(self, mode: str):
+        for m, act in self._render_mode_actions.items():
+            act.setChecked(m == mode)
+        self.viewport.set_render_mode(mode)
+
+    def _cycle_render_mode(self):
+        order = ["shaded", "edges", "wireframe"]
+        current = next((m for m, a in self._render_mode_actions.items() if a.isChecked()), "shaded")
+        self._set_render_mode(order[(order.index(current) + 1) % len(order)])
+
+    def _export_viewport_image(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export viewport image", "viewport.png", "PNG images (*.png)")
+        if not path:
+            return
+        if os.path.exists(path):
+            os.remove(path)  # never write over an existing file in place -- APFS birthtime rule
+        try:
+            self.viewport.screenshot(path)
+        except Exception as exc:
+            self.log_line(f"export viewport image failed: {exc}", level="error")
+            return
+        self.status_label.setText(f"Saved {os.path.basename(path)}")
+        self.log_line(f"✓ Viewport image saved — {_elide_path(path)}")
+
     def _show_about(self):
         QMessageBox.about(
-            self, "About stl-rebuilder",
-            "stl-rebuilder\nBurnback-surface STL -> BRep STEP converter.\n"
-            "See MISSION.md for the geometry pipeline spec.")
+            self, f"About {APP_TITLE}",
+            f"<b>{APP_TITLE}</b> v{__version__}<br><br>"
+            "Burnback-surface STL &rarr; BRep STEP converter, for solid-rocket-motor geometry "
+            "reconstruction and SpaceClaim/CAD import.<br><br>"
+            "Engine: OCCT (via OCP/build123d) &middot; meshing/repair: trimesh &middot; "
+            "quality: gmsh.<br>"
+            "See MISSION.md for the full geometry pipeline spec.")
 
     # ---- docks ---------------------------------------------------------
     def _build_outline_dock(self):
@@ -195,10 +360,35 @@ class MainWindow(QMainWindow):
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        chart = _RadiusProfileChart()
+        layout.addWidget(chart)
         table = StationTable()
+        # Selecting a row highlights that station's ring in the 3D view and on the profile chart
+        # -- the table, the viewport, and the chart are three views of the same station data,
+        # not three disconnected displays (2026-09-07 design review, V1).
+        table.currentItemChanged.connect(self._on_station_row_selected)
         layout.addWidget(table)
         w.table = table
+        w.chart = chart
         return w
+
+    def _on_station_row_selected(self, current, _previous):
+        if current is None:
+            self.viewport.highlight_station(None)
+            self.page_stations.chart.set_highlight(None)
+            return
+        data = current.data(0, Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+        z_report, r_outer = data
+        # StationTable stores the REPORT-frame z (what `_station_rows` was given); the viewport's
+        # rings were drawn in the input-frame axial projection (`z + axial_origin_z`, same
+        # conversion `_station_rows` itself applies before slicing -- see `_on_rebuilt`).
+        z_proj = z_report + getattr(self, "_last_axial_origin_z", 0.0)
+        label = f"z={fmt_num(z_report, 1)}" + (f"  R={fmt_num(r_outer, 1)}" if r_outer is not None else "")
+        self.viewport.highlight_station(z_proj, label)
+        self.page_stations.chart.set_highlight(z_report)
 
     @staticmethod
     def _section_label(text: str) -> QLabel:
@@ -247,10 +437,12 @@ class MainWindow(QMainWindow):
 
         self.axis_combo = QComboBox()
         self.axis_combo.addItems(["auto", "x", "y", "z"])
+        self.axis_combo.setMaximumWidth(120)
         form.addRow("Axis", self.axis_combo)
 
         self.units_combo = QComboBox()
         self.units_combo.addItems(["mm", "in", "m"])
+        self.units_combo.setMaximumWidth(120)
         form.addRow("Units", self.units_combo)
 
         form.addRow(self._section_label("Fidelity"))
@@ -282,6 +474,10 @@ class MainWindow(QMainWindow):
         form.addRow("Chord tol (mm)", chord_row)
 
         self.adaptive_check = QCheckBox("adaptive stations")
+        self.adaptive_check.setToolTip(
+            "Cluster stations at detected features (domes, fillets). Uniform spacing is often "
+            "MORE robust for sharp slot/fillet transitions -- if a run crashes with adaptive on, "
+            "try turning it off before adding sections.")
         form.addRow("", self.adaptive_check)
 
         outer.addStretch(1)
@@ -354,9 +550,22 @@ class MainWindow(QMainWindow):
         self.progress_bar.setMaximumWidth(240)
         self.progress_bar.hide()  # G3 review #2 item 3: only visible during an active run
         self.spinner = BusySpinner()
+        # Quiet telemetry line (2026-09-07 design review, U5): axis/units/triangle count once
+        # Analyze has run, station count appended once a Rebuild completes -- gives the chrome a
+        # persistent read of what's actually loaded, not just transient status text.
+        self.telemetry_label = QLabel("")
+        mono = QFont(self.telemetry_label.font())
+        mono.setFamilies([f.strip(' "') for f in MONO_FAMILY.split(",")])
+        self.telemetry_label.setFont(mono)
+        self.telemetry_label.setStyleSheet(f"color: {TEXT_DISABLED};")
+        version_label = QLabel(f"v{__version__}")
+        version_label.setFont(mono)
+        version_label.setStyleSheet(f"color: {TEXT_DISABLED};")
         bar.addWidget(self.status_label, 1)
+        bar.addPermanentWidget(self.telemetry_label)
         bar.addPermanentWidget(self.progress_bar)
         bar.addPermanentWidget(self.spinner)
+        bar.addPermanentWidget(version_label)
 
     # ---- view menu / legend sync ------------------------------------------
     def _on_viewport_layer_toggled(self, key: str, on: bool):
@@ -370,12 +579,15 @@ class MainWindow(QMainWindow):
     def _on_outline_selection(self, current, _previous):
         if current is None:
             return
+        # Keyed by item IDENTITY, not `.text(0)` -- the Stations/Output nodes grow a suffix
+        # once a run completes ("Stations (40)", "Output ✓", 2026-09-07 design review, U7),
+        # which a text-keyed lookup would silently stop matching.
         page = {
-            NODE_INPUT: self.page_input,
-            NODE_DETECTED: self.page_detected,
-            NODE_STATIONS: self.page_stations,
-            NODE_OUTPUT: self.page_output,
-        }[current.text(0)]
+            self.node_input: self.page_input,
+            self.node_detected: self.page_detected,
+            self.node_stations: self.page_stations,
+            self.node_output: self.page_output,
+        }[current]
         self.details_stack.setCurrentWidget(page)
 
     # ---- logging ----------------------------------------------------------
@@ -407,6 +619,9 @@ class MainWindow(QMainWindow):
         if path and os.path.exists(path):
             self._load_input_preview(path)
 
+    def _update_window_title(self, path: str = None):
+        self.setWindowTitle(f"{os.path.basename(path)} — {APP_TITLE}" if path else APP_TITLE)
+
     def _load_input_preview(self, path: str):
         """Show the input mesh in the viewport immediately on file selection, before Analyze or
         Run ever runs -- previously nothing appeared until Analyze completed, leaving no visual
@@ -414,6 +629,12 @@ class MainWindow(QMainWindow):
         self.viewport.reset_scene()
         self._analysis = None
         self._analyzed_input_path = None
+        self._update_window_title(path)
+        self.telemetry_label.setText("")
+        self.node_stations.setText(0, NODE_STATIONS)
+        self.node_output.setText(0, NODE_OUTPUT)
+        self.page_stations.table.set_rows([])
+        self.page_stations.chart.set_rows([])
         self.status_label.setText("Loading preview...")
         worker = PreviewWorker(path)
         worker.finished.connect(self._on_input_preview_loaded)
@@ -452,6 +673,7 @@ class MainWindow(QMainWindow):
         self.spinner.start()
         self._set_running(True)
         self.dashboard.reset()
+        self.dashboard.mission_start()
         self.log_line(f"analyze: {input_path} (axis={axis}, units={units})")
         worker = AnalyzeWorker(input_path, axis, units)
         worker.progress.connect(self._on_analyze_progress)
@@ -486,8 +708,11 @@ class MainWindow(QMainWindow):
             f"✓ Analyze done — {', '.join(checks)}, "
             f"axis {axis_label(analysis.frame_axis)} "
             f"(confidence {analysis.axis_confidence * 100:.0f}%), "
-            f"extent {analysis.axial_extent_mm:.2f}mm, {analysis.triangle_count:,} triangles",
+            f"extent {fmt_num(analysis.axial_extent_mm)} mm, {analysis.triangle_count:,} triangles",
             level=level)
+        self.telemetry_label.setText(
+            f"{axis_label(analysis.frame_axis)} · {analysis.units} · "
+            f"{analysis.triangle_count:,} tris")
         self.page_detected.tree.set_groups(_analysis_property_groups(analysis))
         if self.chord_tol_auto.isChecked():
             self.chord_tol_spin.setValue(max(analysis.suggested_chord_tol_mm, 0.01))
@@ -500,6 +725,7 @@ class MainWindow(QMainWindow):
             self._pending_rebuild = False
             self._start_rebuild()  # re-enables the buttons itself once the rebuild finishes
         else:
+            self.dashboard.mission_done()
             self._set_running(False)
 
     def run_rebuild(self):
@@ -544,6 +770,7 @@ class MainWindow(QMainWindow):
         self._set_running(True)
         self._last_stage = None
         self.dashboard.reset_rebuild_dials()
+        self.dashboard.mission_start()
         self.log_line(f"rebuild: {input_path} -> {output_path} (sections={opts.sections}, "
                       f"chord_tol={opts.chord_tol:.3f}, adaptive={opts.adaptive})")
         worker = RebuildWorker(opts)
@@ -592,7 +819,7 @@ class MainWindow(QMainWindow):
         self.spinner.stop()
         self.error_banner.hide()
         self.status_label.setText("Done")
-        self.log_line(f"✓ Rebuild done — {result.output_path}")
+        self.log_line(f"✓ Rebuild done — {_elide_path(result.output_path)}")
         self.dashboard.on_done()
         man = manifest_mod.build(result, self._analysis)
         self.manifest_tree.set_groups(_manifest_property_groups(man))
@@ -627,6 +854,7 @@ class MainWindow(QMainWindow):
                 # and shifted every ring/axis-line off both center and its true axial position.
                 radial_mm, axis_point, proj_min, proj_max = _axis_frame_metrics(solid_mesh, axis_unit)
                 axial_origin_z = float(report.get("axial_origin_z") or 0.0)
+                self._last_axial_origin_z = axial_origin_z
                 stations_proj = [z + axial_origin_z for z in stations_z]
                 events_proj = [z + axial_origin_z for z in events_z]
                 self.viewport.show_station_planes(stations_proj, radial_mm, axis_unit, axis_point)
@@ -634,10 +862,25 @@ class MainWindow(QMainWindow):
                 self.viewport.show_axis_line(radial_mm, proj_max - proj_min, axis_unit,
                                              origin_z_mm=0.5 * (proj_min + proj_max),
                                              axis_point=axis_point)
+                # Cache the axis frame for the Section-view clip plane (Phase 3, V2) and the
+                # deviation heatmap's color-scale reference (V3) -- both act on this same solid.
+                self.viewport.set_axis_frame(axis_unit, axis_point, proj_min, proj_max)
+                dev_tol = (report.get("verification") or {}).get("deviation", {}).get("tol_mm")
+                self.viewport.set_deviation_tolerance(dev_tol)
         except Exception as exc:
             self.log_line(f"viewport: could not load solid preview: {exc}", level="warn")
-        self.page_stations.table.set_rows(
-            _station_rows(report, stations_z, events_z, solid_mesh, axis_unit, axis_point))
+        rows = _station_rows(report, stations_z, events_z, solid_mesh, axis_unit, axis_point)
+        self.page_stations.table.set_rows(rows)
+        self.page_stations.chart.set_rows(rows)
+        n_stations = len(stations_z)
+        self.node_stations.setText(0, f"{NODE_STATIONS} ({n_stations})")
+        ok = bool(report.get("verification"))
+        self.node_output.setText(0, f"{NODE_OUTPUT} ✓" if ok else NODE_OUTPUT)
+        current_telemetry = self.telemetry_label.text()
+        base = current_telemetry.split(" · ", 2)
+        base = " · ".join(base[:2]) if len(base) >= 2 else current_telemetry
+        if base:
+            self.telemetry_label.setText(f"{base} · {n_stations} stations")
         self.outline.setCurrentItem(self.node_output)
 
     def _on_failed(self, kind, message):
@@ -647,7 +890,7 @@ class MainWindow(QMainWindow):
         self.spinner.stop()
         self.status_label.setText(f"Failed: {kind}")
         self.log_line(f"FAILED [{kind}] {message}", level="error")
-        self.dashboard.on_failed(getattr(self, "_last_stage", None))
+        self.dashboard.on_failed(getattr(self, "_last_stage", None), kind)
         self.error_banner.setText(f"{kind}: {message}")
         self.error_banner.show()
         self.manifest_tree.set_groups([("Error", [("Kind", kind, None), ("Message", message, message)])])
@@ -657,7 +900,7 @@ class MainWindow(QMainWindow):
 def _analysis_property_groups(analysis) -> list:
     return [
         ("Frame", [
-            ("Axis", f"{axis_label(analysis.frame_axis)} (confidence {analysis.axis_confidence * 100:.0f} %)",
+            ("Axis", f"{axis_label(analysis.frame_axis)} (confidence {analysis.axis_confidence * 100:.0f}%)",
              analysis.frame_axis),
             ("Origin (X, Y)", f"{fmt_num(analysis.origin_xy_mm[0])}, {fmt_num(analysis.origin_xy_mm[1])} mm",
              analysis.origin_xy_mm),
@@ -771,8 +1014,8 @@ def _manifest_property_groups(man: dict) -> list:
         groups.append(_verification_group(verif))
     groups += [
         ("Output", [
-            ("STEP file", man.get("output_path", "-"), man.get("output_path")),
-            ("Preview STL", man.get("stl_path") or "-", man.get("stl_path")),
+            ("STEP file", _elide_path(man.get("output_path", "-")), man.get("output_path")),
+            ("Preview STL", _elide_path(man.get("stl_path") or "-"), man.get("stl_path")),
         ]),
     ]
     if "bodies" in man:

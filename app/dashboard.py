@@ -8,9 +8,14 @@ import time
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QSizePolicy, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame, QHBoxLayout, QLabel, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
+)
 
-from app.theme import ACCENT, BG_DARKEST, BG_PANEL, BORDER, ERROR, SUCCESS, TEXT_DISABLED, TEXT_SECONDARY
+from app.theme import (
+    BG_DARKEST, BG_PANEL, BORDER, ERROR, MONO_FAMILY, SUCCESS, TELEMETRY, TEXT_DISABLED,
+    TEXT_SECONDARY,
+)
 from pipeline import engine
 
 # 270-degree sweep like a car speedometer: needle rests down-left at 0%, sweeps clockwise through
@@ -18,7 +23,12 @@ from pipeline import engine
 _START_ANGLE_DEG = 225.0
 _SWEEP_DEG = -270.0
 
-_STATE_COLORS = {"idle": TEXT_DISABLED, "active": ACCENT, "done": SUCCESS, "error": ERROR}
+# "active" is TELEMETRY (instrument cyan), not ACCENT (interaction blue) -- 2026-09-07 design
+# review: reusing the button/selection color for "the machine is working" made the dashboard read
+# as generic-IDE rather than aeronautical-instrument, since a busy dial looked identical to a
+# clicked button. Aeronautical displays code live data in a color reserved for exactly that.
+_STATE_COLORS = {"idle": TEXT_DISABLED, "active": TELEMETRY, "done": SUCCESS, "error": ERROR}
+_MONO_FAMILIES = [f.strip(' "') for f in MONO_FAMILY.split(",")]
 
 # Engine stage name -> dial index. "analyze" is `engine.analyze()`'s own progress (a separate
 # operation from a rebuild, fed by AnalyzeWorker rather than RebuildWorker -- Brady, 2026-09-06:
@@ -71,7 +81,13 @@ class GaugeDial(QWidget):
         self._phase = 0.0
         self._creep_base = 0.0
         self._creep_started_at = time.monotonic()
-        self.setMinimumSize(100, 118)
+        # 148, not 118: at 118 the caption line (drawn at rect.bottom()+12..+26) fell partly or
+        # fully past the widget's own bottom edge -- the stage message the dashboard exists to
+        # show was invisible during real runs (2026-09-07 design review, confirmed on a live
+        # screenshot: "scanning cross-sections 84/200" cut off mid-line). 148 gives the caption
+        # band its full ~28px instead of the ~16px it was squeezed into.
+        self.setMinimumSize(100, 148)
+        self.setMaximumWidth(190)  # keeps 5 dials a tight instrument bank, not scattered widgets
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._timer = QTimer(self)
         self._timer.setInterval(33)
@@ -154,7 +170,7 @@ class GaugeDial(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w = self.width()
-        dial_size = max(min(w - 8, self.height() - 34), 20)
+        dial_size = max(min(w - 8, self.height() - 62), 20)
         rect = QRectF((w - dial_size) / 2, 18, dial_size, dial_size)
         color = QColor(_STATE_COLORS.get(self._state, TEXT_DISABLED))
         center = rect.center()
@@ -169,16 +185,28 @@ class GaugeDial(QWidget):
         p.setFont(title_font)
         p.drawText(QRectF(0, 0, w, 14), Qt.AlignmentFlag.AlignHCenter, self._title)
 
-        # Bezel: a slightly larger, darker ring behind the face gives the dial some physical
-        # depth instead of a flat disc.
+        # Bezel: a slightly larger, darker ring behind the face, with a faint upper-left
+        # highlight arc, reads as a physical instrument housing rather than a flat disc.
+        bezel_rect = rect.adjusted(-4, -4, 4, 4)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(BG_DARKEST))
-        p.drawEllipse(rect.adjusted(-3, -3, 3, 3))
+        p.setBrush(QColor("#14161a"))
+        p.drawEllipse(bezel_rect)
+        highlight_pen = QPen(QColor(255, 255, 255, 18), 1.2)
+        p.setPen(highlight_pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawArc(bezel_rect, int(70 * 16), int(120 * 16))
 
-        # Dial face + fine tick marks.
+        # Dial face + fine tick marks, with a subtle darker chord across the lower half so the
+        # face itself reads as slightly domed/lit-from-above rather than perfectly flat.
         p.setPen(QPen(QColor(BORDER), 1.5))
         p.setBrush(QColor(BG_PANEL))
         p.drawEllipse(rect)
+        p.save()
+        p.setClipRect(QRectF(rect.left(), center.y() + radius * 0.15, rect.width(), rect.height()))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(0, 0, 0, 48))
+        p.drawEllipse(rect)
+        p.restore()
         for i in range(21):
             frac = i / 20
             angle = math.radians(_START_ANGLE_DEG + _SWEEP_DEG * frac)
@@ -194,7 +222,7 @@ class GaugeDial(QWidget):
         # 0/100 tick labels at the two ends of the sweep -- skipping a "50" label at top-dead-
         # center, which sits right where the title text already is.
         label_font = QFont(self.font())
-        _scale_font(label_font, 0.68)
+        _scale_font(label_font, 0.75)
         p.setFont(label_font)
         p.setPen(QColor(TEXT_DISABLED))
         for frac, text, align in (
@@ -241,6 +269,7 @@ class GaugeDial(QWidget):
         # Digital readout + caption, below the dial.
         p.setPen(color)
         pct_font = QFont(self.font())
+        pct_font.setFamilies(_MONO_FAMILIES)
         pct_font.setBold(True)
         p.setFont(pct_font)
         # The readout number tracks the (possibly creeping) DISPLAY value, not the raw target --
@@ -259,11 +288,97 @@ class GaugeDial(QWidget):
         p.end()
 
 
+class MissionClock(QWidget):
+    """`T+ 00:04:13` monospace elapsed-time readout, the "mission control" voice for the gauge
+    cluster (2026-09-07 design review). Starts on a run, FREEZES (not clears) on done/fail --
+    an engineer wants to know how long the run actually took, not have the number vanish."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._elapsed_s = 0.0
+        self._started_at = None
+        self._timer = QTimer(self)
+        self._timer.setInterval(200)
+        self._timer.timeout.connect(self.update)
+        self.setMinimumSize(120, 20)
+
+    def start(self):
+        if self._started_at is not None:
+            return  # already running -- an Analyze that chains into a Rebuild is ONE mission
+        self._started_at = time.monotonic()
+        self._elapsed_s = 0.0
+        self._timer.start()
+        self.update()
+
+    def freeze(self):
+        if self._started_at is not None:
+            self._elapsed_s = time.monotonic() - self._started_at
+        self._started_at = None
+        self._timer.stop()
+        self.update()
+
+    def reset(self):
+        self._started_at = None
+        self._elapsed_s = 0.0
+        self._timer.stop()
+        self.update()
+
+    def _current_elapsed(self) -> float:
+        if self._started_at is not None:
+            return time.monotonic() - self._started_at
+        return self._elapsed_s
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        secs = int(self._current_elapsed())
+        h, rem = divmod(secs, 3600)
+        m, s = divmod(rem, 60)
+        text = f"T+ {h:02d}:{m:02d}:{s:02d}"
+        font = QFont(self.font())
+        font.setFamilies(_MONO_FAMILIES)
+        font.setBold(True)
+        p.setFont(font)
+        p.setPen(QColor(TELEMETRY if self._started_at is not None else TEXT_SECONDARY))
+        p.drawText(self.rect(), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
+        p.end()
+
+
+_STATUS_STRIP_STYLE = {
+    "idle": ("STANDBY", TEXT_DISABLED),
+    "running": ("RUNNING", TELEMETRY),
+    "nominal": ("NOMINAL", SUCCESS),
+    "fault": ("FAULT", ERROR),
+}
+
+
+class StatusStrip(QLabel):
+    """Uppercase, letter-spaced status word (STANDBY/RUNNING — <stage>/NOMINAL/FAULT — <kind>)
+    giving the gauge cluster a single at-a-glance verdict, the same idiom as an aircraft
+    caution-and-warning annunciator panel."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        font = QFont(self.font())
+        font.setFamilies(_MONO_FAMILIES)
+        font.setBold(True)
+        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.2)
+        self.setFont(font)
+        self.set_status("idle")
+
+    def set_status(self, key: str, detail: str = ""):
+        text, color = _STATUS_STRIP_STYLE.get(key, _STATUS_STRIP_STYLE["idle"])
+        if detail:
+            text = f"{text} — {detail}"
+        self.setText(text)
+        self.setStyleSheet(f"color: {color};")
+
+
 class Dashboard(QWidget):
-    """The dock's full contents: the 4-dial instrument cluster and the log console, stacked top
-    to bottom. The verification readout that used to live here too was dropped 2026-09-06 --
-    Brady's call: it duplicated the Details dock's Output page, which already shows the same
-    checks, and having it in two places was noise, not signal."""
+    """The dock's full contents: the instrument cluster (mission clock + status strip + one dial
+    per phase) and the log console, stacked top to bottom. The verification readout that used to
+    live here too was dropped 2026-09-06 -- Brady's call: it duplicated the Details dock's Output
+    page, which already shows the same checks, and having it in two places was noise, not signal."""
 
     def __init__(self, log_widget: QWidget, parent=None):
         super().__init__(parent)
@@ -277,11 +392,24 @@ class Dashboard(QWidget):
             f"#gaugeCluster {{ background-color: {BG_DARKEST}; border: 1px solid {BORDER}; "
             "border-radius: 4px; }")
         cluster_layout = QHBoxLayout(cluster)
-        cluster_layout.setContentsMargins(8, 6, 8, 6)
+        cluster_layout.setContentsMargins(10, 6, 10, 6)
         cluster_layout.setSpacing(4)
+
+        telemetry_col = QVBoxLayout()
+        telemetry_col.setSpacing(4)
+        telemetry_col.addStretch(1)
+        self.mission_clock = MissionClock()
+        self.status_strip = StatusStrip()
+        telemetry_col.addWidget(self.mission_clock)
+        telemetry_col.addWidget(self.status_strip)
+        telemetry_col.addStretch(1)
+        cluster_layout.addLayout(telemetry_col)
+
+        cluster_layout.addStretch(1)
         self.dials = [GaugeDial(title) for title in DIAL_TITLES]
         for dial in self.dials:
             cluster_layout.addWidget(dial)
+        cluster_layout.addStretch(1)
 
         # A QSplitter, not a plain stacked layout, so the dial cluster and the log can be
         # resized independently of each other (Brady, 2026-09-06: "make the log box smaller and
@@ -304,6 +432,22 @@ class Dashboard(QWidget):
         for dial in self.dials:
             dial.set_state("idle")
             dial.set_caption("")
+        self.mission_clock.reset()
+        self.status_strip.set_status("idle")
+
+    def mission_start(self):
+        """Call at the top of any run (Analyze or Run). Idempotent -- a Run that silently
+        chains Analyze->Rebuild calls this twice, and the second call must NOT reset the clock;
+        it's one mission, not two (`MissionClock.start()` itself no-ops while already running)."""
+        self.mission_clock.start()
+        self.status_strip.set_status("running")
+
+    def mission_done(self):
+        """End-of-mission with no further dial transition of its own -- used for an Analyze that
+        does NOT chain into a Rebuild (`on_done()` below covers a completed Rebuild, dial state
+        included; this is the narrower Analyze-only case, called by MainWindow directly)."""
+        self.mission_clock.freeze()
+        self.status_strip.set_status("nominal")
 
     def mark_analyze_done(self):
         """A standalone Analyze click has no LATER stage to trigger ANALYZE's done-transition
@@ -332,6 +476,7 @@ class Dashboard(QWidget):
         # a raw stage-local 0..1. Recover the local value so the needle sweeps its own dial's
         # full arc instead of just the sliver `_STAGE_RANGE` allotted that stage.
         local = engine.stage_local_progress(stage, frac)
+        self.status_strip.set_status("running", stage.upper())
         for i, dial in enumerate(self.dials):
             if i < idx:
                 dial.set_state("done")
@@ -352,8 +497,9 @@ class Dashboard(QWidget):
         for dial in self.dials:
             dial.set_state("done")
             dial.set_caption("")
+        self.mission_done()
 
-    def on_failed(self, last_stage: str | None):
+    def on_failed(self, last_stage: str | None, kind: str = ""):
         idx = STAGE_DIAL.get(last_stage)
         for i, dial in enumerate(self.dials):
             if idx is None or i < idx:
@@ -362,3 +508,6 @@ class Dashboard(QWidget):
                 dial.set_state("error")
             else:
                 dial.set_state("idle")
+        self.mission_clock.freeze()
+        # A user-requested Cancel isn't a fault -- distinct wording for that one kind.
+        self.status_strip.set_status("fault", "ABORTED" if kind == "Cancelled" else (kind or "ERROR"))

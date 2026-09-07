@@ -204,3 +204,47 @@ def test_station_planes_sized_and_centered_on_an_off_origin_x_axis(viewport):
     assert (b[5] - b[4]) <= 12
     assert -32 <= (b[2] + b[3]) / 2 <= -28  # centered near y=-30
     assert 48 <= (b[4] + b[5]) / 2 <= 52  # centered near z=50
+
+
+def test_highlight_station_draws_and_clears_a_ring(viewport):
+    viewport.show_station_planes([180.0, 220.0], 5.0, (1, 0, 0), axis_point=(0, -30, 50))
+    viewport.highlight_station(200.0, "z=200.0  R=5.0")
+    assert viewport.plotter.actors.get("station_highlight") is not None
+    # `add_point_labels` registers under "<name>-labels", not the bare name (verified against
+    # the installed pyvista directly) -- `remove_actor(name)` still matches it correctly.
+    assert viewport.plotter.actors.get("station_label-labels") is not None
+    viewport.highlight_station(None)
+    assert viewport.plotter.actors.get("station_highlight") is None
+    assert viewport.plotter.actors.get("station_label-labels") is None
+
+
+def test_section_view_clips_the_solid_along_the_axis(viewport):
+    """View > Section view (Phase 3, V2): clipping a sphere at the midpoint of its own bounding
+    axial range must shrink the visible extent on that axis to roughly half."""
+    full_bounds = viewport._solid_actor.GetBounds()
+    viewport.set_axis_frame((0, 0, 1), (0, 0, 0), full_bounds[4], full_bounds[5])
+    viewport.set_section_fraction(0.5)
+    clipped_bounds = viewport._solid_actor.GetBounds()
+    full_span = full_bounds[5] - full_bounds[4]
+    clipped_span = clipped_bounds[5] - clipped_bounds[4]
+    assert clipped_span < full_span * 0.7
+    viewport.set_section_fraction(None)  # restores the full mesh
+    restored_bounds = viewport._solid_actor.GetBounds()
+    assert (restored_bounds[5] - restored_bounds[4]) == pytest.approx(full_span, rel=0.05)
+
+
+def test_render_mode_switches_without_error(viewport):
+    for mode in ("edges", "wireframe", "shaded"):
+        viewport.set_render_mode(mode)
+        assert viewport._render_mode == mode
+        assert viewport._solid_actor is not None
+
+
+def test_deviation_mode_computes_scalars_once_both_meshes_are_present(viewport):
+    viewport.set_deviation_mode(True)
+    mesh = viewport._solid_mesh_data
+    assert "deviation_mm" in mesh.point_data
+    assert viewport._deviation_clim is not None
+    viewport.set_deviation_mode(False)
+    # scalars stay cached (cheap to recompute-avoid); the toggle just stops USING them
+    assert viewport._deviation_mode is False

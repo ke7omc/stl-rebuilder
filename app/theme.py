@@ -15,10 +15,28 @@ TEXT_DISABLED = "#5a5f68"
 ERROR = "#e5534b"
 SUCCESS = "#4caf6f"
 WARNING = "#e0a336"
+# Instrument-panel semantic tokens (2026-09-07, Fable design review): ACCENT stays the
+# interaction color (selection/focus/primary button -- an enterprise-standard convention, left
+# alone). TELEMETRY is a SEPARATE color for "the machine is actively working" (active dials, busy
+# spinner, progress bar) -- before this, active state reused ACCENT, so "the machine is running"
+# and "you clicked a button" were visually identical, the single biggest reason the dashboard read
+# as generic-IDE rather than aeronautical-instrument. Aeronautical displays code by meaning:
+# green = nominal, amber = caution, red = fault, cyan/white = live data -- this is the missing
+# "live data" token.
+TELEMETRY = "#35b8c8"
+# Machined-metal render color for the rebuilt solid (viewport.py), replacing a saturated blue
+# that competed visually with ACCENT/TELEMETRY and read as "highlighted" rather than "a real
+# part." Brady's call, 2026-09-07 design review.
+SOLID_STEEL = "#7f8fa0"
+# Monospace stack for every numeric/technical readout (dial percentages, property-tree values,
+# station-table numbers, the mission clock) -- the cheapest, highest-value authenticity upgrade
+# the design review found: the log console was already monospace and was consistently the
+# "most mission-control" surface in every screenshot reviewed.
+MONO_FAMILY = '"SF Mono", "Menlo", "Consolas", monospace'
 
 DARK_QSS = f"""
 * {{
-    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-family: "Helvetica Neue", "Segoe UI", Arial, sans-serif;
     font-size: 13px;
     color: {TEXT_PRIMARY};
     outline: none;
@@ -277,7 +295,7 @@ QProgressBar {{
 }}
 
 QProgressBar::chunk {{
-    background-color: {ACCENT};
+    background-color: {TELEMETRY};
     border-radius: 3px;
 }}
 

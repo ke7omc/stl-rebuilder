@@ -1,7 +1,20 @@
 """Reusable read-only display widgets for the Details dock (G3 visual-review fix #1: never show
 raw JSON to the user -- grouped, human-formatted property rows with the raw value in a tooltip)."""
 from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QHeaderView, QTreeWidget, QTreeWidgetItem
+
+from app.theme import MONO_FAMILY
+
+
+def _mono_font(base: QFont) -> QFont:
+    """Technical/numeric readout face (2026-09-07 design review: the log console was the only
+    monospace surface in the app and consistently read as the most "mission control" thing in
+    every screenshot reviewed -- applying it to every OTHER numeric readout is the cheapest
+    authenticity upgrade available)."""
+    font = QFont(base)
+    font.setFamilies([f.strip(' "') for f in MONO_FAMILY.split(",")])
+    return font
 
 
 class PropertyTree(QTreeWidget):
@@ -47,6 +60,7 @@ class PropertyTree(QTreeWidget):
                 color = row_tuple[3] if len(row_tuple) > 3 else None
                 value_str = str(value)
                 row = QTreeWidgetItem([label, value_str])
+                row.setFont(1, _mono_font(self.font()))
                 row.setToolTip(1, str(tooltip) if tooltip else value_str)
                 if color:
                     row.setForeground(1, QColor(color))
@@ -124,12 +138,17 @@ class StationTable(QTreeWidget):
         """`rows`: list of (index, z_mm, n_loops, r_outer_mm_or_None, r_bore_mm_or_None,
         classification_str, is_event_bool)."""
         self.clear()
+        mono = _mono_font(self.font())
         for idx, z, n_loops, r_outer, r_bore, cls, is_event in rows:
             r_outer_text = fmt_num(r_outer, 2) if r_outer is not None else "—"
             r_bore_text = fmt_num(r_bore, 2) if r_bore is not None else "—"
-            cls_text = f"{cls} (event)" if is_event else cls
+            cls_text = f"{'⚠ ' if is_event else ''}{cls}{' (event)' if is_event else ''}"
             item = QTreeWidgetItem(
                 [str(idx), fmt_num(z, 2), str(n_loops), r_outer_text, r_bore_text, cls_text])
+            item.setData(0, Qt.ItemDataRole.UserRole, (float(z), r_outer))
+            for col in (1, 3, 4):
+                item.setFont(col, mono)
+                item.setTextAlignment(col, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             if is_event:
                 from PySide6.QtGui import QColor
                 from app.theme import WARNING
@@ -144,7 +163,7 @@ from PySide6.QtCore import QTimer as _QTimer, Qt as _Qt
 from PySide6.QtGui import QColor as _QColor, QPainter as _QPainter, QPen as _QPen
 from PySide6.QtWidgets import QWidget as _QWidget
 
-from app.theme import ACCENT as _ACCENT
+from app.theme import TELEMETRY as _TELEMETRY
 
 
 class BusySpinner(_QWidget):
@@ -178,7 +197,7 @@ class BusySpinner(_QWidget):
     def paintEvent(self, _event):
         p = _QPainter(self)
         p.setRenderHint(_QPainter.RenderHint.Antialiasing)
-        pen = _QPen(_QColor(_ACCENT), 2.4)
+        pen = _QPen(_QColor(_TELEMETRY), 2.4)
         pen.setCapStyle(_Qt.PenCapStyle.RoundCap)
         p.setPen(pen)
         rect = self.rect().adjusted(3, 3, -3, -3)
