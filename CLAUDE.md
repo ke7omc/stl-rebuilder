@@ -1,6 +1,28 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-08 — Station/topology ring rendering fixed (Fable 5.1 design pass, `d22fc6a`).**
+  Brady's M9 screenshot showed the yellow station rings nearly invisible looking down a
+  transverse axis, and no rings at all visible when zoomed into a local fin feature — he asked
+  whether he was misunderstanding what "Stations" means. He wasn't: a station really is a z where
+  the mesh gets actually sectioned, and curvature between sparse stations legitimately comes from
+  the fit/loft between real loops, not a verification gap. The actual bug (found before handing
+  off to Fable): `show_station_planes`/`show_topology_events` in `app/viewport.py` drew EVERY
+  ring at one shared GLOBAL max radius instead of that station's own local cross-section size —
+  so rings near a small feature sat off-frame out at the full-body silhouette (explains "no rings
+  near the fin"), and a flat disc with a 1%-wide band at 0.35 opacity collapses to a near-
+  invisible sliver edge-on (explains "invisible down the X axis"). Fable's fix: a new
+  `_station_cross_sections` (`main_window.py`) slices the solid once per station and feeds both
+  the Stations table and the 3D rings, which now trace each station's REAL loop (not a circle —
+  matters most for a bore's star/slot shape, previously invisible entirely), nudged off-surface
+  by a radial homothety; edge-on visibility solved with a 4-azimuth tick comb per station that
+  can't collapse to a line from any camera angle, so adaptive density reads as tooth density —
+  the real z-distribution, nothing smoothed for effect. Verified against real M8 screenshots
+  (edge-on, zoomed-to-dome, down-axis showing the star bore loops) that Fable read itself, not
+  code-reading alone. 158 tests passing (+7). One known caveat carried forward, not caused by
+  this change: M8 with `--adaptive --sections 60` still hits the documented 2026-09-06 adaptive
+  fragility, so the dense-cluster comb pattern was verified via uniform placement + geometry
+  tests, not an adaptive screenshot.
 - **2026-09-08 — Round 5 of live-testing feedback, committed `f2a13eb`.** Four fixes from
   Brady's own hands-on GUI testing: (1) removed the viewport ground floor plane (added in Round
   4) — it read as a stray artifact and interfered with the transparency/ghost-overlay comparison
