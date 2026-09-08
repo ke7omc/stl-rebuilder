@@ -121,9 +121,30 @@ distributions). Requires the GUI packages from §3. Features: input STL picker, 
 controls, adaptive refinement toggle, built-in 3D viewport (input mesh over the rebuilt
 solid — the View menu toggles each layer, and "B" swaps input ↔ rebuilt for A/B comparison),
 a determinate progress bar plus an activity spinner during runs, cancel, and a result
-manifest. A desktop shortcut can point at
-`.venv\Scripts\pythonw.exe -m app` with "Start in" = the repo folder (pythonw = no console
-window). Headless self-check: `python -m app --smoke out\gui` renders screenshots and exits 0.
+manifest. Headless self-check: `python -m app --smoke out\gui` renders screenshots and exits 0.
+
+### A double-click launcher (no admin, no installer)
+
+Don't hand-build the shortcut — generate it:
+
+```bat
+.venv\Scripts\python scripts\create_desktop_shortcut.py
+```
+
+or, from inside the running application, **Help → Create Desktop Shortcut...**. It writes a
+Desktop `.lnk` pointing at `.venv\Scripts\pythonw.exe -m app` with "Start in" = the repo folder
+(`pythonw` = no console window), plus `launchers\stl-rebuilder.bat` as the console-visible
+debugging path. On macOS it instead writes `STL Rebuilder.app` (with a generated icon) to the
+Desktop plus a `launchers/stl-rebuilder.command` fallback; the first launch of that `.app` needs
+**right-click → Open → Open** once, because it is unsigned.
+
+The repo path is baked in at generation time — if the folder moves, run it again. `launchers/`
+is gitignored for that reason.
+
+**The Windows half of this is designed but has never been executed** (it was written on a Mac).
+If the `.lnk` step fails, the PowerShell command is a single constant —
+`WINDOWS_LNK_PS_TEMPLATE` in `scripts/create_desktop_shortcut.py` — so the fix is one line; the
+`.bat` works regardless.
 
 ## 7. Optional extras (only for re-running the scoring harness)
 

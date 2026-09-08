@@ -97,9 +97,28 @@ def test_guided_demos_is_live(qtbot):
     assert "coming in this build" not in window.demos_action.toolTip()
 
 
-def test_later_phase_menu_actions_are_stubbed(qtbot):
-    """Still stubbed: the desktop shortcut, which Phase D builds."""
+def test_create_desktop_shortcut_is_live(qtbot):
+    """Phase D connected the last stub. No menu entry in this build is a placeholder any more,
+    and the manual's troubleshooting page documents this one as working."""
     window = MainWindow(offscreen=True)
     qtbot.addWidget(window)
-    assert window.create_shortcut_action.isEnabled() is False
-    assert window.create_shortcut_action.toolTip() == "coming in this build"
+    assert window.create_shortcut_action.isEnabled() is True
+    assert "coming in this build" not in window.create_shortcut_action.toolTip()
+
+
+def test_create_desktop_shortcut_reports_failure_instead_of_raising(qtbot, tmp_path, monkeypatch):
+    """The one path worth exercising in-process: the generator refuses (no venv), and the window
+    surfaces it as a warning rather than letting the exception escape into Qt."""
+    import app.main_window as mw
+    from scripts.create_desktop_shortcut import ShortcutError
+
+    window = MainWindow(offscreen=True)
+    qtbot.addWidget(window)
+    shown = {}
+    monkeypatch.setattr(mw.QMessageBox, "warning",
+                        lambda *a, **k: shown.update(text=a[2]) or mw.QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr("scripts.create_desktop_shortcut.create_shortcuts",
+                        lambda *a, **k: (_ for _ in ()).throw(ShortcutError("no venv here")))
+    window._create_desktop_shortcut()
+    assert "no venv here" in shown["text"]
+    assert "scripts/create_desktop_shortcut.py" in shown["text"]

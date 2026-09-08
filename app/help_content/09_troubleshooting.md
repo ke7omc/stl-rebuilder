@@ -70,6 +70,23 @@ passing Deviation is the input mesh's own noise and not something any setting wi
 | a demo mesh is missing | the repository ships generators, not meshes: `python -c "from harness import generators; generators.make('M2')"` |
 | the STEP will not import into SpaceClaim | import with facewise connections enabled, then see the SpaceClaim checklist in HANDOFF.md |
 
+## The desktop launcher
+
+**Help → Create Desktop Shortcut...** writes a double-click launcher so the application can be
+started without a terminal. Nothing is installed and no administrator rights are involved.
+
+- **macOS, first launch only: right-click the app on the Desktop, choose Open, then Open again.**
+  A plain double-click will refuse with *"cannot verify the developer"* — the launcher is
+  unsigned, and macOS blocks unsigned apps until they are opened this way once. After that,
+  double-click works normally, forever.
+- **The app bounces in the Dock and quits.** The bundle hides the console, so the error is
+  invisible. Run `launchers/stl-rebuilder.command` instead — same two commands, but in a Terminal
+  window where the error is printed.
+- **It stopped working after the folder moved.** The repository path is baked into the launcher
+  at generation time. Run **Create Desktop Shortcut...** again.
+- **Windows** gets a Desktop `.lnk` pointing at `pythonw.exe -m app` (no console window) plus
+  `launchers\stl-rebuilder.bat` as the visible-console debugging path.
+
 ## Getting more detail
 
 - The **log console** on the dashboard has the exact settings every run was launched with, the

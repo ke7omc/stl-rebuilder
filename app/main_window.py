@@ -290,12 +290,10 @@ class MainWindow(QMainWindow):
         self.demos_action.triggered.connect(self._show_demos)
         help_menu.addAction(self.demos_action)
         help_menu.addSeparator()
-        # Present-but-disabled rather than absent: the manual names this entry, and a reader who
-        # goes looking for a menu entry that isn't there has no way to tell "not built yet" from
-        # "I can't find it". Phase D enables and connects it.
         self.create_shortcut_action = QAction("Create &Desktop Shortcut...", self)
-        self.create_shortcut_action.setEnabled(False)
-        self.create_shortcut_action.setToolTip("coming in this build")
+        self.create_shortcut_action.setToolTip(
+            "Write a double-click launcher for this application to the Desktop")
+        self.create_shortcut_action.triggered.connect(self._create_desktop_shortcut)
         help_menu.addAction(self.create_shortcut_action)
         help_menu.addSeparator()
         about_action = QAction(f"&About {APP_TITLE}", self)
@@ -451,6 +449,38 @@ class MainWindow(QMainWindow):
             f"The test geometry for {milestone} could not be generated:\n\n{message}\n\n"
             "The generators live in harness/ and write to harness/truth/ — check that the "
             "folder is writable and that the app was started from the repository root.")
+
+    def _create_desktop_shortcut(self):
+        """Write the double-click launchers, then say exactly what was created and where.
+
+        The import is inside the method, not at module top level, so that `scripts/` never
+        becomes a startup dependency of the application -- the GUI must still start on a machine
+        where that directory was not copied across. No worker thread: this is three small file
+        writes plus a sub-second icon render."""
+        def failed(exc):
+            self.log_line(f"desktop shortcut: {exc}", level="error")
+            QMessageBox.warning(
+                self, "Create Desktop Shortcut",
+                f"The launcher could not be created:\n\n{exc}\n\n"
+                "You can also run it by hand from the repository folder:\n"
+                "    .venv/bin/python scripts/create_desktop_shortcut.py")
+
+        try:
+            # Deferring the import keeps a missing scripts/ from breaking startup -- but it
+            # would then fail on the click instead, so ImportError is handled here too.
+            from scripts.create_desktop_shortcut import (
+                ShortcutError, completion_message, create_shortcuts, default_repo_root)
+        except ImportError as exc:
+            failed(exc)
+            return
+        try:
+            created = create_shortcuts(default_repo_root())
+        except (ShortcutError, OSError) as exc:
+            failed(exc)
+            return
+        for path in created:
+            self.log_line(f"desktop shortcut: wrote {path}")
+        QMessageBox.information(self, "Create Desktop Shortcut", completion_message(created))
 
     def _show_about(self):
         QMessageBox.about(
