@@ -10,7 +10,7 @@ import textwrap
 import numpy as np
 import pyqtgraph as pg
 import qtawesome as qta
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QAction, QFont
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDockWidget, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout,
@@ -98,6 +98,15 @@ class _RadiusProfileChart(pg.PlotWidget):
 
 
 class MainWindow(QMainWindow):
+    # Run-lifecycle signals. Nothing in the window itself listens to these -- they exist so a
+    # guided tour (`app/tour.py`) can wait on what the app actually DID rather than on a button
+    # click, which is the difference between "you clicked Run" and "the run finished". Emitted
+    # unconditionally; a listener only connects for the step that asked for one.
+    analyze_finished = Signal()
+    rebuild_finished = Signal(bool)   # True iff no verification check failed
+    run_failed = Signal(str, str)     # kind, message
+    input_loaded = Signal(str)        # path whose preview mesh just reached the viewport
+
     def __init__(self, offscreen: bool = False):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
@@ -707,7 +716,9 @@ class MainWindow(QMainWindow):
     def _on_input_preview_loaded(self, mesh):
         self.status_label.setText("Ready")
         self.viewport.show_input_mesh(mesh)
-        self.log_line(f"loaded preview: {self.input_path_edit.text().strip()}")
+        path = self.input_path_edit.text().strip()
+        self.log_line(f"loaded preview: {path}")
+        self.input_loaded.emit(path)
 
     def _on_input_preview_failed(self, message):
         self.status_label.setText("Ready")
@@ -751,6 +762,7 @@ class MainWindow(QMainWindow):
     def _on_analyzed(self, analysis, mesh):
         self._analysis = analysis
         self._analyzed_input_path = self.input_path_edit.text().strip()
+        self.analyze_finished.emit()
         self.spinner.stop()
         self.dashboard.mark_analyze_done()
         self.status_label.setText("Analyzed")
@@ -975,6 +987,7 @@ class MainWindow(QMainWindow):
         if base:
             self.telemetry_label.setText(f"{base} · {n_stations} stations")
         self.outline.setCurrentItem(self.node_output)
+        self.rebuild_finished.emit(_verification_all_passed(report))
 
     def _on_failed(self, kind, message):
         self._pending_rebuild = False  # an Analyze that failed must not later auto-trigger a run
@@ -988,6 +1001,7 @@ class MainWindow(QMainWindow):
         self.error_banner.show()
         self.manifest_tree.set_groups([("Error", [("Kind", kind, None), ("Message", message, message)])])
         self.outline.setCurrentItem(self.node_output)
+        self.run_failed.emit(kind, message)
 
 
 def _analysis_property_groups(analysis) -> list:
@@ -1108,6 +1122,27 @@ def _verification_group(verif: dict):
         rows.append(("Note", f"{glyph}  verification incomplete: {verif['error']}",
                      verif["error"], color))
     return ("Verification", rows)
+
+
+def _verification_all_passed(report: dict) -> bool:
+    """Did every verification check the engine ran actually pass?
+
+    Walks exactly the checks `_verification_group` renders, so what a guided demo claims about a
+    run and what the Output page shows the user can never disagree. A check whose `pass` is None
+    (not applicable -- e.g. no input volume to compare against) is not a failure.
+
+    An absent or empty `verification` block returns False rather than True: nothing was proven,
+    and a demo that branches on this needs "we did not verify" to land on the same side as "a
+    check failed", never on the reassuring side. (`_verification_group`'s own caller makes the
+    same call -- `ok = bool(report.get("verification"))`.)"""
+    verif = (report or {}).get("verification") or {}
+    checks = [verif.get("watertight"), verif.get("volume"), verif.get("bodies"),
+              verif.get("deviation")]
+    checks += [(verif.get("bounds") or {}).get(ax) for ax in ("x", "y", "z")]
+    checks = [c for c in checks if isinstance(c, dict)]
+    if not checks or "error" in verif:
+        return False
+    return all(c.get("pass") is not False for c in checks)
 
 
 def _manifest_property_groups(man: dict) -> list:
