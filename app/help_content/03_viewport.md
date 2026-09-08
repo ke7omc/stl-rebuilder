@@ -38,6 +38,14 @@ Three independent View entries, all about seeing the input and the output agains
   the input mesh behind it.
 - **Input mesh: solid color** — draws the input at full opacity, to compare its outer boundary
   against the solid. This one wins over the opacity the other two modes would otherwise apply.
+- **Input mesh: show triangulation** — draws the input STL's real facet edges. For the input
+  these triangles ARE the data — mesh density, faceting quality, where the generator packed more
+  or fewer facets. Best combined with "Input mesh: solid color"; on the translucent ghost the
+  edges are faint by nature. On a very dense mesh the edges read as a texture until you zoom in.
+
+The transparent/solid-color toggles are also one click away in the legend: the half-filled-circle
+button on the Input-mesh and Rebuilt-solid rows flips that layer's opacity mode, and lights up
+cyan while the mode is active. Clicking the rest of the row still shows/hides the layer.
 
 ## Camera
 
@@ -55,8 +63,10 @@ Three independent View entries, all about seeing the input and the output agains
   through transparency is not.
 - **Deviation heatmap** — colors the rebuilt solid by its measured distance to the input mesh,
   instead of collapsing that into a single p95 number. It shows **where** the reconstruction
-  deviates. The color scale is anchored to the verification tolerance, so a surface that reads
-  cool is a surface inside tolerance.
+  deviates. The color scale is anchored to the verification tolerance and speaks the app's own
+  state language: **green is nominal**, amber is approaching the gate, red is at or past it. A
+  well-reconstructed part reads as a calm, clearly-visible green — not a dark surface lost
+  against the dark background.
 
 Both are also on the display-toggle overlay at the top left of the canvas, together with the
 render-mode cycle. The overlay and the View menu are the same state, kept in sync.

@@ -206,6 +206,24 @@ class MainWindow(QMainWindow):
             "rebuilt solid")
         self.input_opaque_action.toggled.connect(self.viewport.set_input_opaque)
         view_menu.addAction(self.input_opaque_action)
+        self.input_edges_action = QAction("Input mesh: show triangulation", self)
+        self.input_edges_action.setCheckable(True)
+        self.input_edges_action.setToolTip(
+            "Draw the input STL's real facet edges -- the triangles ARE the data here (mesh "
+            "density, faceting quality), unlike the rebuilt solid's display tessellation. "
+            "Best combined with 'Input mesh: solid color'; on the translucent ghost the edges "
+            "are faint by nature (they share the mesh's own opacity)")
+        self.input_edges_action.toggled.connect(self.viewport.set_input_edges)
+        view_menu.addAction(self.input_edges_action)
+        # The legend rows' ghost buttons (app/viewport.py, 2026-09-08) can also flip the two
+        # opacity modes -- keep these menu checkmarks synced to the Viewport, which is the
+        # single source of truth (same pattern as section/deviation below).
+        self.viewport.solid_transparent_toggled.connect(
+            lambda on: self._sync_action_checked(self.solid_transparent_action, on))
+        self.viewport.input_opaque_toggled.connect(
+            lambda on: self._sync_action_checked(self.input_opaque_action, on))
+        self.viewport.input_edges_toggled.connect(
+            lambda on: self._sync_action_checked(self.input_edges_action, on))
 
         view_menu.addSeparator()
         self.fit_view_action = QAction("Fit view", self)

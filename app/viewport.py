@@ -17,13 +17,14 @@ contradict the report's n_stations — dishonest, removed).
 import numpy as np
 import pyvista as pv
 import qtawesome as qta
+from matplotlib.colors import LinearSegmentedColormap
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider, QVBoxLayout, QWidget
 
 from app.theme import (
-    MONO_FAMILY, TELEMETRY, TEXT_DISABLED, TEXT_PRIMARY, TEXT_SECONDARY, VIEWPORT_BG_BOTTOM,
-    VIEWPORT_BG_TOP,
+    ERROR, MONO_FAMILY, SUCCESS, TELEMETRY, TEXT_DISABLED, TEXT_PRIMARY, TEXT_SECONDARY,
+    VIEWPORT_BG_BOTTOM, VIEWPORT_BG_TOP, WARNING,
 )
 
 try:
@@ -50,7 +51,23 @@ STATION_RING_COLOR = "#f2c94c"
 DOME_CAP_COLOR = "#5ad6a0"
 EVENT_RING_COLOR = "#e5534b"
 STATION_HIGHLIGHT_COLOR = "#ffd76a"
-DEVIATION_CMAP = "inferno"
+# Deviation heatmap ramp (2026-09-08, Brady's live-testing complaint): "inferno" starts at
+# near-black, so LOW deviation -- the good case, most of a correct part -- vanished into the
+# app's own dark viewport background, exactly when the news was good. Replaced with a ramp
+# built from the theme's own state tokens (green = nominal, amber = caution, red = fault --
+# the same language the dashboard dials and verification checklist already speak), so a
+# well-reconstructed surface reads as a calm, clearly-visible green and only regions actually
+# approaching the tolerance (clim's upper bound) escalate through amber to red. The amber stop
+# sits past halfway because deviation at half the gate is still comfortably nominal.
+DEVIATION_CMAP = LinearSegmentedColormap.from_list(
+    "deviation_state", [(0.0, SUCCESS), (0.55, WARNING), (1.0, ERROR)])
+# Dark blue-slate for the input-triangulation toggle (`set_input_edges`). First try was a mid
+# steel-blue ("#4a5d73") on the theory it would survive the mesh's translucent ghost state too --
+# the screenshot pass proved it invisible in BOTH states (too close to the lit fill). Strong
+# dark-on-light contrast is what makes wireframe-over-surface legible in every real CAD viewer;
+# the ghost state's faintness is inherent to edges inheriting the actor's 10-35% opacity, and
+# the toggle sits right next to "Input mesh: solid color" in the View menu for exactly that use.
+INPUT_EDGE_COLOR = "#1f2c3a"
 
 EMPTY_HINT_TEXT = "Open a burnback STL to begin — File ▸ Open or the Input panel"
 
@@ -161,16 +178,40 @@ LEGEND_LAYERS = {"Input mesh": ("input", INPUT_MESH_COLOR), "Rebuilt solid": ("s
                  "Topology change": ("events", EVENT_RING_COLOR)}
 
 
+class _GhostButton(QLabel):
+    """The small opacity sub-control inside a `LegendRow`. Its press must NOT fall through to
+    the row (whose own press toggles visibility -- a completely different action), so the event
+    is accepted here; a plain QLabel ignores presses and Qt would propagate them to the parent
+    row, making one click fire both toggles."""
+    clicked = Signal()
+
+    def mousePressEvent(self, event):
+        event.accept()
+        self.clicked.emit()
+
+
 class LegendRow(QWidget):
     """One clickable legend entry: a color swatch + label that dims when its layer is hidden.
     Clicking toggles the layer via the same `Viewport.set_layer_visible` the View menu uses --
-    this widget holds no visibility state of its own, it only reflects/drives it."""
-    clicked = Signal()
+    this widget holds no visibility state of its own, it only reflects/drives it.
 
-    def __init__(self, label: str, color: str, parent=None):
+    The Input-mesh and Rebuilt-solid rows also carry a small half-filled-circle button on the
+    right (`ghost_tooltip` set) that flips that layer between its solid and ghost look --
+    Brady's 2026-09-08 ask to reach the View menu's "Rebuilt solid: transparent" / "Input mesh:
+    solid color" toggles without leaving the viewport. A visible second control was chosen over
+    a right-click menu or double-click on purpose: both of those are invisible until discovered,
+    while a lit-up icon in the row advertises that the affordance exists (the same reasoning
+    behind the in-viewport display overlay). Like the row itself, the button holds no state --
+    Viewport's `set_solid_transparent` / `set_input_opaque` remain the single source of truth
+    and drive `set_ghost` back into it."""
+    clicked = Signal()
+    ghost_clicked = Signal()
+
+    def __init__(self, label: str, color: str, parent=None, ghost_tooltip: str = ""):
         super().__init__(parent)
         self._color = color
         self._on = True
+        self._ghost = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 1, 0, 1)
@@ -179,10 +220,32 @@ class LegendRow(QWidget):
         self._label = QLabel(label)
         layout.addWidget(self._swatch)
         layout.addWidget(self._label)
+        # Every row gets the stretch, not just the two with ghost buttons: rows are all sized to
+        # the legend's shared width, and without the stretch Qt hands a short row's extra width
+        # to its labels, shoving the text visibly off to the right (caught in the first
+        # screenshot pass of the 2026-09-08 round -- pre-change rows were tight left-packed).
+        layout.addStretch(1)
+        self._ghost_btn = None
+        if ghost_tooltip:
+            btn = _GhostButton()
+            btn.setFixedSize(18, 16)
+            btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            btn.setToolTip(ghost_tooltip)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(self.ghost_clicked.emit)
+            layout.addWidget(btn)
+            self._ghost_btn = btn
         self._restyle()
 
     def set_on(self, on: bool):
         self._on = bool(on)
+        self._restyle()
+
+    def set_ghost(self, on: bool):
+        """Reflect the layer's current opacity mode on the sub-control -- lit TELEMETRY cyan
+        when the non-default look is active, same active-state grammar as the display overlay's
+        `_DisplayToggleButton`."""
+        self._ghost = bool(on)
         self._restyle()
 
     def _restyle(self):
@@ -190,6 +253,11 @@ class LegendRow(QWidget):
         text_color = "#d6dbe3" if self._on else TEXT_DISABLED
         self._swatch.setStyleSheet(f"color: {swatch_color}; font-size: 14px;")
         self._label.setStyleSheet(f"color: {text_color};")
+        if self._ghost_btn is not None:
+            color = TELEMETRY if self._ghost else (TEXT_SECONDARY if self._on else TEXT_DISABLED)
+            self._ghost_btn.setPixmap(qta.icon("ph.circle-half-fill", color=color).pixmap(13, 13))
+            bg = "rgba(53, 184, 200, 0.22)" if self._ghost else "transparent"
+            self._ghost_btn.setStyleSheet(f"background-color: {bg}; border-radius: 3px;")
 
     def mousePressEvent(self, event):
         self.clicked.emit()
@@ -327,6 +395,11 @@ class Viewport(QWidget):
     section_view_toggled = Signal(bool)  # for View-menu sync, same pattern as layer_toggled
     deviation_mode_toggled = Signal(bool)
     render_mode_changed = Signal(str)
+    # For View-menu sync now that the legend's ghost buttons can also drive these two opacity
+    # modes (2026-09-08) -- same pattern as section_view_toggled/deviation_mode_toggled.
+    solid_transparent_toggled = Signal(bool)
+    input_opaque_toggled = Signal(bool)
+    input_edges_toggled = Signal(bool)
 
     # Bottom-left orientation corner geometry (2026-09-07). Kept small and named so either can
     # be nudged in one place -- see `_reposition_axis_gizmo`. `_CAMERA_WIDGET_PADDING` is VTK's
@@ -381,6 +454,7 @@ class Viewport(QWidget):
         self._swap = False
         self._solid_transparent = False
         self._input_opaque = False
+        self._input_edges = False
 
         # A small centered stack (icon/title/hint/shortcuts), not a single sentence -- the empty
         # viewport was the first thing a user sees and read as an unstyled placeholder rather
@@ -434,12 +508,22 @@ class Viewport(QWidget):
         # produced a 20x12 box with garbled overlapping text). Pre-built rows sidestep that
         # entirely -- hide/show is a much better-trodden Qt layout code path than insert/remove.
         self._legend_rows = {}
+        ghost_tooltips = {
+            "solid": "Toggle transparent -- ghost the rebuilt solid to compare against the "
+                     "input mesh (same as View ▸ Rebuilt solid: transparent)",
+            "input": "Toggle solid color -- show the input mesh at full opacity (same as "
+                     "View ▸ Input mesh: solid color)",
+        }
         for label, (key, color) in LEGEND_LAYERS.items():
-            row = LegendRow(label, color, self._legend)
+            row = LegendRow(label, color, self._legend, ghost_tooltip=ghost_tooltips.get(key, ""))
             row.clicked.connect(lambda k=key: self._on_legend_row_clicked(k))
             row.hide()
             legend_layout.addWidget(row)
             self._legend_rows[key] = row
+        self._legend_rows["solid"].ghost_clicked.connect(
+            lambda: self.set_solid_transparent(not self._solid_transparent))
+        self._legend_rows["input"].ghost_clicked.connect(
+            lambda: self.set_input_opaque(not self._input_opaque))
         self._legend.hide()
 
         self._axis_gizmo = AxisGizmo(self)
@@ -663,17 +747,37 @@ class Viewport(QWidget):
 
     def set_solid_transparent(self, on: bool):
         """Fade the rebuilt solid to a ghost, for comparing its fin/wall geometry against the
-        (already-translucent) input mesh overlay."""
+        (already-translucent) input mesh overlay. Drivable from the View menu AND the legend
+        row's ghost button (2026-09-08) -- both converge here, and the emitted signal keeps
+        whichever one did not initiate the change in sync."""
         self._solid_transparent = bool(on)
+        self._legend_rows["solid"].set_ghost(self._solid_transparent)
         self._apply_visibility()
+        self.solid_transparent_toggled.emit(self._solid_transparent)
         self.render()
 
     def set_input_opaque(self, on: bool):
         """Show the input mesh at full opacity, for comparing its outer boundary directly
         against the rebuilt solid. Wins over swap/overlay opacity -- an explicit request to see
-        the input mesh solid should not be silently overridden by another mode."""
+        the input mesh solid should not be silently overridden by another mode. Same two entry
+        points and sync pattern as `set_solid_transparent`."""
         self._input_opaque = bool(on)
+        self._legend_rows["input"].set_ghost(self._input_opaque)
         self._apply_visibility()
+        self.input_opaque_toggled.emit(self._input_opaque)
+        self.render()
+
+    def set_input_edges(self, on: bool):
+        """View ▸ Input mesh: show triangulation (2026-09-08, Brady's request). The input mesh
+        is LITERALLY a triangulated STL -- unlike the rebuilt solid (an analytic BRep whose
+        display triangles are a tessellation artifact, hence its `extract_feature_edges` render
+        mode), the input's facets ARE the real data: mesh density, faceting quality, where a
+        scan or marching-cubes generator put more or fewer triangles. So this is its own toggle,
+        deliberately independent of the solid's render-mode cycle."""
+        self._input_edges = bool(on)
+        self._readd_input_actor()
+        self._apply_visibility()
+        self.input_edges_toggled.emit(self._input_edges)
         self.render()
 
     def set_axis_frame(self, axis_unit, axis_point, proj_min: float, proj_max: float):
@@ -836,9 +940,22 @@ class Viewport(QWidget):
             self.plotter.remove_actor(self._input_actor)
         self._input_actor = self.plotter.add_mesh(
             self._clip_for_section(self._input_mesh_data), color=INPUT_MESH_COLOR,
-            opacity=self._input_opacity(), show_edges=False, name="input_mesh",
-            label="Input mesh")
+            opacity=self._input_opacity(), name="input_mesh",
+            label="Input mesh", **self._input_edge_kwargs())
         self.plotter.camera_position = cam  # re-adding a mesh must not reset the user's view
+
+    def _input_edge_kwargs(self) -> dict:
+        """Edge styling for the input-triangulation toggle (`set_input_edges`), shared by both
+        input-actor add paths. Color rationale lives on INPUT_EDGE_COLOR; width rationale
+        below."""
+        if not self._input_edges:
+            return dict(show_edges=False)
+        # Width 2.0, not 1.0: A/B'd on M9's 915k-triangle mesh (2026-09-08 screenshot pass) --
+        # at 1.0 with SSAA the edges washed out to a barely-there weave; 2.0 renders each
+        # triangle legibly at inspection zoom while the fill color still reads. A LIGHT edge
+        # color was also tried and rejected: it dominated the shaded fill entirely, the exact
+        # "unreadable dense mess" the solid's old raw-wireframe mode was removed for.
+        return dict(show_edges=True, edge_color=INPUT_EDGE_COLOR, line_width=2.0)
 
     def _solid_render_kwargs(self) -> dict:
         """Material/coloring kwargs for the solid actor, composing the render-mode (V7) and
@@ -939,8 +1056,8 @@ class Viewport(QWidget):
         if self._input_actor is not None:
             self.plotter.remove_actor(self._input_actor)
         self._input_actor = self.plotter.add_mesh(
-            mesh, color=INPUT_MESH_COLOR, opacity=self._input_opacity(), show_edges=False,
-            name="input_mesh", label="Input mesh")
+            mesh, color=INPUT_MESH_COLOR, opacity=self._input_opacity(),
+            name="input_mesh", label="Input mesh", **self._input_edge_kwargs())
         self._apply_visibility()
         self._iso_camera()
         self._update_legend()
@@ -987,6 +1104,10 @@ class Viewport(QWidget):
             row.setVisible(key in active)
             if key in active:
                 row.set_on(self._layer_visible.get(key, True))
+        # Opacity-mode prefs survive scene resets like layer visibility does -- re-reflect them
+        # on the ghost buttons whenever the legend is (re)built.
+        self._legend_rows["solid"].set_ghost(self._solid_transparent)
+        self._legend_rows["input"].set_ghost(self._input_opaque)
         if not active:
             self._legend.hide()
             return

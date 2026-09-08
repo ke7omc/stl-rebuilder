@@ -538,3 +538,99 @@ def test_dome_caps_clear_and_legend_row_hides_when_empty(viewport):
     assert viewport._dome_cap_ring_actor is None
     assert viewport._dome_cap_meridian_actor is None
     assert not viewport._legend_rows["domecap"].isVisible()
+
+
+# ---- 2026-09-08 live-testing round: deviation ramp, legend ghost buttons, input edges ----
+
+def test_deviation_cmap_low_end_is_bright_and_high_end_is_alarming():
+    """Brady's complaint: with "inferno", LOW deviation (the good case) rendered near-black and
+    vanished into the dark viewport. The replacement ramp must start at a color that is actually
+    visible against the dark theme (the SUCCESS green token) and end at the alarm red -- state
+    colors, not a dark-floored perceptual map."""
+    from app.theme import ERROR, SUCCESS
+    from app.viewport import DEVIATION_CMAP
+    lo = DEVIATION_CMAP(0.0)
+    hi = DEVIATION_CMAP(1.0)
+    # Low end is the nominal green: green-dominant and bright enough to read on ~#0d0f12.
+    assert lo[1] > lo[0] and lo[1] > lo[2]
+    assert 0.299 * lo[0] + 0.587 * lo[1] + 0.114 * lo[2] > 0.35
+    # Exact theme tokens anchor both ends (visual consistency with the dashboard's state colors).
+    assert tuple(round(c * 255) for c in lo[:3]) == tuple(
+        int(SUCCESS[i:i + 2], 16) for i in (1, 3, 5))
+    assert tuple(round(c * 255) for c in hi[:3]) == tuple(
+        int(ERROR[i:i + 2], 16) for i in (1, 3, 5))
+    # High end is red-dominant (alarming), and the ramp brightens red-ward monotonically enough
+    # that mid-range reads as caution, not calm.
+    assert hi[0] > hi[1] and hi[0] > hi[2]
+    mid = DEVIATION_CMAP(0.55)
+    assert mid[0] > mid[2]  # amber: red channel over blue
+
+
+def test_deviation_mode_uses_the_state_ramp_not_a_named_dark_map(viewport):
+    from app.viewport import DEVIATION_CMAP
+    viewport.set_deviation_mode(True)
+    kwargs = viewport._solid_render_kwargs()
+    assert kwargs["cmap"] is DEVIATION_CMAP
+
+
+def test_only_input_and_solid_legend_rows_have_ghost_buttons(viewport):
+    for key, row in viewport._legend_rows.items():
+        if key in ("input", "solid"):
+            assert row._ghost_btn is not None
+        else:
+            assert row._ghost_btn is None
+
+
+def test_legend_ghost_button_toggles_solid_transparency(viewport):
+    seen = []
+    viewport.solid_transparent_toggled.connect(lambda on: seen.append(on))
+    viewport._legend_rows["solid"].ghost_clicked.emit()
+    assert viewport._solid_transparent is True
+    assert viewport._solid_actor.GetProperty().GetOpacity() == SOLID_MESH_OPACITY_TRANSPARENT
+    assert viewport._legend_rows["solid"]._ghost is True
+    assert seen == [True]
+    viewport._legend_rows["solid"].ghost_clicked.emit()
+    assert viewport._solid_transparent is False
+    assert viewport._solid_actor.GetProperty().GetOpacity() == SOLID_MESH_OPACITY_NORMAL
+    assert seen == [True, False]
+
+
+def test_legend_ghost_button_toggles_input_opacity(viewport):
+    seen = []
+    viewport.input_opaque_toggled.connect(lambda on: seen.append(on))
+    viewport._legend_rows["input"].ghost_clicked.emit()
+    assert viewport._input_opaque is True
+    assert viewport._input_actor.GetProperty().GetOpacity() == 1.0
+    assert seen == [True]
+
+
+def test_ghost_button_click_does_not_also_toggle_layer_visibility(viewport, qtbot):
+    """The ghost button lives INSIDE the row whose own press toggles visibility -- a real mouse
+    click on the button must fire only the opacity toggle. Guarded by `_GhostButton`'s
+    event.accept(); without it Qt propagates the press up to the row and one click does both."""
+    from PySide6.QtCore import Qt as QtNS
+    row = viewport._legend_rows["solid"]
+    assert viewport._layer_visible["solid"] is True
+    qtbot.mouseClick(row._ghost_btn, QtNS.MouseButton.LeftButton)
+    assert viewport._solid_transparent is True   # the opacity toggle fired
+    assert viewport._layer_visible["solid"] is True  # the visibility toggle did NOT
+
+
+def test_set_input_edges_shows_the_real_triangulation(viewport):
+    from app.viewport import INPUT_EDGE_COLOR
+    assert viewport._input_actor.GetProperty().GetEdgeVisibility() == 0
+    viewport.set_input_edges(True)
+    prop = viewport._input_actor.GetProperty()
+    assert prop.GetEdgeVisibility() == 1
+    expected = tuple(int(INPUT_EDGE_COLOR[i:i + 2], 16) / 255.0 for i in (1, 3, 5))
+    assert np.allclose(prop.GetEdgeColor(), expected, atol=1 / 255)
+    viewport.set_input_edges(False)
+    assert viewport._input_actor.GetProperty().GetEdgeVisibility() == 0
+
+
+def test_input_edges_survive_an_opacity_driven_actor_readd(viewport):
+    """Opacity changes re-add the input actor from scratch (see `_sync_input_opacity`); the
+    edges toggle must ride along rather than silently resetting."""
+    viewport.set_input_edges(True)
+    viewport.set_input_opaque(True)
+    assert viewport._input_actor.GetProperty().GetEdgeVisibility() == 1

@@ -392,3 +392,26 @@ def test_dome_cap_samples_empty_without_stations_or_band():
     # Stations already at the extremes: no end band exists, nothing supplemental to draw.
     fore, aft = _dome_cap_samples([0.0, 100.0], 0.0, 100.0)
     assert fore == [] and aft == []
+
+
+def test_view_menu_opacity_actions_sync_with_the_legend_ghost_buttons(window):
+    """The legend rows' ghost buttons (2026-09-08) are a second entry point into the two
+    opacity modes the View menu also controls -- driving them must update the menu checkmarks,
+    and the menu must keep driving the viewport (single source of truth, no parallel state)."""
+    window.viewport.show_input_mesh(pv.Sphere())
+    window.viewport.show_solid_mesh(pv.Sphere())
+    window.viewport._legend_rows["solid"].ghost_clicked.emit()
+    assert window.solid_transparent_action.isChecked() is True
+    window.viewport._legend_rows["input"].ghost_clicked.emit()
+    assert window.input_opaque_action.isChecked() is True
+    # And the menu direction still works after the sync wiring (no signal loop / stale state).
+    window.solid_transparent_action.setChecked(False)
+    assert window.viewport._solid_transparent is False
+
+
+def test_input_triangulation_menu_action_drives_the_viewport(window):
+    window.viewport.show_input_mesh(pv.Sphere())
+    window.input_edges_action.setChecked(True)
+    assert window.viewport._input_actor.GetProperty().GetEdgeVisibility() == 1
+    window.input_edges_action.setChecked(False)
+    assert window.viewport._input_actor.GetProperty().GetEdgeVisibility() == 0
