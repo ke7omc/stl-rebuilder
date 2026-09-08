@@ -132,6 +132,9 @@ class MainWindow(QMainWindow):
         # is the same fix applied everywhere a worker+thread pair is created.
         self._workers = []
         self._help_dialog = None
+        self._demo_picker = None
+        self._demo_milestone = None
+        self._tour = None   # the running TourController, if a guided demo is in progress
 
         self.viewport = Viewport(self, offscreen=offscreen)
         self.setCentralWidget(self.viewport)
@@ -281,14 +284,15 @@ class MainWindow(QMainWindow):
         manual_action.triggered.connect(lambda: self._show_help(None))
         help_menu.addAction(manual_action)
         help_menu.addSeparator()
-        # Present-but-disabled rather than absent: the manual's Guided-demos page describes these
-        # two by name, and a reader who goes looking for a menu entry that isn't there has no way
-        # to tell "not built yet" from "I can't find it". Phase C/D enable and connect them.
         self.demos_action = QAction("&Guided Demos...", self)
-        self.demos_action.setEnabled(False)
-        self.demos_action.setToolTip("coming in this build")
+        self.demos_action.setToolTip(
+            "Walk one of the thirteen validated test motors through the real application")
+        self.demos_action.triggered.connect(self._show_demos)
         help_menu.addAction(self.demos_action)
         help_menu.addSeparator()
+        # Present-but-disabled rather than absent: the manual names this entry, and a reader who
+        # goes looking for a menu entry that isn't there has no way to tell "not built yet" from
+        # "I can't find it". Phase D enables and connects it.
         self.create_shortcut_action = QAction("Create &Desktop Shortcut...", self)
         self.create_shortcut_action.setEnabled(False)
         self.create_shortcut_action.setToolTip("coming in this build")
@@ -369,6 +373,84 @@ class MainWindow(QMainWindow):
         self._help_dialog.activateWindow()
         if page_id:
             self._help_dialog.show_page(page_id)
+
+    def _show_demos(self):
+        """Open (or re-raise) the guided-demo picker. Same single-instance idiom as the manual."""
+        from app.demos import DemoPickerDialog
+        if self._demo_picker is None:
+            self._demo_picker = DemoPickerDialog(self)
+        self._demo_picker.show()
+        self._demo_picker.raise_()
+        self._demo_picker.activateWindow()
+
+    def start_demo(self, milestone: str):
+        """Generate the demo's mesh if needed, load it, reset the options to app defaults, and
+        hand over to a `TourController`.
+
+        Lives on the window rather than in the picker so `--smoke-tour` and the tests can drive a
+        demo without a dialog, and so the pre-flight (a run already in flight, a missing
+        scikit-image, the heavy-generation confirmation) has the window it needs to warn on."""
+        from app import demos
+        if milestone not in demos.DEMOS:
+            return False
+        if self._tour is not None:
+            self._tour.cancel()
+        if not demos.confirm_and_start(self, milestone):
+            return False
+        if self._demo_picker is not None:
+            self._demo_picker.close()
+        demo = demos.DEMOS[milestone]
+        self.status_label.setText(f"Preparing demo geometry ({milestone})...")
+        self.log_line(f"demo: preparing {milestone} — {demo.name}")
+        self.spinner.start()
+        # Which demo is being prepared is state on the window rather than a bound argument,
+        # because the slots below have to be BOUND METHODS of this QObject -- see
+        # `demos.begin_mesh_generation`'s docstring: a lambda has no thread affinity, so Qt runs
+        # it directly in the worker thread and the tour ends up built on the wrong thread.
+        self._demo_milestone = milestone
+        demos.begin_mesh_generation(
+            self, milestone, self._on_demo_mesh_ready, self._on_demo_mesh_failed)
+        return True
+
+    def _on_demo_mesh_ready(self, stl_path: str):
+        from app import demos
+        from app.tour import TourController
+        self.spinner.stop()
+        self.status_label.setText("Ready")
+        milestone = self._demo_milestone
+        demo = demos.DEMOS[milestone]
+        self._set_path_field(self.input_path_edit, stl_path)
+        self._load_input_preview(stl_path)
+        os.makedirs("out/demos", exist_ok=True)
+        self._set_path_field(self.output_path_edit,
+                             os.path.join("out", "demos", f"{milestone}_rebuilt.step"))
+        # Back to the app's own defaults, NOT to the demo's answers: the walkthrough teaches by
+        # having the reader set each one, which only works from a known starting state (and would
+        # be a lie if the tour asked for a value that was already there).
+        self.axis_combo.setCurrentText("auto")
+        self.units_combo.setCurrentText("mm")
+        self.sections_spin.setValue(40)
+        self.chord_tol_auto.setChecked(True)
+        self.chord_tol_spin.setValue(0.5)
+        self.adaptive_check.setChecked(False)
+        self.log_line(f"demo: {milestone} — {demo.name} ({len(demo.steps)} steps)")
+        self._tour = TourController(self, demo.steps, demo.name)
+        self._tour.finished.connect(self._on_tour_finished)
+        self._tour.start()
+
+    def _on_tour_finished(self):
+        self._tour = None
+
+    def _on_demo_mesh_failed(self, message: str):
+        milestone = self._demo_milestone
+        self.spinner.stop()
+        self.status_label.setText("Ready")
+        self.log_line(f"demo: could not prepare {milestone} — {message}", level="error")
+        QMessageBox.critical(
+            self, f"{milestone} — could not prepare the demo",
+            f"The test geometry for {milestone} could not be generated:\n\n{message}\n\n"
+            "The generators live in harness/ and write to harness/truth/ — check that the "
+            "folder is writable and that the app was started from the repository root.")
 
     def _show_about(self):
         QMessageBox.about(
@@ -531,6 +613,13 @@ class MainWindow(QMainWindow):
         self.chord_tol_auto.setChecked(True)
         self.chord_tol_spin = QDoubleSpinBox()
         self.chord_tol_spin.setRange(0.01, 100.0)
+        # Four decimals, not QDoubleSpinBox's default two: a small part needs a small tolerance,
+        # and at two decimals the box physically cannot hold one. M10's own official value is
+        # 0.0125 mm (M8's 0.5 at 1/40 scale, HANDOFF §3.2) -- it rounded to 0.01 and the setting
+        # simply could not be entered, found while writing the M10 guided demo against those
+        # exact commands. Anything Brady scans at inch scale has the same problem.
+        self.chord_tol_spin.setDecimals(4)
+        self.chord_tol_spin.setSingleStep(0.05)
         self.chord_tol_spin.setValue(0.5)
         self.chord_tol_spin.setEnabled(False)
         self.chord_tol_spin.setMinimumWidth(80)

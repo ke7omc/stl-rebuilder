@@ -45,7 +45,13 @@ class TourStep:
     `advance` is either "next" (the user clicks Next) or a key in `TourController.SIGNAL_KEYS`
     (the step waits for the app to actually do the thing). `expect` may only appear on a
     "next" step -- see `TourController.__init__` for why -- and `on_enter` is one of the four
-    names in `TourController.ON_ENTER`, not a scripting language."""
+    names in `TourController.ON_ENTER`, not a scripting language.
+
+    `branch` is `(index_if_the_run_passed, index_if_it_did_not)`: ABSOLUTE step indices used
+    instead of `i + 1` when this step advances. It exists for exactly one script -- the M9
+    "reading a failed check" demo, whose whole point is a verification failure that a lucky
+    machine might not reproduce -- and reads the bool `MainWindow.rebuild_finished` carried.
+    Deliberately not a general conditional: one tuple, one pair of destinations, no expressions."""
 
     target: str | None
     title: str
@@ -54,6 +60,7 @@ class TourStep:
     constrain: bool = False
     expect: dict | None = None
     on_enter: str | None = None
+    branch: tuple | None = None
 
 
 def _resolve_target(window, path: str):
@@ -464,6 +471,7 @@ class TourController(QObject):
 
     def __init__(self, window, steps, title: str):
         super().__init__(window)
+        steps = list(steps)
         for step in steps:
             if step.expect and step.advance != "next":
                 # By the time a run's completion signal fires, the engine has already run with
@@ -475,6 +483,16 @@ class TourController(QObject):
                 raise ValueError(f"TourStep {step.title!r}: unknown advance {step.advance!r}")
             if step.on_enter and step.on_enter not in self.ON_ENTER:
                 raise ValueError(f"TourStep {step.title!r}: unknown on_enter {step.on_enter!r}")
+            if step.branch is not None:
+                # Absolute indices, so a script edit that inserts a step ahead of a branch target
+                # silently retargets it. Validated here (and pinned per-demo in
+                # tests/gui/test_demos.py) rather than discovered as a tour that jumps to the
+                # wrong paragraph.
+                if len(step.branch) != 2 or not all(
+                        isinstance(j, int) and 0 <= j < len(steps) for j in step.branch):
+                    raise ValueError(
+                        f"TourStep {step.title!r}: branch {step.branch!r} is not two in-range "
+                        f"step indices (0..{len(steps) - 1})")
         self._window = window
         self._steps = list(steps)
         self._title = title
@@ -650,7 +668,20 @@ class TourController(QObject):
         script can branch on it (e.g. `rebuild_finished`'s all-checks-passed bool)."""
         self.last_signal_args = args
         if self._active:
-            self._show_step(self._i + 1)
+            self._show_step(self._next_index(self._steps[self._i]))
+
+    def _next_index(self, step) -> int:
+        """Where this step goes next: `i + 1`, unless it carries a `branch`.
+
+        The branch reads the last signal payload -- `rebuild_finished(bool)`. A missing or
+        non-bool payload counts as NOT ok, matching `MainWindow._verification_all_passed`'s own
+        polarity: "nothing was proven" lands with "a check failed", never on the reassuring
+        side."""
+        if step.branch is None:
+            return self._i + 1
+        args = self.last_signal_args
+        ok = bool(args[0]) if args and isinstance(args[0], bool) else False
+        return step.branch[0] if ok else step.branch[1]
 
     def _advance(self):
         step = self._steps[self._i]
@@ -660,7 +691,7 @@ class TourController(QObject):
             self._reanchor()
             return
         self._bubble.clear_correction()
-        self._show_step(self._i + 1)
+        self._show_step(self._next_index(step))
 
     def check_expectations(self, step) -> list:
         """Bullets for every option widget whose value differs from `step.expect`; empty when

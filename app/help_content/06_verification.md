@@ -69,5 +69,6 @@ alternative was tried.
 Rule of thumb: a failed check plus a passing Deviation plus an honest hint means read, not re-run.
 Not every amber cross is yours to fix.
 
-The M9 guided demo walks this exact case live, from a run that fails on purpose — see the
-**Guided demos** page.
+The M9 guided demo walks this exact case live, from a run that fails on purpose. Start it from
+**Help > Guided Demos**, pick *M9 — Noisy Scan Input*, and read the failure on your own machine
+rather than here. It generates a 44 MB mesh the first time and takes a few minutes to run.

@@ -5,8 +5,7 @@ speech bubble that anchors itself to the actual control you need next and waits 
 Nothing is simulated: the settings you are walked through are the settings the milestone was
 validated at, and the run at the end is a real rebuild producing a real STEP.
 
-Start one from **Help > Guided Demos** — see *Status in this build*, at the foot of this page,
-before you go looking for it. The picker generates the demo's mesh on demand — the
+Start one from **Help > Guided Demos**. The picker generates the demo's mesh on demand — the
 repository ships the generators, not the meshes — and then hands over to the walkthrough.
 
 ## The thirteen
@@ -41,8 +40,16 @@ official settings and ends with a **failed** verification check, on purpose, bec
 read a failure is more useful than watching thirteen successes. See the Verification page for the
 written version of the same lesson.
 
-## Status in this build
+## How a demo behaves
 
-The demo walkthroughs are not part of this build yet — the **Help > Guided Demos** entry is
-present but inactive. The manual you are reading now covers the same ground in written form: the
-Quick Start page is the M2 demo without the bubbles, and the Verification page is the M9 lesson.
+The bubble anchors itself to the control it is talking about and follows it if you move or
+resize the window. On a step that asks you to click something, clicks elsewhere in the window are
+ignored and the highlight flashes — the menu bar and any dialog always stay live, and the
+keyboard is never blocked. **Back** re-reads an earlier step; it does not undo a rebuild you have
+already run. **Esc** or **End tour** stops at any point and leaves everything where it is.
+
+A demo sets your Input STL, Output STEP path (`out/demos/`) and option widgets, so anything you
+had loaded is replaced. Nothing outside `out/` and `harness/truth/` is written.
+
+The manual covers the same ground in written form if you would rather read than click: the Quick
+Start page is the M2 demo without the bubbles, and the Verification page is the M9 lesson.

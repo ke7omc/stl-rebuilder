@@ -11,7 +11,7 @@ of these steps.
 There is an interactive version of this walkthrough too — **Help > Guided Demos**, thirteen of
 them, covering every burnback shape the engine was validated against, each one walked through
 inside the window with the pointer landing on the control you need next. The **Guided demos**
-page lists what each teaches, and says whether they are active in this build.
+page lists what each one teaches.
 
 ## Before step 1: get a test mesh
 

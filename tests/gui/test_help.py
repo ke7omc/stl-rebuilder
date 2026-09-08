@@ -88,9 +88,18 @@ def test_help_menu_opens_the_dialog(qtbot):
     assert window._help_dialog is first
 
 
-def test_later_phase_menu_actions_are_stubbed(qtbot):
+def test_guided_demos_is_live(qtbot):
+    """Phase C connected this one. It was a disabled "coming in this build" stub, and the manual
+    now describes it as working -- so an accidental revert to the stub has to fail here."""
     window = MainWindow(offscreen=True)
     qtbot.addWidget(window)
-    for action in (window.demos_action, window.create_shortcut_action):
-        assert action.isEnabled() is False
-        assert action.toolTip() == "coming in this build"
+    assert window.demos_action.isEnabled() is True
+    assert "coming in this build" not in window.demos_action.toolTip()
+
+
+def test_later_phase_menu_actions_are_stubbed(qtbot):
+    """Still stubbed: the desktop shortcut, which Phase D builds."""
+    window = MainWindow(offscreen=True)
+    qtbot.addWidget(window)
+    assert window.create_shortcut_action.isEnabled() is False
+    assert window.create_shortcut_action.toolTip() == "coming in this build"

@@ -9,11 +9,18 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="app")
     parser.add_argument("--smoke", metavar="OUTDIR", default=None,
                          help="run headless self-check, writing screenshots + smoke.json here")
+    parser.add_argument("--smoke-tour", metavar="OUTDIR", default=None,
+                         help="render the help dialog, the demo picker and a scripted walk of "
+                              "the M2 guided demo, writing PNGs + tour_smoke.json here")
     args = parser.parse_args(argv)
 
     if args.smoke is not None:
         from app.smoke import run_smoke
         return run_smoke(args.smoke)
+
+    if args.smoke_tour is not None:
+        from app.smoke import run_tour_smoke
+        return run_tour_smoke(args.smoke_tour)
 
     from PySide6.QtWidgets import QApplication
     from app.main_window import MainWindow
