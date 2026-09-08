@@ -1,6 +1,26 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-08 — Dome-shape robustness spot-check + T+/NOMINAL LED styling (`0c04ed6`).** Brady
+  asked point-blank whether the reconstruction actually works across dome sizes, not just the M8
+  screenshots already taken. Ran three real end-to-end cases live (not relying on history): M10
+  (M8's dome at 1/40 scale, inches, off-origin, rotated axis), M12 (the one milestone with a
+  genuinely CLOSED dome apex — its bore stops ~83mm short of the true tip, unlike every other
+  dome milestone which opens straight through), and M2 (full-scale baseline) — all three passed
+  volume/bounds/deviation cleanly, and the new dome-cap viewport layer rendered correctly and
+  distinctly at both the tiny and full scale. **One thing NOT confirmed**: a clean close-up
+  screenshot of M12's actual pole convergence — my own ad hoc verification camera-framing script
+  wasn't precise enough to frame that ~83mm-tall region (a tooling limitation, not a product
+  issue); Fable's own dome-cap report already flagged this same "closes to an apex" behavior as
+  unit-tested on synthetic spheres but not screenshot-verified on real geometry, and that's still
+  true. If it matters, load M12 live and rotate to the pole by hand.
+  Separately, extended the LED-clock styling (from the per-dial percentage readouts) to the T+
+  mission clock and NOMINAL status word, per Brady's direct follow-up request: `MissionClock` now
+  paints a bezeled 6-digit HH:MM:SS LED plaque (new `_draw_led_clock` in `app/dashboard.py`,
+  reusing the existing 7-segment digit renderer) with lit colons between the groups — kept here
+  unlike the dial's "%" readout, since this number genuinely tells elapsed time. `StatusStrip`
+  (NOMINAL/STANDBY/RUNNING/FAULT) got a matching dark bezel via QSS but stays plain letter-spaced
+  text, since most letters have no honest 7-segment shape. 166 tests passing (+2).
 - **2026-09-08 — Dome-cap end-band viewport layer added (Fable 5.1, `389a27f`).** Brady looked
   at the new station rings on M8 and asked why they stop abruptly ~190mm short of each dome tip,
   wondering if rings were being hidden or if he misunderstood "Stations." Neither — genuinely
