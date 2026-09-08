@@ -742,7 +742,7 @@ class TourController(QObject):
             return False
         if self._constrained and event_type in (QEvent.Type.MouseButtonPress,
                                                 QEvent.Type.MouseButtonDblClick):
-            if not self._click_allowed(obj):
+            if not self._click_allowed(obj, event):
                 if self._halo is not None:
                     self._halo.flash()
                 return True
@@ -765,24 +765,44 @@ class TourController(QObject):
             parent = parent.parentWidget()
         return False
 
-    def _click_allowed(self, obj) -> bool:
+    def _click_allowed(self, obj, event=None) -> bool:
         """Soft constraint: while an action step is asking for a specific click, clicks elsewhere
         are swallowed -- but menus, dialogs and the menubar always stay live so Cancel, Quit and
-        native behavior are never trapped. Keyboard is never constrained."""
-        if not isinstance(obj, QWidget):
-            return True
-        try:
-            target = self._current_target()
-        except AttributeError:
+        native behavior are never trapped. Keyboard is never constrained.
+
+        A click is allowed if EITHER the ancestor walk from `obj` reaches the target (the normal
+        case) OR the event's own global position lands inside the target's global rect (Brady hit
+        this live on the very first action step of the very first demo he ran, M1's Analyze
+        button, 2026-09-08 -- the halo/bubble are separate top-level windows relying on
+        `WA_TransparentForMouseEvents` to pass clicks through to the real window underneath, and
+        that pass-through is a platform behavior this project cannot fully control or verify
+        offscreen. Checking the click's own coordinates against the target's rect doesn't depend
+        on which window macOS/Qt actually decided to deliver the event to -- if the pointer was
+        physically over the button, the button gets it, full stop.)"""
+        if isinstance(obj, QWidget):
+            try:
+                target = self._current_target()
+            except AttributeError:
+                target = None
+            allowed_roots = [w for w in (target, self._bubble, self._halo,
+                                         self._window.menuBar() if self._window else None)
+                             if w is not None]
+            widget = obj
+            while widget is not None:
+                if widget in allowed_roots:
+                    return True
+                if isinstance(widget, (QMenu, QMenuBar, QMessageBox, QDialog)):
+                    return True
+                widget = widget.parentWidget()
+        else:
             target = None
-        allowed_roots = [w for w in (target, self._bubble, self._halo,
-                                     self._window.menuBar() if self._window else None)
-                         if w is not None]
-        widget = obj
-        while widget is not None:
-            if widget in allowed_roots:
+            try:
+                target = self._current_target()
+            except AttributeError:
+                pass
+        if target is not None and event is not None and hasattr(event, "globalPosition"):
+            global_pt = event.globalPosition().toPoint()
+            target_rect = QRect(target.mapToGlobal(QPoint(0, 0)), target.size())
+            if target_rect.contains(global_pt):
                 return True
-            if isinstance(widget, (QMenu, QMenuBar, QMessageBox, QDialog)):
-                return True
-            widget = widget.parentWidget()
         return False

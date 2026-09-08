@@ -339,6 +339,28 @@ def test_constraint_allows_the_target_and_swallows_everything_else(window):
     controller.cancel()
 
 
+def test_constraint_allows_a_click_that_lands_on_the_target_by_position_alone(window):
+    """Real incident, 2026-09-08: Brady's very first demo (M1) reached its very first
+    click-required step (Analyze) and the button would not respond. The halo/bubble are separate
+    top-level windows relying on `WA_TransparentForMouseEvents` to pass clicks through to the
+    real window underneath -- a platform behavior this project cannot fully control or verify
+    offscreen. So the constraint must also allow a click purely by WHERE it landed: if the
+    event's global position is inside the target's own global rect, it must go through even when
+    Qt hands the filter some other widget as the nominal receiver (simulated here by passing
+    `window.outline`, which is NOT an ancestor of the target, together with an event positioned
+    exactly over the real `analyze_btn`)."""
+    steps = [TourStep(target="analyze_btn", title="Step 1", body="Click Analyze.", constrain=True)]
+    controller = _controller(window, steps)
+    target_rect = QRect(window.analyze_btn.mapToGlobal(QPoint(0, 0)), window.analyze_btn.size())
+    center = target_rect.center()
+    on_target_event = QMouseEvent(
+        QEvent.Type.MouseButtonPress, QPointF(center), QPointF(center),
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    assert controller.eventFilter(window.outline, on_target_event) is False  # allowed through
+    assert controller.eventFilter(window.outline, _press_event()) is True  # elsewhere still blocked
+    controller.cancel()
+
+
 def test_unconstrained_step_swallows_nothing(window):
     steps = [TourStep(target="run_btn", title="Step 1", body="Read this.")]
     controller = _controller(window, steps)
