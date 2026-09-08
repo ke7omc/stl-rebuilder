@@ -1,6 +1,41 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-08 — First live-testing round on the new tour system: a real bug fixed, 3 more
+  graphics requests done by Fable 5.1 (`ac99f94`, `fb5c197`).** Brady ran the M1 demo for real
+  and got blocked at step 9 (the Analyze click) — a genuine regression, not user error. Root
+  cause: the coachmark bubble/halo are separate top-level windows relying on
+  `WA_TransparentForMouseEvents` to pass clicks through to the real window underneath, a platform
+  behavior this project flagged as unverifiable offscreen in both Phase B's and Phase C's own
+  reports — and apparently it didn't hold up live. Fixed directly (not delegated): `_click_allowed`
+  in `app/tour.py` now also allows a click by its actual screen position landing inside the
+  target's global rect, regardless of which widget object Qt handed the event filter — so the fix
+  holds even if the underlying pass-through misbehaves again. Test locks in the exact scenario.
+  267 tests passing after this fix alone (full suite re-run, confirmed no regression).
+  Then handled 3 more live-testing graphics complaints via Fable 5.1 (`fb5c197`, 277 tests):
+  1. **Deviation heatmap was unreadable exactly when the news was good** — `inferno`'s near-black
+     floor made low deviation vanish into the dark theme. Replaced with a custom colormap
+     literally anchored to the app's own SUCCESS green → WARNING amber → ERROR red tokens (the
+     same "nominal/caution/fault" language the dashboard already speaks), amber stop past
+     halfway since half-tolerance is still nominal. Verified on a real M8 rebuild (now a calm
+     visible green) and with an artificially-tightened tolerance to confirm bad regions still pop.
+  2. **Legend can now toggle solid/transparent directly**, not just via the View menu — a small
+     half-filled-circle button on the Input-mesh/Rebuilt-solid legend rows, wired to the SAME
+     setters the View menu already uses (bidirectional sync, no parallel state). Chose a visible
+     sub-control over right-click/double-click for discoverability; flagged as the one real
+     taste tradeoff. Second screenshot pass caught the new button pushing OTHER rows' labels
+     off-alignment — fixed by giving every row the same trailing stretch.
+  3. **New View ▸ "Input mesh: show triangulation"** — the input STL's real facets are now
+     viewable (`show_edges=True`), independent of the solid's render-mode cycle (which
+     deliberately shows real geometric edges, not raw facets, per an earlier round — different
+     data, different purpose). Took two screenshot iterations to find a genuinely legible
+     edge color/width that doesn't wash out under SSAA or turn into an unreadable dense mess at
+     high triangle counts (M9-scale). Honest caveat: on M9's 915k triangles at full-part zoom the
+     edges darken into a texture — resolves on zoom, inherent to the density, not a bug.
+  - **Minor thing flagged, not fixed**: in deviation mode, the topology-event rings could
+    momentarily read as "fault regions" since they're also reddish — thin off-surface rings, and
+    the layer can be hidden, so left as a known minor nit.
+  - **21 commits ahead of origin — still nothing pushed. Brady: `git push` when ready.**
 - **2026-09-08 — Help/Manual + guided-demo tour system + no-install launcher, all 4 phases
   complete (`68162bd`→`641c5a0`→`11571f6`→`f03bdb7`).** Brady asked for an in-app manual, 13
   click-to-start guided demos (one per milestone) with speech-bubble popups anchored to the real
