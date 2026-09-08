@@ -373,6 +373,51 @@ def test_seven_segment_map_covers_every_readout_character():
         assert set(segs) <= set("abcdefg")
 
 
+def test_mission_clock_paints_as_led_digits_without_error(dashboard):
+    """The T+ clock got the same LED-plaque treatment as the dial readouts (2026-09-08, Brady's
+    follow-up: "make the T+ counter and NOMINAL word similar to the old style LED clock").
+    Smoke test across idle (00:00:00) and an hours-plus-59-minutes value (exercises every digit
+    0-9 across the six positions) -- none of it should raise. Sets `_elapsed_s` directly rather
+    than monkeypatching `time.monotonic` and calling `start()`: the `dashboard` fixture's own
+    GaugeDials have real QTimers already running with real-clock timestamps recorded, and a
+    global `time.monotonic` patch to a small fake "now" makes THEIR elapsed-time math go hugely
+    negative and overflow `math.exp` in `_creep_target` -- the exact pytest-qt QTimer-bleed
+    flakiness already hit once this session (see the dial-centering test's own history)."""
+    clock = dashboard.mission_clock
+    clock.grab()  # idle, 00:00:00, un-started
+    clock._elapsed_s = 3723.0  # 01:02:03 -- touches digits 0,1,2,3 across the six positions
+    clock._started_at = None
+    clock.grab()
+
+
+def test_led_clock_helper_places_two_colons_and_six_digits(dashboard):
+    """`_draw_led_clock` must actually draw all 6 HH:MM:SS digits plus both colon separators --
+    a silently-dropped digit or colon (e.g. an off-by-one in the `i in (1, 3)` colon-position
+    check) would only show up as a visually wrong readout, never an exception, so assert the
+    segment-drawing call count directly rather than trusting a "it didn't crash" smoke test
+    alone."""
+    from unittest.mock import patch
+
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QColor
+
+    from app.dashboard import _draw_led_clock
+
+    from PySide6.QtGui import QPainter
+    pixmap = dashboard.mission_clock.grab()  # a live QPixmap to paint onto, grabbed BEFORE
+    # patching -- grab() itself runs the widget's own real paintEvent, which would add its own
+    # (unpatched-vs-patched-mismatched) calls if taken while the patch below is already active.
+    calls = []
+    with patch("app.dashboard._draw_seven_segment_digit",
+               side_effect=lambda p, rect, ch, *a: calls.append(ch)):
+        painter = QPainter(pixmap)
+        try:
+            _draw_led_clock(painter, QRectF(0, 0, 200, 28), "T+", 1, 2, 3, QColor("#00e5ff"))
+        finally:
+            painter.end()
+    assert calls == list("010203")
+
+
 def test_dial_paints_without_error_across_every_led_readout_case(dashboard):
     """Smoke test: 0%, a 2-digit value, 100%, and idle "--" all exercise a different digit count/
     layout branch in `_draw_led_readout` -- none of them should raise."""

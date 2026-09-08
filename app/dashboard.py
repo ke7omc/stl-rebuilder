@@ -7,7 +7,7 @@ import math
 import time
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
 )
@@ -121,6 +121,55 @@ def _draw_led_readout(p: QPainter, box: QRectF, text: str, color: QColor):
         p.setPen(color)
         p.drawText(QRectF(x, box.y(), box.width() * 0.22, box.height()),
                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, suffix)
+
+
+def _draw_led_clock(p: QPainter, box: QRectF, prefix: str, h: int, m: int, s: int, color: QColor):
+    """The mission clock's own bezeled LED plaque (2026-09-08, Brady's follow-up request: give
+    T+/NOMINAL the same "old LED alarm clock" treatment as the per-dial percentage readouts).
+    Six 7-segment digits (HH:MM:SS) with two lit colon dots between the groups -- unlike the
+    dial readout's "%", a colon IS kept here: this number genuinely tells the time, whereas the
+    dial's percentage explicitly did not (Brady's own distinction from the earlier request).
+    `prefix` ("T+") sits as plain text ahead of the digits rather than forced into a segment
+    shape neither T nor + honestly has -- the same real-hardware idiom as a chronometer's
+    engraved label next to its segmented numeral field."""
+    p.setPen(QPen(QColor(BORDER), 1.0))
+    p.setBrush(QColor("#0a0b0d"))
+    p.drawRoundedRect(box, 3, 3)
+
+    digits = f"{h:02d}{m:02d}{s:02d}"
+    pad = box.height() * 0.2
+    digit_h = box.height() - 2 * pad
+    off_color = QColor(color)
+    off_color.setAlpha(38)
+
+    prefix_font = QFont(p.font())
+    _scale_font(prefix_font, 0.65)
+    prefix_w = QFontMetricsF(prefix_font).horizontalAdvance(prefix + " ") if prefix else 0.0
+
+    digit_w = digit_h * 0.55
+    colon_w = digit_w * 0.28
+    gap = digit_w * 0.22
+    total_digits_w = 6 * digit_w + 2 * colon_w + 7 * gap
+    start_x = box.x() + (box.width() - prefix_w - total_digits_w) / 2
+    if prefix:
+        p.setFont(prefix_font)
+        p.setPen(color)
+        p.drawText(QRectF(start_x, box.y(), prefix_w, box.height()),
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, prefix)
+
+    x = start_x + prefix_w
+    thickness = max(1.4, digit_h * 0.11)
+    for i, ch in enumerate(digits):
+        _draw_seven_segment_digit(p, QRectF(x, box.y() + pad, digit_w, digit_h), ch,
+                                   color, off_color, thickness)
+        x += digit_w + gap
+        if i in (1, 3):  # a lit colon after HH and after MM, none after SS
+            dot_r = thickness * 0.65
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(color)
+            p.drawEllipse(QPointF(x + colon_w / 2, box.y() + pad + digit_h * 0.30), dot_r, dot_r)
+            p.drawEllipse(QPointF(x + colon_w / 2, box.y() + pad + digit_h * 0.70), dot_r, dot_r)
+            x += colon_w + gap
 
 
 class GaugeDial(QWidget):
@@ -399,7 +448,7 @@ class MissionClock(QWidget):
         self._timer = QTimer(self)
         self._timer.setInterval(200)
         self._timer.timeout.connect(self.update)
-        self.setMinimumSize(120, 20)
+        self.setMinimumSize(190, 28)  # room for a "T+" prefix + 6 LED digits + 2 colons
 
     def start(self):
         if self._started_at is not None:
@@ -433,13 +482,12 @@ class MissionClock(QWidget):
         secs = int(self._current_elapsed())
         h, rem = divmod(secs, 3600)
         m, s = divmod(rem, 60)
-        text = f"T+ {h:02d}:{m:02d}:{s:02d}"
         font = QFont(self.font())
         font.setFamilies(_MONO_FAMILIES)
         font.setBold(True)
         p.setFont(font)
-        p.setPen(QColor(TELEMETRY if self._started_at is not None else TEXT_SECONDARY))
-        p.drawText(self.rect(), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
+        color = QColor(TELEMETRY if self._started_at is not None else TEXT_SECONDARY)
+        _draw_led_clock(p, QRectF(self.rect()), "T+", h, m, s, color)
         p.end()
 
 
@@ -454,7 +502,12 @@ _STATUS_STRIP_STYLE = {
 class StatusStrip(QLabel):
     """Uppercase, letter-spaced status word (STANDBY/RUNNING — <stage>/NOMINAL/FAULT — <kind>)
     giving the gauge cluster a single at-a-glance verdict, the same idiom as an aircraft
-    caution-and-warning annunciator panel."""
+    caution-and-warning annunciator panel. Housed in the same dark bezel as the LED digit
+    readouts (2026-09-08, Brady's follow-up: match NOMINAL to the "old LED clock" look) -- but
+    the WORD itself stays plain letter-spaced text rather than forced into 7-segment shapes,
+    since M/W/N and friends have no honest segment rendering; the shared bezel/glow-color
+    language is what ties it to the digit displays, the same way a real console pairs a
+    segmented numeral field with a plain backlit annunciator placard, not two of the same."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -463,6 +516,8 @@ class StatusStrip(QLabel):
         font.setBold(True)
         font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.2)
         self.setFont(font)
+        self.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.setContentsMargins(0, 0, 0, 0)
         self.set_status("idle")
 
     def set_status(self, key: str, detail: str = ""):
@@ -470,7 +525,9 @@ class StatusStrip(QLabel):
         if detail:
             text = f"{text} — {detail}"
         self.setText(text)
-        self.setStyleSheet(f"color: {color};")
+        self.setStyleSheet(
+            f"color: {color}; background-color: #0a0b0d; border: 1px solid {BORDER}; "
+            "border-radius: 3px; padding: 4px 8px;")
 
 
 class Dashboard(QWidget):
