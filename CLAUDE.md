@@ -1,6 +1,71 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-08 — Help/Manual + guided-demo tour system + no-install launcher, all 4 phases
+  complete (`68162bd`→`641c5a0`→`11571f6`→`f03bdb7`).** Brady asked for an in-app manual, 13
+  click-to-start guided demos (one per milestone) with speech-bubble popups anchored to the real
+  controls (arrow, not text-in-a-panel), including M9 deliberately hitting its real known
+  verification failure and teaching the actual lesson, plus a no-admin double-click desktop
+  launcher. Planned first by a dedicated Fable 5.1 research pass
+  (`docs/plans/help_and_demo_system.md`, ~600 lines, untracked/gitignored-adjacent — read it for
+  the full spec before touching any of this) — Brady confirmed 4 decisions before build: demo
+  names as proposed, a CUSTOM app icon (not the plan's original generic-icon default), soft
+  input-lock on demo action steps, TELEMETRY cyan bubble color. Built via 4 sequential Opus
+  agent passes, each screenshot-verified before the next started (this project's established
+  discipline paid off again — every single phase's screenshot pass caught a real bug invisible
+  from code alone, see below). 266 tests passing (was 166 before this feature, +100).
+  - **Phase A — `app/help.py` + `app/help_content/*.md`**: Help → Quick Start Guide (F1) / Manual,
+    11 pages covering every config, view toggle, and verification-row meaning, non-modal
+    searchable dialog. Screenshot pass caught: a silently-dropped QSS stylesheet (unescaped `}}`
+    in an f-string), zero paragraph spacing (`setMarkdown` bypasses the document default
+    stylesheet — needed a manual `_space_out_blocks()`), and troubleshooting's Symptom/Fix lines
+    collapsing into one paragraph (markdown eats single newlines).
+  - **Phase B — `app/tour.py`**: the generic coachmark engine (`TourStep`/`CoachmarkBubble`/
+    `TargetHalo`/`TourController`), two frameless top-level `Qt.Tool` windows (not a child overlay
+    — the central viewport is native OpenGL, child widgets over it are unreliable), soft
+    click-lock during action steps, an `expect` corrector for wrong settings. Added `MainWindow`
+    signals `analyze_finished`/`rebuild_finished(bool)`/`run_failed`/`input_loaded` +
+    `_verification_all_passed()` (deliberately returns **False**, not the plan's stated True, on a
+    missing/empty verification block — right polarity for M9's branch). Screenshot pass caught
+    the waiting-hint text colliding with the button row at 340px width.
+  - **Phase C — `app/demos.py` + `app/demo_scripts.py`**: all 13 demos (names verbatim from the
+    plan — Simple Tube Grain, Domed Capsule, Six-Point Star Bore, Finocyl, Domed Finocyl, Tapered
+    Star, Central Bore + Six Satellites, Mid-Burn Slotted Grain, **Noisy Scan Input — Reading a
+    "Failed" Check** (M9), Tiny/Tilted/Inches, Three-Segment BATES, Near-Burnout, Dirty Real-World
+    Capstone), meshes generated on demand via the existing `harness.generators.make()` (NOT copied
+    into the repo — `harness/truth/` is gitignored, up to 253MB for M13, so on-demand generation
+    IS the portable form). M9's script runs at the real official settings
+    (`z/mm/80/adaptive/5.0`), branches on the real verification outcome, and its failure-path text
+    tracks `pipeline/engine.py::_axial_bounds_hint`'s actual current wording (~21mm short at the
+    aft dome tip, no chord-tol/adaptive value moves it, Deviation p95 ≈2.3mm/10mm is the real
+    signal). Screenshot pass caught a SERIOUS bug: the mesh worker's completion slots were lambdas,
+    and Qt's connection-type inference from a receiver with no thread affinity ran them on the
+    WORKER thread — the tour was silently building on the wrong thread and never fired. Also
+    caught near-white demo-picker rows (`alternate-base` unthemed) and truncated blurb text
+    (`heightForWidth` needed, same lesson as the bubble's own sizing). Bonus real bug found writing
+    M10's script: **`chord_tol_spin` was a 2-decimal spinbox**, silently unable to enter M10's
+    official 0.0125mm value — any inch-scale part needing sub-0.01mm tolerance was broken before
+    this; now 4 decimals.
+  - **Phase D — `scripts/create_desktop_shortcut.py`**: macOS primary = a generated `.app` bundle
+    (Dock presence, no lingering Terminal window) + a `.command` fallback for debugging; Windows =
+    `.bat` + a PowerShell-generated Desktop `.lnk` targeting `pythonw.exe` (OneDrive-safe Desktop
+    resolution) — generated on every platform, executed only on win32, explicitly flagged as
+    **designed but unverified** since this all ran on a Mac. `Help → Create Desktop Shortcut…` is
+    live. **The custom app icon is hand-drawn with Pillow** (no image-gen tool, no network,
+    same reasoning as the hand-drawn LED digits earlier this session): a motor-grain meridian
+    profile (barrel + shallow elliptical domes, blue `#3f9fdc`) with the bore knocked out as true
+    transparency and a dashed TELEMETRY-cyan axis line extending past both dome tips, on the
+    viewport's own dark gradient — converted to `.icns` via macOS's built-in `iconutil`, never
+    committed as a binary (regenerated every run). Screenshot pass caught the FIRST icon design
+    reading as the digit "0" at 128px (semicircular dome ends looked like a zero) — fixed to
+    genuinely elliptical domes.
+  - **Not yet verified — needs Brady on a real screen** (flagged consistently across all 4
+    phases' reports, not glossed over): the coachmark bubble/halo's actual stacking above the
+    native OpenGL viewport and the halo's opacity pulse (nothing offscreen can prove this); one
+    real end-to-end M9 demo run to watch the actual failure and branch fire; the icon at real
+    size in Finder/Dock; the one-time Gatekeeper right-click→Open on the generated `.app`; the
+    entire Windows launcher path (`.bat`/`.lnk`/pythonw) is untested by construction.
+  - **19 commits ahead of origin — nothing pushed yet. Brady: `git push` when ready.**
 - **2026-09-08 — Dome-shape robustness spot-check + T+/NOMINAL LED styling (`0c04ed6`).** Brady
   asked point-blank whether the reconstruction actually works across dome sizes, not just the M8
   screenshots already taken. Ran three real end-to-end cases live (not relying on history): M10
