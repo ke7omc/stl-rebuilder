@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from app import __version__, manifest as manifest_mod
 from app.dashboard import Dashboard
+from app.help import HelpDialog
 from app.theme import (
     ACCENT, BG_DARKEST, ERROR, MONO_FAMILY, SUCCESS, TELEMETRY, TEXT_DISABLED, TEXT_SECONDARY,
     WARNING,
@@ -121,6 +122,7 @@ class MainWindow(QMainWindow):
         # dodged this by storing `self._active_worker` (needed anyway, for Cancel) -- this list
         # is the same fix applied everywhere a worker+thread pair is created.
         self._workers = []
+        self._help_dialog = None
 
         self.viewport = Viewport(self, offscreen=offscreen)
         self.setCentralWidget(self.viewport)
@@ -262,6 +264,27 @@ class MainWindow(QMainWindow):
         self.addAction(self.render_mode_cycle_action)  # shortcut-only, not shown in any menu
 
         help_menu = menubar.addMenu("&Help")
+        quick_start_action = QAction("&Quick Start Guide", self)
+        quick_start_action.setShortcut("F1")
+        quick_start_action.triggered.connect(lambda: self._show_help("00_quick_start"))
+        help_menu.addAction(quick_start_action)
+        manual_action = QAction("&Manual", self)
+        manual_action.triggered.connect(lambda: self._show_help(None))
+        help_menu.addAction(manual_action)
+        help_menu.addSeparator()
+        # Present-but-disabled rather than absent: the manual's Guided-demos page describes these
+        # two by name, and a reader who goes looking for a menu entry that isn't there has no way
+        # to tell "not built yet" from "I can't find it". Phase C/D enable and connect them.
+        self.demos_action = QAction("&Guided Demos...", self)
+        self.demos_action.setEnabled(False)
+        self.demos_action.setToolTip("coming in this build")
+        help_menu.addAction(self.demos_action)
+        help_menu.addSeparator()
+        self.create_shortcut_action = QAction("Create &Desktop Shortcut...", self)
+        self.create_shortcut_action.setEnabled(False)
+        self.create_shortcut_action.setToolTip("coming in this build")
+        help_menu.addAction(self.create_shortcut_action)
+        help_menu.addSeparator()
         about_action = QAction(f"&About {APP_TITLE}", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
@@ -323,6 +346,20 @@ class MainWindow(QMainWindow):
             return
         self.status_label.setText(f"Saved {os.path.basename(path)}")
         self.log_line(f"✓ Viewport image saved — {_elide_path(path)}")
+
+    def _show_help(self, page_id: str = None):
+        """Open (or re-raise) the single manual window, optionally deep-linked to one page.
+
+        One lazily-created instance kept for the window's lifetime, rather than a fresh dialog
+        per invocation: re-opening Help should return the reader to where they were, and a
+        second dialog stacked on the first is the usual way that gets lost."""
+        if self._help_dialog is None:
+            self._help_dialog = HelpDialog(self)
+        self._help_dialog.show()
+        self._help_dialog.raise_()
+        self._help_dialog.activateWindow()
+        if page_id:
+            self._help_dialog.show_page(page_id)
 
     def _show_about(self):
         QMessageBox.about(
