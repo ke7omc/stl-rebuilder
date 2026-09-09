@@ -1,4 +1,12 @@
-"""Tolerance table, MISSION.md §5.4. Every value is derived from `chord_tol` (mm)."""
+"""Tolerance table, MISSION.md §5.4. Every value is derived from `chord_tol` (mm), with ONE
+deliberate exception: `circle_max_resid` also takes an independent `roundness_tol` (mm), the
+mesh's own measured (or user-stated) real-world out-of-roundness noise floor -- see that
+function's docstring and `docs/plans/decoupled_roundness_tolerance.md` (incident 2026-09-09) for
+why a single scalar cannot serve both "how imprecise is this mesh's faceting" (every OTHER value
+here) and "how non-round may a cross-section be and still count as a circle" on a real part whose
+faceting and roundness come from different processes (a real CAD export/scan can be finely
+tessellated yet genuinely not very round -- no synthetic milestone before M15 ever exercised
+this, since every earlier milestone's noise and faceting come from the same generation step)."""
 import math
 
 
@@ -22,8 +30,16 @@ def a_min(chord_tol: float) -> float:
     return math.pi * (5.0 * chord_tol) ** 2
 
 
-def circle_max_resid(chord_tol: float) -> float:
-    return 1.5 * chord_tol
+def circle_max_resid(chord_tol: float, roundness_tol: float = 0.0) -> float:
+    """Station circle-fit acceptance gate. Two independent scales, take the larger:
+    1.5*chord_tol bounds the residual a perfectly round surface shows through this mesh's
+    FACETING alone; `roundness_tol` is the mesh's own measured (or user-stated) real-world
+    roundness noise -- real CAD-exported/scanned parts can be finely tessellated (tiny chordal
+    sag) yet genuinely not very round (measured incident 2026-09-09: chordal estimate
+    0.00907 mm vs ~0.8 mm of true out-of-roundness; no single chord_tol satisfies both the
+    circle gates and the boolean/ShapeFix precisions, MISSION §5.4). roundness_tol <=
+    1.5*chord_tol reproduces the pre-M15 value exactly -- the M1-M14 invariant."""
+    return max(1.5 * chord_tol, roundness_tol)
 
 
 def dz_min(chord_tol: float, L: float) -> float:

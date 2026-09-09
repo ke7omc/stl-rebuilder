@@ -41,7 +41,7 @@ def _scripted_verification(sequence):
 
     def fake(mesh, R_axis, shape, chord_tol, axial_extent_mm, expected_bodies,
              preview_stl=None, stations_z_mm=None, topology_events_z_mm=None,
-             axial_origin_z=0.0, adaptive=None, sections=None):
+             axial_origin_z=0.0, adaptive=None, sections=None, roundness_floor=0.0):
         i = min(calls["n"], len(sequence) - 1)
         calls["n"] += 1
         dev = sequence[i]

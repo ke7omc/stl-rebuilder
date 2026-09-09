@@ -85,6 +85,10 @@ class Analysis:
     units: str
     n_dropped_islands: int
     bounds_mm: list
+    suggested_roundness_tol_mm: float = 0.0  # mesh-measured roundness-noise floor (see
+                                             # _estimate_roundness_noise); the "auto from mesh"
+                                             # --roundness-tol value (decoupled roundness plan,
+                                             # 2026-09-09) -- 0.0 means no independent estimate
 
 
 @dataclass
@@ -169,6 +173,85 @@ def _estimate_chord_tol(mesh) -> float:
         return 0.0
 
 
+def _estimate_roundness_noise(mesh, chord_tol: float, z_min: float, z_max: float):
+    """Mesh-measured out-of-roundness NOISE FLOOR, independent of `chord_tol` (the "auto from
+    mesh" `--roundness-tol`, `docs/plans/decoupled_roundness_tolerance.md` §4.2, incident
+    2026-09-09 — Brady's first real burnback STL). `_estimate_chord_tol` measures this same
+    mesh's FACETING sag; this is its sibling for real-world ROUNDNESS: a real CAD-exported/
+    scanned part can be finely tessellated (tiny chordal sag) yet genuinely not very round, and
+    no single `chord_tol` scalar can satisfy both the circle-fit classification gates and the
+    boolean/ShapeFix construction precisions at once (measured: 0.00907 mm chordal estimate vs.
+    ~0.8 mm of true out-of-roundness on Brady's part). Returns `(floor_mm, floor_info)`;
+    `floor_mm` is 0.0 (inert — reproduces every pre-M15 milestone's behaviour exactly) when too
+    few stations survive slicing/filtering to trust an estimate.
+
+    Slices 12 probe stations evenly across the axial extent (excluding the same steep-slope end
+    inset the station loop itself avoids — see `station_eps`'s own comment: chordal tessellation
+    error is amplified there by dR/dz, which would bias the estimate high right where it matters
+    least). Only single-loop stations vote (a severed/degenerate band contributes nothing, same
+    convention as `_classify_severed_station`) — a hole is NOT probed here: a non-circular bore
+    is not itself an error (it takes the prism path, MISSION §6.1), so only the OUTER envelope's
+    roundness sets the floor (a genuinely noisier bore is covered by the interleaved-topology
+    hint plus the explicit `--roundness-tol` escape hatch, not by this estimator).
+
+    Per probe, `g = max(resid, 2*center_offset)`: the station loop's ACCEPTANCE test is an OR of
+    a residual gate and a center-offset gate (`_axis_centered` requires `offset < 0.5*resid_gate`,
+    i.e. covering an offset of `d` needs a gate of `2*d`), so the floor must cover whichever of
+    the two this probe actually stresses. Take the WORST probe (`1.2 * max(g)`), not a quantile:
+    a station over the gate is a hard per-station error (exit 4), not a soft skip, and real
+    roundness noise can vary along z, so a floor that leaves even one probed station's true worst
+    case failing just relocates the trap. The 3x-median discard is protection against a single
+    garbage slice (e.g. a poorly-conditioned near-tip fit) setting the gate for the whole part;
+    requiring >= 6 of the 12 probes to survive that discard is what makes the resulting floor a
+    real measurement rather than an artefact of one bad sample.
+    """
+    L = z_max - z_min
+    if L <= 0.0:
+        return 0.0, {"floor_mm": 0.0, "measured_mm": 0.0, "n_probes": 0, "capped": False,
+                     "source": "auto"}
+    inset = min(max(tol.eps_end(chord_tol, L), 200.0 * chord_tol), 0.02 * L)
+    lo, hi = z_min + inset, z_max - inset
+    if hi <= lo:
+        return 0.0, {"floor_mm": 0.0, "measured_mm": 0.0, "n_probes": 0, "capped": False,
+                     "source": "auto"}
+    gs, radii = [], []
+    for z in np.linspace(lo, hi, 12):
+        try:
+            polys, _zz = slice_station(mesh, float(z), chord_tol)
+        except Exception:
+            continue
+        if len(polys) != 1:
+            continue
+        ext = np.asarray(polys[0].exterior.coords)
+        if len(ext) < 6:
+            continue
+        try:
+            cx, cy, Ro, resid, _ = fit_circle_robust(ext)
+        except Exception:
+            continue
+        gs.append(max(float(resid), 2.0 * math.hypot(cx, cy)))
+        radii.append(float(Ro))
+    gs_arr, radii_arr = np.asarray(gs, dtype=float), np.asarray(radii, dtype=float)
+    if len(gs_arr) == 0:
+        return 0.0, {"floor_mm": 0.0, "measured_mm": 0.0, "n_probes": 0, "capped": False,
+                     "source": "auto"}
+    med = float(np.median(gs_arr))
+    keep = gs_arr <= 3.0 * med if med > 0.0 else np.ones_like(gs_arr, dtype=bool)
+    gs_kept, radii_kept = gs_arr[keep], radii_arr[keep]
+    if len(gs_kept) < 6:
+        return 0.0, {"floor_mm": 0.0, "measured_mm": float(gs_arr.max()),
+                     "n_probes": int(len(gs_kept)), "capped": False, "source": "auto"}
+    measured = float(gs_kept.max())
+    raw = 1.2 * measured
+    cap_pct = 2.0
+    median_r = float(np.median(radii_kept))
+    cap = cap_pct / 100.0 * median_r if median_r > 0.0 else raw
+    floor = min(raw, cap)
+    return floor, {"floor_mm": floor, "measured_mm": measured, "raw_mm": raw,
+                   "n_probes": int(len(gs_kept)), "capped": bool(raw > cap),
+                   "cap_pct": cap_pct, "source": "auto"}
+
+
 def analyze(input_path: str, axis: str = "auto", units: Optional[str] = None,
            on_progress=None) -> Analysis:
     """Load and repair `input_path`, detect its frame, and report size/quality metrics —
@@ -197,6 +280,8 @@ def analyze(input_path: str, axis: str = "auto", units: Optional[str] = None,
     median_edge = float(np.median(edge_lengths)) if len(edge_lengths) else 0.0
     est = _estimate_chord_tol(mesh)
     suggested = max(est if est > 0.0 else median_edge, 1e-3)
+    _progress(0.88, "measuring cross-section roundness")
+    roundness_floor, _floor_info = _estimate_roundness_noise(mesh, suggested, z_min, z_max)
     _progress(0.92, "estimating axis confidence")
     result = Analysis(
         frame_axis=list(info["axis_unit"]),
@@ -211,6 +296,7 @@ def analyze(input_path: str, axis: str = "auto", units: Optional[str] = None,
         units=units_arg,
         n_dropped_islands=info["n_dropped_islands"],
         bounds_mm=info["bounds"],
+        suggested_roundness_tol_mm=roundness_floor,
     )
     _progress(1.0, "analyze complete")
     return result
@@ -236,6 +322,9 @@ class RebuildOptions:
                             # milestone (M13) already passes verification (complete no-op there
                             # regardless of default) and only one milestone (M6) currently
                             # triggers a retry at all, with ample runtime headroom to spare.
+    roundness_tol: Optional[float] = None  # decoupled roundness plan (2026-09-09): None = auto
+                                           # from mesh (_estimate_roundness_noise), 0.0 disables
+                                           # (pre-M15 legacy behavior), >0 an explicit mm value
 
 
 def rebuild(opts: RebuildOptions, on_progress: Optional[Callable[[str, float, str], None]] = None,
@@ -254,7 +343,8 @@ def rebuild(opts: RebuildOptions, on_progress: Optional[Callable[[str, float, st
         input_stl=opts.input_stl, output=opts.output, axis=opts.axis, units=opts.units,
         sections=opts.sections, refine_bands=opts.refine_bands, adaptive=opts.adaptive,
         chord_tol=opts.chord_tol, report=opts.report, stl=opts.stl,
-        refine_passes=opts.refine_passes, on_progress=on_progress, cancel=cancel,
+        refine_passes=opts.refine_passes, roundness_tol=opts.roundness_tol,
+        on_progress=on_progress, cancel=cancel,
     )
     stderr_buf = io.StringIO()
     try:
@@ -273,34 +363,43 @@ def rebuild(opts: RebuildOptions, on_progress: Optional[Callable[[str, float, st
     return Result(report=rep, output_path=args.output, stl_path=args.stl)
 
 
-def _axis_centered(cx: float, cy: float, R: float, chord_tol: float) -> bool:
-    return (cx ** 2 + cy ** 2) ** 0.5 < 0.5 * tol.circle_max_resid(chord_tol)
+def _axis_centered(cx: float, cy: float, R: float, resid_gate: float) -> bool:
+    return (cx ** 2 + cy ** 2) ** 0.5 < 0.5 * resid_gate
 
 
 def _non_axisymmetric_hint(zz: float, cx: float, cy: float, max_resid: float,
-                           chord_tol: float) -> str:
-    """Actionable message for a failed outer-loop circle fit (`_axis_centered`/
-    `circle_max_resid`, MISSION §6.1's axisymmetric-outer-envelope assumption). Two different
-    conditions are OR'd into one check, and they need different fixes: a genuinely off-axis
-    center points at --axis/--units, while an in-range center with too much roundness residual
-    (the common case in practice: ordinary mesh tessellation noise landing just over an auto
-    chord-tol's tight gate -- confirmed 2026-09-06, a residual of 0.1240 against a gate of 0.123
-    from --chord-tol 0.082, under 1% over) points at --chord-tol. Give a concrete number either
-    way, computed from what was actually measured, not a vague "try adjusting" (Brady,
-    2026-09-06: "we need a user message saying to bump up the chord tolerance a bit, be
-    specific on a percentage or something")."""
+                           chord_tol: float, resid_gate: float, floor_info: dict) -> str:
+    """Actionable message for a failed outer-loop circle fit (`_axis_centered`/`resid_gate`,
+    MISSION §6.1's axisymmetric-outer-envelope assumption). Three conditions, three different
+    fixes (`docs/plans/decoupled_roundness_tolerance.md` §3.5, incident 2026-09-09): a genuinely
+    off-axis center points at --axis/--units; a station whose measured noise EXCEEDS the
+    2%-of-radius anti-laundering cap (`floor_info["capped"]`) is genuinely non-axisymmetric, out
+    of scope; anything else is ordinary roundness noise the auto floor under-covered, and should
+    be told to use --roundness-tol, NEVER --chord-tol -- that was the up-leg of the trap this
+    function used to walk Brady straight back into (2026-09-06 through 2026-09-09: iterating the
+    old "retry with --chord-tol X" suggestion on a real part whose faceting and roundness are
+    decoupled just alternates between a roundness-gate failure and a BRepCheck validity failure,
+    with no chord-tol value that clears both)."""
     msg = (f"rebuild.py: outer loop at z={zz:.3f} is not an axis-centered circle "
           f"(max_resid={max_resid:.4f}, center=({cx:.4f},{cy:.4f})) — "
           f"non-axisymmetric outer envelopes not yet implemented")
     offset = (cx ** 2 + cy ** 2) ** 0.5
-    if offset > 0.75 * tol.circle_max_resid(chord_tol):
+    if offset > 0.75 * resid_gate:
         msg += (f"; the fitted center is {offset:.3g} mm off the axis — check --axis "
                f"(is it really right?) and --units")
+        return msg
+    needed = max(max_resid, 2.0 * offset) * 1.2
+    if floor_info.get("capped"):
+        cap_pct = floor_info.get("cap_pct", 2.0)
+        msg += (f"; the measured out-of-roundness at this station ({needed:.3g} mm) exceeds "
+               f"{cap_pct:.0f}% of the fitted radius — this outer envelope is genuinely "
+               f"non-axisymmetric, which is out of scope (MISSION §6.1); if you believe it is "
+               f"round with unusual noise, you can force --roundness-tol {needed:.3g}")
     else:
-        needed = max(max_resid / 1.5, offset / 0.75) * 1.2
-        msg += (f"; --chord-tol {chord_tol:g} mm is too tight for this mesh's actual "
-               f"roundness noise at this station — retry with --chord-tol {needed:.3g} "
-               f"or larger")
+        floor = floor_info.get("floor_mm", resid_gate)
+        msg += (f"; is not round to the current gate ({resid_gate:.3g} mm) — this mesh's "
+               f"measured roundness noise floor is {floor:.3g} mm — retry with "
+               f"--roundness-tol {needed:.3g}")
     return msg
 
 
@@ -331,19 +430,19 @@ def _multi_loop_hint(zz: float, polys, chord_tol: float) -> str:
     return msg
 
 
-def _fit_severed_envelope(polys, chord_tol: float):
+def _fit_severed_envelope(polys, chord_tol: float, resid_gate: float):
     """Fit the shared outer-envelope circle from a 'severed' station's disjoint islands
     (`_classify_severed_station`): the islands' outermost arcs all lie on the same dome/case
     surface (MISSION §6.2 M14 — measured on the final M14 truth at z=200: circle fit of the
     max-radius points across all 6 islands gives R=799.840 vs true case radius 800.000, resid
-    0.290 well inside `circle_max_resid`). Returns (Ro, max_resid), or None if the fit can't be
+    0.290 well inside `resid_gate`). Returns (Ro, max_resid), or None if the fit can't be
     trusted enough to feed the dome model (too few points, or the kept points don't actually
     span the ring — an ill-conditioned quarter-arc fit through a couple of adjacent islands must
     not silently bias the dome model the way a real full-circumference sample would)."""
     pts = np.vstack([np.asarray(p.exterior.coords) for p in polys])
     r = np.hypot(pts[:, 0], pts[:, 1])
     r_max = float(r.max())
-    keep = r >= r_max - 2.0 * tol.circle_max_resid(chord_tol)
+    keep = r >= r_max - 2.0 * resid_gate
     kept = pts[keep]
     if len(kept) < 12:
         return None
@@ -355,12 +454,12 @@ def _fit_severed_envelope(polys, chord_tol: float):
     if (2.0 * math.pi - float(gaps.max())) < math.pi:
         return None
     cx, cy, Ro, max_resid, _ = fit_circle_robust(kept)
-    if max_resid > tol.circle_max_resid(chord_tol) or not _axis_centered(cx, cy, Ro, chord_tol):
+    if max_resid > resid_gate or not _axis_centered(cx, cy, Ro, resid_gate):
         return None
     return (Ro, max_resid)
 
 
-def _classify_severed_station(polys, chord_tol: float):
+def _classify_severed_station(polys, chord_tol: float, resid_gate: float):
     """Given `slice_station`'s polys for one station, decide whether this is a 'severed'
     section: the annulus cut into disjoint simply-connected islands by an end-of-burn
     breakthrough (M14; MISSION §6.2). Returns either None (not severed — caller applies the
@@ -385,7 +484,7 @@ def _classify_severed_station(polys, chord_tol: float):
         return None
     if any(len(p.interiors) > 0 for p in polys):
         return None
-    return {"n_islands": len(polys), "env": _fit_severed_envelope(polys, chord_tol)}
+    return {"n_islands": len(polys), "env": _fit_severed_envelope(polys, chord_tol, resid_gate)}
 
 
 def _severed_fore_aft_runs(n_all: int, severed_idx: dict) -> tuple:
@@ -746,15 +845,15 @@ def _densify_dome_chords(outer_pts, z_lo, z_hi, at_start: bool, min_dz: float, r
     return [(float(z), _eval_r2_quadratic(z0, coef, z)) for z in zs]
 
 
-def _hole_classification(hole_pts, chord_tol: float):
+def _hole_classification(hole_pts, resid_gate: float):
     """Classify a closed hole ring as an axis-centered circle or not, using the same test the
     station loop uses. Returns (is_circular, R)."""
     cx, cy, R, max_resid, _ = fit_circle(hole_pts)
-    is_circ = max_resid <= tol.circle_max_resid(chord_tol) and _axis_centered(cx, cy, R, chord_tol)
+    is_circ = max_resid <= resid_gate and _axis_centered(cx, cy, R, resid_gate)
     return is_circ, R
 
 
-def _station_has_cavity_features(polys, chord_tol: float) -> bool:
+def _station_has_cavity_features(polys, resid_gate: float) -> bool:
     """True when this section's cavity is anything richer than a single axis-centered circular
     bore: several interior loops (M8's slots before they merge into the bore), one non-circular
     interior loop (the merged bore+slot "gear"), or several outer polygons (M12's breakthrough).
@@ -766,12 +865,12 @@ def _station_has_cavity_features(polys, chord_tol: float) -> bool:
         return False
     if len(interiors) > 1:
         return True
-    is_circ, _ = _hole_classification(np.asarray(interiors[0].coords), chord_tol)
+    is_circ, _ = _hole_classification(np.asarray(interiors[0].coords), resid_gate)
     return not is_circ
 
 
 def _bisect_slot_zone_edge(mesh, z_present: float, z_absent: float, chord_tol: float,
-                            n_iter: int = 50, min_dz: float = 1e-4) -> float:
+                            resid_gate: float, n_iter: int = 50, min_dz: float = 1e-4) -> float:
     """Localize the z where the slot zone begins or ends — the plane where the slots are BORN or
     DIE, which is *not* the plane where they merge with the bore.
 
@@ -789,7 +888,7 @@ def _bisect_slot_zone_edge(mesh, z_present: float, z_absent: float, chord_tol: f
             break
         zm = 0.5 * (z_a + z_b)
         polys, _zz = slice_station(mesh, zm, chord_tol)
-        if _station_has_cavity_features(polys, chord_tol):
+        if _station_has_cavity_features(polys, resid_gate):
             z_a = zm
         else:
             z_b = zm
@@ -819,8 +918,8 @@ def _bisect_severed_edge(mesh, z_severed: float, z_connected: float, chord_tol: 
     return 0.5 * (z_a + z_b)
 
 
-def _bisect_topology_event(mesh, z_a: float, z_b: float, chord_tol: float, circ_at_a: bool,
-                            n_iter: int = 50, min_dz: float = 1e-4) -> float:
+def _bisect_topology_event(mesh, z_a: float, z_b: float, chord_tol: float, resid_gate: float,
+                            circ_at_a: bool, n_iter: int = 50, min_dz: float = 1e-4) -> float:
     """Localize the z where a single bore hole's cross-section switches between circular and
     non-circular (M4/M5's fin-slot birth plane, MISSION §6's `topo_event_z` gate): `z_a` is a
     station known to be `circ_at_a`, `z_b` is known to be `not circ_at_a` (order doesn't
@@ -836,7 +935,7 @@ def _bisect_topology_event(mesh, z_a: float, z_b: float, chord_tol: float, circ_
         is_circ = circ_at_a
         if len(polys) == 1 and len(polys[0].interiors) == 1:
             hole = np.asarray(polys[0].interiors[0].coords)
-            is_circ, _ = _hole_classification(hole, chord_tol)
+            is_circ, _ = _hole_classification(hole, resid_gate)
         if is_circ == circ_at_a:
             z_a = zm
         else:
@@ -845,7 +944,7 @@ def _bisect_topology_event(mesh, z_a: float, z_b: float, chord_tol: float, circ_
 
 
 def _bisect_hole_edge(mesh, z_present: float, z_absent: float, chord_tol: float,
-                       cx0: float, cy0: float, r0: float, n_iter: int = 50,
+                       resid_gate: float, cx0: float, cy0: float, r0: float, n_iter: int = 50,
                        min_dz: float = 1e-4) -> float:
     """Localize the z where one specific satellite hole (M7's N perforations) starts or stops
     existing — `z_present` is a station known to have a hole near `(cx0, cy0)`, `z_absent` is a
@@ -864,7 +963,7 @@ def _bisect_hole_edge(mesh, z_present: float, z_absent: float, chord_tol: float,
             for ring in polys[0].interiors:
                 pts = np.asarray(ring.coords)
                 cx, cy, R, resid, _ = fit_circle(pts)
-                if resid <= tol.circle_max_resid(chord_tol) and \
+                if resid <= resid_gate and \
                         math.hypot(cx - cx0, cy - cy0) < match_dist:
                     present = True
                     break
@@ -1824,12 +1923,23 @@ def _run_multi_body(mesh, info, args, chord_tol) -> int:
     # frame as `mesh` — compare directly (identity transform), one block for all bodies.
     verification = None
     if not getattr(args, "_skip_verification", False):
+        # Independent whole-mesh roundness-floor estimate for the verification block's widened
+        # deviation/bounds tolerances (decoupled roundness plan, §3.4/§4.4) -- each sub-body
+        # already estimated (or was given) its own floor for CONSTRUCTION inside its own
+        # `_rebuild_impl` call above; this is a separate measurement over the whole compound
+        # mesh because that's the frame this top-level verification block compares in.
+        _rt_arg = getattr(args, "roundness_tol", None)
+        if _rt_arg is None:
+            _mb_floor, _ = _estimate_roundness_noise(
+                mesh, chord_tol, float(mesh.bounds[0][2]), float(mesh.bounds[1][2]))
+        else:
+            _mb_floor = float(_rt_arg)
         verification = _compute_verification(
             mesh, np.eye(4), compound, chord_tol,
             float(mesh.bounds[1][2] - mesh.bounds[0][2]),
             expected_bodies=len(bodies), preview_stl=args.stl,
             stations_z_mm=sorted(all_stations), topology_events_z_mm=[],
-            adaptive=args.adaptive, sections=args.sections)
+            adaptive=args.adaptive, sections=args.sections, roundness_floor=_mb_floor)
         _print_verification(verification)
     # Multi-body verification uses a different frame (identity, no `axial_origin_z`
     # subtraction) than the single-body path above -- porting a `worst_z_mm` from here through
@@ -1987,14 +2097,19 @@ def _axial_bounds_hint(ax_name: str, axiality: float, max_dev_mm: float, deviati
 def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm: float,
                           expected_bodies: int, preview_stl=None, stations_z_mm=None,
                           topology_events_z_mm=None, axial_origin_z: float = 0.0,
-                          adaptive=None, sections=None) -> dict:
+                          adaptive=None, sections=None, roundness_floor: float = 0.0) -> dict:
     """End-user verification block (report key `verification`, additive — the frozen scorer
     only requires its known keys): compare the units-converted, repaired input mesh against the
     produced solid, both in the ORIGINAL output frame (the STEP is exported back in the input's
     frame via `export.undo_axis_transform`; `R_axis` is the forward transform applied to
     `mesh`, so its inverse maps the repaired input back into that same frame). All values
     mm / mm³. Informational only — never raises, and a failing check never changes the run's
-    exit code; on internal error the block carries an `"error"` key instead."""
+    exit code; on internal error the block carries an `"error"` key instead.
+
+    `roundness_floor` (decoupled roundness plan §3.4, 2026-09-09) widens the deviation/bounds
+    tolerances below when the input mesh's real out-of-roundness noise (not reconstruction
+    error) would otherwise make an ACCURATE rebuild of a decoupled part fail its own
+    verification -- see where `dev_tol`/`bounds_tol_mm` are computed for the exact reasoning."""
     import time
     t0 = time.perf_counter()
     out = {}
@@ -2060,7 +2175,15 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
 
         # --- bounds, per axis, in the output frame -----------------------------------------
         solid_mesh = _solid_tessellation(shape, preview_stl, chord_tol)
-        bounds_tol_mm = max(2.0 * chord_tol, 1e-3 * float(axial_extent_mm))
+        # Widened by `roundness_floor` (decoupled roundness plan §3.4): on a decoupled part the
+        # INPUT genuinely deviates from the correct axisymmetric solid by its own roundness
+        # noise, so a successful rebuild's bounds can legitimately differ from the input's own
+        # (noisy) extreme vertex by more than `2*chord_tol` alone would allow. 1.5x the floor
+        # (not 1x) because the floor tracks ~p100 of the per-station noise (1.2x headroom over
+        # the worst probe) while this check is a single extreme-point comparison, not a
+        # statistic — measured margin is generous without swallowing real reconstruction error
+        # (bounded independently by the milestone's own bbox/deviation gates).
+        bounds_tol_mm = max(2.0 * chord_tol, 1e-3 * float(axial_extent_mm), 1.5 * roundness_floor)
         in_b = np.asarray(mesh_out.bounds, dtype=float)
         if solid_mesh is not None:
             sol_b = np.asarray(solid_mesh.bounds, dtype=float)
@@ -2125,7 +2248,14 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
                 cand_tris = np.asarray(sol.triangles, dtype=float)[idx.reshape(-1)]
                 closest = _trimesh.triangles.closest_point(cand_tris, rep_pts)
                 d = np.linalg.norm(closest - rep_pts, axis=1).reshape(len(pts), k).min(axis=1)
-                dev_tol = 2.0 * chord_tol
+                # Widened by `roundness_floor`, same reasoning as `bounds_tol_mm` above: on a
+                # decoupled part the input's vertices genuinely sit up to ~roundness_floor away
+                # from the (correct) axisymmetric solid, which is real input noise, not
+                # reconstruction error -- without this a successful rebuild of Brady's real part
+                # would report Deviation FAIL (p95 ~0.8 vs tol 0.018) and spuriously trigger
+                # `_rebuild_with_refinement`'s retry pass. 1.5x for the same p95-vs-p100 margin
+                # reasoning as bounds_tol_mm.
+                dev_tol = max(2.0 * chord_tol, 1.5 * roundness_floor)
                 p95 = float(np.percentile(d, 95))
                 # Axial location of the worst sample, in the report frame (`stations_z_mm`'s
                 # own coordinate system): the sample lives in the ORIGINAL output frame, so map
@@ -2607,6 +2737,26 @@ def _rebuild_impl(args) -> int:
     eps_end_val = tol.eps_end(chord_tol, L)
     eps_cut_val = tol.eps_cut(chord_tol)
 
+    # Decoupled roundness-tolerance floor (docs/plans/decoupled_roundness_tolerance.md,
+    # 2026-09-09): `resid_gate` is the ONE scalar every station/hole classification gate below
+    # consumes instead of recomputing `tol.circle_max_resid(chord_tol)` inline -- a real CAD-
+    # exported/scanned part can be finely tessellated (tiny chordal sag, honest `chord_tol`) yet
+    # genuinely not very round, and no single `chord_tol` value can satisfy both the roundness
+    # gates and the boolean/ShapeFix construction precisions at once (measured incident:
+    # Brady's real motor needed --chord-tol >= ~0.53 mm to clear the roundness gates but its
+    # construction precisions degrade from ~0.05 mm up, with no value satisfying both). `None`
+    # (the default) auto-measures the floor from THIS mesh (`_estimate_roundness_noise`); `0.0`
+    # is the legacy escape hatch (`resid_gate` reduces to exactly `1.5*chord_tol`, the M1-M14
+    # invariant); any other value is an explicit user override, never capped.
+    rt_arg = getattr(args, "roundness_tol", None)
+    if rt_arg is None:
+        if _on_progress0 is not None:
+            _on_progress0("scan", 0.0, "measuring cross-section roundness")
+        roundness_floor, floor_info = _estimate_roundness_noise(mesh, chord_tol, z_min, z_max)
+    else:
+        roundness_floor, floor_info = float(rt_arg), {"source": "cli", "floor_mm": float(rt_arg)}
+    resid_gate = tol.circle_max_resid(chord_tol, roundness_floor)
+
     # Stations right at a curved end (e.g. where a dome pinches out against a bore, M2) sit in a
     # region of steep dR/dz; the STL's own chordal tessellation error there gets amplified by
     # that slope into a much larger apparent circle-fit residual (measured on M2: ~1.7 mm at
@@ -2616,8 +2766,14 @@ def _rebuild_impl(args) -> int:
     # extension etc.) or M1's placement (its profile has no steep-slope region to avoid).
     # `200*chord_tol` alone breaks at M9's coarser chord_tol=5 (a 1000 mm inset on L~10000 mm
     # swallows the entire aft dome/slot-exit region past z=8945, per MISSION.md §5.2 step 2's
-    # own note that this hard-coded inset needs a cap at 0.02*L).
-    station_eps = min(max(eps_end_val, 200.0 * chord_tol), 0.02 * L)
+    # own note that this hard-coded inset needs a cap at 0.02*L). The amplification this inset
+    # guards against is a RESIDUAL-scale concern, so `200*chord_tol` (the pre-M15 term) is
+    # rewritten as `(200/1.5)*resid_gate` -- identical whenever the roundness floor is off
+    # (resid_gate == 1.5*chord_tol, so (200/1.5)*1.5*chord_tol == 200*chord_tol exactly,
+    # preserving M1-M14 station placement bit-for-bit) and widens the inset to ~133*floor
+    # (still capped at 0.02*L) on a real decoupled part, where amplified end-station residuals
+    # would otherwise exceed even the floated gate -- a hard exit-4, not a soft skip.
+    station_eps = min(max(eps_end_val, (200.0 / 1.5) * resid_gate), 0.02 * L)
     _anchor_zs = getattr(args, "_anchor_zs", None)
     _anchor_per_side = getattr(args, "_anchor_per_side", 1)
     if args.adaptive:
@@ -2666,7 +2822,7 @@ def _rebuild_impl(args) -> int:
         # outer loop ... got 6`, Brady's real motor). Contributes an envelope (z, R) sample to the
         # dome model like any station, nothing to bore/hole processing, and no chain adjacency —
         # the post-loop run-position validation below enforces WHERE severed stations may occur.
-        severed = _classify_severed_station(polys, chord_tol)
+        severed = _classify_severed_station(polys, chord_tol, resid_gate)
         if severed is not None:
             all_zz.append(zz)
             severed_idx[len(all_zz) - 1] = severed
@@ -2696,8 +2852,9 @@ def _rebuild_impl(args) -> int:
         poly = polys[0]
         ext = np.asarray(poly.exterior.coords)
         cx, cy, Ro, max_resid, _ = fit_circle_robust(ext)
-        if max_resid > tol.circle_max_resid(chord_tol) or not _axis_centered(cx, cy, Ro, chord_tol):
-            print(_non_axisymmetric_hint(zz, cx, cy, max_resid, chord_tol), file=sys.stderr)
+        if max_resid > resid_gate or not _axis_centered(cx, cy, Ro, resid_gate):
+            print(_non_axisymmetric_hint(zz, cx, cy, max_resid, chord_tol, resid_gate,
+                                         floor_info), file=sys.stderr)
             return 4
         outer_pts.append((zz, Ro))
 
@@ -2718,8 +2875,8 @@ def _rebuild_impl(args) -> int:
         for ring in rings:
             hole = np.asarray(ring.coords)
             cxh, cyh, Rh, max_resid2, _ = fit_circle(hole)
-            is_circle = max_resid2 <= tol.circle_max_resid(chord_tol)
-            is_central = _axis_centered(cxh, cyh, Rh, chord_tol)
+            is_circle = max_resid2 <= resid_gate
+            is_central = _axis_centered(cxh, cyh, Rh, resid_gate)
             if is_circle and is_central:
                 if central_seen:
                     print(f"rebuild.py: more than one axis-centered hole at z={zz:.3f} — "
@@ -2853,13 +3010,13 @@ def _rebuild_impl(args) -> int:
         if i_first == 0:
             z_lo = z_min - eps_cut_val
         else:
-            z_lo = _bisect_hole_edge(mesh, z_first, _connected_zz[i_first - 1], chord_tol, cx0,
-                                      cy0, R0)
+            z_lo = _bisect_hole_edge(mesh, z_first, _connected_zz[i_first - 1], chord_tol,
+                                      resid_gate, cx0, cy0, R0)
         if i_last == len(_connected_zz) - 1:
             z_hi = z_max + eps_cut_val
         else:
-            z_hi = _bisect_hole_edge(mesh, z_last, _connected_zz[i_last + 1], chord_tol, cx0,
-                                      cy0, R0)
+            z_hi = _bisect_hole_edge(mesh, z_last, _connected_zz[i_last + 1], chord_tol,
+                                      resid_gate, cx0, cy0, R0)
         if z_hi - z_lo < tol.sat_min_span(chord_tol):
             # Sub-tolerance flicker window (see tol.sat_min_span): a cutter thinner than the
             # boolean fuzzy regime it must survive breaks BRepAlgoAPI_Cut (observed on M8 at
@@ -3015,7 +3172,6 @@ def _rebuild_impl(args) -> int:
     if bore_rings and bore_pts and all_zz:
         bore_rings.sort(key=lambda p: p[0])
         _ring_lo, _ring_hi = bore_rings[0][0], bore_rings[-1][0]
-        _resid_gate = tol.circle_max_resid(chord_tol)
         for _at_start in (True, False):
             if [p for p in bore_pts if (p[0] < _ring_lo if _at_start else p[0] > _ring_hi)]:
                 continue
@@ -3030,16 +3186,16 @@ def _rebuild_impl(args) -> int:
                     continue
                 _poly = _polys[0]
                 _cx, _cy, _Ro, _mr, _ = fit_circle_robust(np.asarray(_poly.exterior.coords))
-                if _mr > _resid_gate or not _axis_centered(_cx, _cy, _Ro, chord_tol):
+                if _mr > resid_gate or not _axis_centered(_cx, _cy, _Ro, resid_gate):
                     continue
                 _r_central, _bad = None, False
                 for _ring in _poly.interiors:
                     _h = np.asarray(_ring.coords)
                     _cxh, _cyh, _Rh, _mr2, _ = fit_circle(_h)
-                    if _mr2 > _resid_gate:
+                    if _mr2 > resid_gate:
                         _bad = True   # a non-circular hole: still inside the slot zone
                         break
-                    if _axis_centered(_cxh, _cyh, _Rh, chord_tol):
+                    if _axis_centered(_cxh, _cyh, _Rh, resid_gate):
                         if _r_central is not None:
                             _bad = True
                             break
@@ -3077,13 +3233,14 @@ def _rebuild_impl(args) -> int:
         if len(pts_before) + len(pts_after) != len(bore_pts) or not (pts_before or pts_after):
             print("rebuild.py: hole loop topology is inconsistent across stations "
                   "(circular and non-circular sections are interleaved, not one contiguous "
-                  "transition) — not yet implemented", file=sys.stderr)
+                  "transition) — not yet implemented; if the bore is real but out-of-round, try "
+                  f"a larger --roundness-tol (currently {resid_gate:.3g} mm)", file=sys.stderr)
             return 4
         if pts_before and pts_after:
             event_fore = _bisect_topology_event(mesh, pts_before[-1][0], ring_z_min, chord_tol,
-                                                 circ_at_a=True)
+                                                 resid_gate, circ_at_a=True)
             event_aft = _bisect_topology_event(mesh, ring_z_max, pts_after[0][0], chord_tol,
-                                                circ_at_a=False)
+                                                resid_gate, circ_at_a=False)
             # Those two are the planes where the BORE's own cross-section changes class, and they
             # stay the geometry seams (the prism cutters must not reach past the run of stations
             # whose cross-section they were fitted from). They are not the topology events: when
@@ -3100,23 +3257,26 @@ def _rebuild_impl(args) -> int:
             if i_lo > 0:
                 zone_fore = min(zone_fore,
                                 _bisect_slot_zone_edge(mesh, _connected_zz[i_lo],
-                                                       _connected_zz[i_lo - 1], chord_tol))
+                                                       _connected_zz[i_lo - 1], chord_tol,
+                                                       resid_gate))
             if i_hi < len(_connected_zz) - 1:
                 zone_aft = max(zone_aft,
                                _bisect_slot_zone_edge(mesh, _connected_zz[i_hi],
-                                                      _connected_zz[i_hi + 1], chord_tol))
+                                                      _connected_zz[i_hi + 1], chord_tol,
+                                                      resid_gate))
         else:
             circ_before = bool(pts_before)
             z_a, z_b = (pts_before[-1][0], ring_z_min) if circ_before \
                 else (ring_z_max, pts_after[0][0])
-            event_z = _bisect_topology_event(mesh, z_a, z_b, chord_tol, circ_at_a=circ_before)
+            event_z = _bisect_topology_event(mesh, z_a, z_b, chord_tol, resid_gate,
+                                             circ_at_a=circ_before)
 
     # Envelope spans the true axial extent. Extrapolate the outer radius to it from the two
     # nearest fitted stations (linear secant) rather than copying the nearest station's R flat —
     # correct either way for a prismatic profile (M1, zero slope) and far closer for a curved
     # end (M2's domes, see `_extrapolate_end`).
     min_dz = 5.0 * chord_tol
-    resid_tol = tol.circle_max_resid(chord_tol)
+    resid_tol = resid_gate
     fore_model = aft_model = None
     axial_origin_z = 0.0
     if len(outer_pts) < 2:
@@ -3635,7 +3795,9 @@ def _rebuild_impl(args) -> int:
         est = _estimate_chord_tol(mesh)
         if est > 0.0 and chord_tol > 5.0 * est:
             msg += (f" — --chord-tol {chord_tol:g} mm is far coarser than the mesh's estimated "
-                    f"chordal deviation (~{est:.3g} mm); retry with --chord-tol {est:.3g}")
+                    f"chordal deviation (~{est:.3g} mm); retry with --chord-tol {est:.3g} "
+                    f"(roundness noise no longer requires a coarse --chord-tol; the roundness "
+                    f"gate is separate, see --roundness-tol)")
         elif est > 0.0 and chord_tol < 0.7 * est:
             # The actual cause of the 2026-09-06 M8 incident: a chord-tol tighter than the
             # mesh's own chordal noise/faceting can starve OCCT's tolerant construction of the
@@ -3683,7 +3845,8 @@ def _rebuild_impl(args) -> int:
             mesh, R_axis, shape, chord_tol, z_max - z_min, expected_bodies=1,
             preview_stl=args.stl, stations_z_mm=[z - axial_origin_z for z in zs],
             topology_events_z_mm=[z - axial_origin_z for z in topo_events_z_mm],
-            axial_origin_z=axial_origin_z, adaptive=args.adaptive, sections=args.sections)
+            axial_origin_z=axial_origin_z, adaptive=args.adaptive, sections=args.sections,
+            roundness_floor=roundness_floor)
         if not getattr(args, "_quiet_verification", False):
             _print_verification(verification)
     # Stash outcome details for `_rebuild_with_refinement` (mirrors the `args._partial` pattern
@@ -3714,6 +3877,7 @@ def _rebuild_impl(args) -> int:
             axial_extent_mm=z_max - z_min,
             axial_origin_z=axial_origin_z,
             verification=verification,
+            roundness=dict(floor_info),
         )
     _on_progress_end = getattr(args, "on_progress", None)
     if _on_progress_end is not None:

@@ -448,6 +448,8 @@ class MainWindow(QMainWindow):
         self.sections_spin.setValue(40)
         self.chord_tol_auto.setChecked(True)
         self.chord_tol_spin.setValue(0.5)
+        self.roundness_tol_auto.setChecked(True)
+        self.roundness_tol_spin.setValue(0.0)
         self.adaptive_check.setChecked(False)
         self.log_line(f"demo: {milestone} — {demo.name} ({len(demo.steps)} steps)")
         self._tour = TourController(self, demo.steps, demo.name)
@@ -678,6 +680,36 @@ class MainWindow(QMainWindow):
         chord_layout.addWidget(self.chord_tol_spin)
         chord_layout.addWidget(self.chord_tol_auto)
         form.addRow("Chord tol (mm)", chord_row)
+
+        # Decoupled roundness-tolerance floor (2026-09-09): mirrors the chord-tol auto/spin
+        # pattern exactly. A real CAD-exported/scanned part can be finely tessellated (tiny
+        # chordal sag) yet genuinely not very round -- the classification gates need this
+        # SEPARATE, independently-measured floor so --chord-tol can stay at the mesh's honest
+        # faceting precision instead of being dragged coarse to satisfy roundness alone (the
+        # trap that used to leave no --chord-tol value clearing both the roundness gates and the
+        # boolean/ShapeFix construction precisions at once).
+        self.roundness_tol_auto = QCheckBox("auto from mesh")
+        self.roundness_tol_auto.setToolTip(
+            "Measure the out-of-roundness noise floor from the mesh itself (12 probe "
+            "cross-sections, worst-case + 20% headroom, capped at 2% of the fitted radius). "
+            "0 disables the floor entirely -- classification gates then derive purely from "
+            "--chord-tol, as before this existed.")
+        self.roundness_tol_auto.setChecked(True)
+        self.roundness_tol_spin = QDoubleSpinBox()
+        self.roundness_tol_spin.setRange(0.0, 1000.0)
+        self.roundness_tol_spin.setDecimals(4)
+        self.roundness_tol_spin.setSingleStep(0.05)
+        self.roundness_tol_spin.setValue(0.0)
+        self.roundness_tol_spin.setEnabled(False)
+        self.roundness_tol_spin.setMinimumWidth(80)
+        self.roundness_tol_auto.toggled.connect(
+            lambda on: self.roundness_tol_spin.setEnabled(not on))
+        roundness_row = QWidget()
+        roundness_layout = QHBoxLayout(roundness_row)
+        roundness_layout.setContentsMargins(0, 0, 0, 0)
+        roundness_layout.addWidget(self.roundness_tol_spin)
+        roundness_layout.addWidget(self.roundness_tol_auto)
+        form.addRow("Roundness tol (mm)", roundness_row)
 
         self.adaptive_check = QCheckBox("adaptive stations")
         self.adaptive_check.setToolTip(
@@ -925,6 +957,8 @@ class MainWindow(QMainWindow):
         self.page_detected.tree.set_groups(_analysis_property_groups(analysis))
         if self.chord_tol_auto.isChecked():
             self.chord_tol_spin.setValue(max(analysis.suggested_chord_tol_mm, 0.01))
+        if self.roundness_tol_auto.isChecked():
+            self.roundness_tol_spin.setValue(max(analysis.suggested_roundness_tol_mm, 0.0))
         if mesh is not None:
             self.viewport.show_input_mesh(mesh)
         else:
@@ -964,13 +998,17 @@ class MainWindow(QMainWindow):
         os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
         chord_tol = (self._analysis.suggested_chord_tol_mm if (self.chord_tol_auto.isChecked() and self._analysis)
                      else self.chord_tol_spin.value())
+        # "auto" means let the ENGINE measure the floor itself from this exact run's chord_tol
+        # (None), not the GUI's own Analyze-time probe value -- same reasoning RebuildOptions'
+        # own docstring gives for roundness_tol=None.
+        roundness_tol = None if self.roundness_tol_auto.isChecked() else self.roundness_tol_spin.value()
         report_path = os.path.splitext(output_path)[0] + ".report.json"
         stl_preview_path = os.path.splitext(output_path)[0] + ".preview.stl"
         opts = RebuildOptions(
             input_stl=input_path, output=output_path, axis=self.axis_combo.currentText(),
             units=self.units_combo.currentText(), sections=self.sections_spin.value(),
             adaptive=self.adaptive_check.isChecked(), chord_tol=chord_tol,
-            report=report_path, stl=stl_preview_path,
+            roundness_tol=roundness_tol, report=report_path, stl=stl_preview_path,
         )
         self.status_label.setText("Running...")
         self.progress_bar.setValue(0)
@@ -980,8 +1018,10 @@ class MainWindow(QMainWindow):
         self._last_stage = None
         self.dashboard.reset_rebuild_dials()
         self.dashboard.mission_start()
+        rt_label = "auto" if opts.roundness_tol is None else f"{opts.roundness_tol:.3f}"
         self.log_line(f"rebuild: {input_path} -> {output_path} (sections={opts.sections}, "
-                      f"chord_tol={opts.chord_tol:.3f}, adaptive={opts.adaptive})")
+                      f"chord_tol={opts.chord_tol:.3f}, roundness_tol={rt_label}, "
+                      f"adaptive={opts.adaptive})")
         worker = RebuildWorker(opts)
         self._active_worker = worker
         worker.progress.connect(self._on_progress)
@@ -1163,6 +1203,8 @@ def _analysis_property_groups(analysis) -> list:
         ("Suggested run settings", [
             ("Chord tol (auto)", f"{fmt_num(analysis.suggested_chord_tol_mm, 3)} mm",
              analysis.suggested_chord_tol_mm),
+            ("Roundness noise (auto)", f"{fmt_num(analysis.suggested_roundness_tol_mm, 3)} mm",
+             analysis.suggested_roundness_tol_mm),
         ]),
     ]
 

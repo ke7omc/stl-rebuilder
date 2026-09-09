@@ -4,7 +4,8 @@ import json
 
 def write(path: str, n_stations: int, stations_z_mm, paths_used: dict,
           topology_events_z_mm=None, frame: dict = None, axial_extent_mm=None,
-          axial_origin_z: float = None, verification: dict = None) -> None:
+          axial_origin_z: float = None, verification: dict = None,
+          roundness: dict = None) -> None:
     payload = {
         "n_stations": int(n_stations),
         "stations_z_mm": [float(z) for z in stations_z_mm],
@@ -28,5 +29,12 @@ def write(path: str, n_stations: int, stations_z_mm, paths_used: dict,
         # bounds, body count, approximate sampled deviation — see
         # `pipeline.engine._compute_verification`). Not read by the frozen scorer.
         payload["verification"] = verification
+    if roundness is not None:
+        # Additive decoupled-roundness-tolerance block (docs/plans/decoupled_roundness_tolerance
+        # .md, 2026-09-09): the mesh-measured (or user-stated) out-of-roundness floor this run's
+        # `resid_gate` was built from -- `floor_mm`, and (when auto-measured) `measured_mm`/
+        # `raw_mm`/`n_probes`/`capped`/`cap_pct`, or `source: "cli"` when `--roundness-tol` gave
+        # an explicit value. Not read by the frozen scorer.
+        payload["roundness"] = roundness
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)

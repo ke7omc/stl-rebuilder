@@ -15,6 +15,7 @@ from pipeline import engine, tol
 from pipeline.slicing import slice_station
 
 CT = 0.5  # chord_tol used throughout -- matches M14's own committed rebuild_args
+RG = tol.circle_max_resid(CT)  # resid_gate with no roundness floor (pre-M15 legacy value)
 
 
 def _hexagon(cx, cy, r, n=64):
@@ -47,7 +48,7 @@ def _six_islands(R=800.0, half_angle_deg=20.0, n_pts=40, r_inner_frac=0.5):
 
 def test_six_disjoint_zero_interior_islands_is_severed_with_env():
     polys = _six_islands(R=800.0)
-    result = engine._classify_severed_station(polys, CT)
+    result = engine._classify_severed_station(polys, CT, RG)
     assert result is not None
     assert result["n_islands"] == 6
     assert result["env"] is not None
@@ -60,7 +61,7 @@ def test_single_loop_with_hole_is_not_severed():
     outer = _hexagon(0.0, 0.0, 500.0)
     hole = _hexagon(0.0, 0.0, 100.0)
     poly = Polygon(outer.exterior.coords, [list(hole.exterior.coords)])
-    assert engine._classify_severed_station([poly], CT) is None
+    assert engine._classify_severed_station([poly], CT, RG) is None
 
 
 def test_mixed_topology_is_not_severed():
@@ -70,7 +71,7 @@ def test_mixed_topology_is_not_severed():
     with_hole = Polygon(_hexagon(300.0, 0.0, 100.0).exterior.coords,
                          [list(hole.exterior.coords)])
     no_hole = _hexagon(-300.0, 0.0, 100.0)
-    assert engine._classify_severed_station([with_hole, no_hole], CT) is None
+    assert engine._classify_severed_station([with_hole, no_hole], CT, RG) is None
 
 
 def test_quarter_arc_only_islands_env_is_none():
@@ -79,7 +80,7 @@ def test_quarter_arc_only_islands_env_is_none():
     validation), but the angular-coverage gate must reject the envelope fit -- an ill-conditioned
     arc through 2 adjacent islands must not feed the dome model."""
     two = _six_islands(R=800.0)[:2]
-    result = engine._classify_severed_station(two, CT)
+    result = engine._classify_severed_station(two, CT, RG)
     assert result is not None
     assert result["n_islands"] == 2
     assert result["env"] is None
@@ -91,7 +92,7 @@ def test_single_simply_connected_poly_is_severed_candidate():
     interior hole' error. Whether it's ultimately ACCEPTED depends on the post-loop
     run-position validation, tested separately below."""
     poly = _hexagon(0.0, 0.0, 500.0)
-    result = engine._classify_severed_station([poly], CT)
+    result = engine._classify_severed_station([poly], CT, RG)
     assert result is not None
     assert result["n_islands"] == 1
 
@@ -99,7 +100,7 @@ def test_single_simply_connected_poly_is_severed_candidate():
 def test_empty_slice_is_not_severed():
     """The caller's own empty-slice handling (a separate branch in the station loop) covers
     `polys == []`, not the classifier."""
-    assert engine._classify_severed_station([], CT) is None
+    assert engine._classify_severed_station([], CT, RG) is None
 
 
 # ---- post-loop run-position validation (_severed_fore_aft_runs / _severed_run_error) -----
@@ -190,7 +191,7 @@ def test_curved_end_fires_on_m14s_clipped_dome_end(m14_mesh):
     outer_pts = []
     for z in zs:
         polys, zz = slice_station(mesh, z, CT)
-        severed = engine._classify_severed_station(polys, CT)
+        severed = engine._classify_severed_station(polys, CT, RG)
         if severed is not None:
             if severed["env"] is not None:
                 outer_pts.append((zz, severed["env"][0]))
@@ -215,7 +216,7 @@ def test_envelope_fit_matches_measured_m14_z200(m14_mesh):
     true case radius 800.000, resid 0.290 -- comfortably inside `circle_max_resid(0.5)=0.75`."""
     polys, _zz = slice_station(m14_mesh, 200.0, CT)
     assert len(polys) == 6
-    result = engine._classify_severed_station(polys, CT)
+    result = engine._classify_severed_station(polys, CT, RG)
     assert result is not None
     assert result["env"] is not None
     Ro, max_resid = result["env"]

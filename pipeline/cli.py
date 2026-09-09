@@ -25,6 +25,10 @@ def _parse_args(argv):
     p.add_argument("--refine-bands", default=None)
     p.add_argument("--adaptive", action="store_true")
     p.add_argument("--chord-tol", type=float, default=0.5)
+    p.add_argument("--roundness-tol", type=float, default=None,
+                   help="out-of-roundness gate floor in mm (default: measured from the mesh; "
+                        "0 disables -- classification gates then derive purely from "
+                        "--chord-tol, as before the decoupled-roundness fix)")
     p.add_argument("-o", "--output", required=True)
     p.add_argument("--report", default=None)
     p.add_argument("--stl", default=None)

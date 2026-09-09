@@ -27,6 +27,31 @@ def test_analyze_reports_sane_frame_and_extent(m1_stl):
     assert len(a.origin_xy_mm) == 2
 
 
+def test_analyze_reports_roundness_floor(m1_stl):
+    """Decoupled roundness plan (2026-09-09): `Analysis` gains `suggested_roundness_tol_mm`, and
+    on a clean axisymmetric mesh (M1) the auto-measured floor should be small/inert -- nowhere
+    near the multi-mm scale a real decoupled part (M15) needs."""
+    a = engine.analyze(m1_stl, axis="z", units="mm")
+    assert a.suggested_roundness_tol_mm >= 0.0
+    assert a.suggested_roundness_tol_mm < 1.0
+
+
+def test_rebuild_options_roundness_tol_defaults_to_auto(m1_stl, tmp_path):
+    """RebuildOptions.roundness_tol defaults to None (auto-from-mesh) -- a plain RebuildOptions
+    call site written before this field existed (every pre-M15 call in this codebase) must keep
+    building M1 identically, since M1's mesh has no real out-of-roundness for the floor to move
+    anything: `1.2*measured` stays comfortably under `1.5*chord_tol` and `resid_gate` reduces to
+    the legacy value."""
+    opts = engine.RebuildOptions(
+        input_stl=m1_stl, output=str(tmp_path / "out.step"), axis="z", units="mm",
+        sections=10, chord_tol=0.5,
+    )
+    assert opts.roundness_tol is None
+    result = engine.rebuild(opts)
+    assert (tmp_path / "out.step").exists()
+    assert result.report is None  # no --report requested
+
+
 def test_analyze_does_not_write_any_output(m1_stl, tmp_path):
     before = sorted(tmp_path.iterdir())
     engine.analyze(m1_stl, axis="z", units="mm")
@@ -238,31 +263,40 @@ def test_volume_hint_does_not_suggest_adaptive_when_already_on(tmp_path):
     assert "more --sections" in hint
 
 
-def test_non_axisymmetric_hint_gives_a_specific_chord_tol_when_roundness_is_the_cause():
-    """Regression test for a real incident (2026-09-06): a real STL's outer loop measured
-    max_resid=0.1240 against --chord-tol 0.082's gate of 0.123 -- under 1% over, ordinary mesh
-    tessellation noise tripping an auto-computed chord-tol's tight gate, NOT a genuinely
-    non-round part (the fitted center was 0.003mm off-axis, negligible). Brady's ask: "we need
-    a user message saying to bump up the chord tolerance a bit, be specific on a percentage or
-    something" -- this must give a concrete number, not a vague nudge, and must not blame
-    --axis when the center is actually fine."""
+def test_non_axisymmetric_hint_gives_a_specific_roundness_tol_when_roundness_is_the_cause():
+    """Regression test for a real incident (2026-09-06, reworked 2026-09-09 for the decoupled
+    roundness-tolerance fix): a real STL's outer loop measured max_resid=0.1240 against a gate
+    of 0.123 -- under 1% over, ordinary mesh tessellation noise tripping an auto-computed
+    chord-tol's tight gate, NOT a genuinely non-round part (the fitted center was 0.003mm
+    off-axis, negligible). Post-fix, the hint must NEVER suggest --chord-tol for a roundness
+    failure again (that was the up-leg of the trap the decoupled-roundness plan fixes) -- it
+    must give a concrete --roundness-tol number instead, and must not blame --axis when the
+    center is actually fine."""
+    chord_tol = 0.082
+    resid_gate = engine.tol.circle_max_resid(chord_tol)  # 0.123, no floor measured yet
     msg = engine._non_axisymmetric_hint(
-        zz=109.609, cx=0.0011, cy=-0.0027, max_resid=0.1240, chord_tol=0.082)
-    assert "retry with --chord-tol" in msg
+        zz=109.609, cx=0.0011, cy=-0.0027, max_resid=0.1240, chord_tol=chord_tol,
+        resid_gate=resid_gate, floor_info={"floor_mm": 0.0, "capped": False})
+    assert "retry with --roundness-tol" in msg
+    assert "--chord-tol" not in msg
     assert "check --axis" not in msg
     # The suggested value must actually clear the gate it failed, with real margin -- not just
     # barely enough to pass by the same hair it originally missed by.
-    suggested = float(msg.rsplit("--chord-tol ", 1)[1].split(" ")[0])
-    assert engine.tol.circle_max_resid(suggested) > 0.1240 * 1.1
+    suggested = float(msg.rsplit("--roundness-tol ", 1)[1])
+    assert engine.tol.circle_max_resid(chord_tol, suggested) > 0.1240 * 1.1
 
 
 def test_non_axisymmetric_hint_blames_axis_when_center_is_genuinely_off(tmp_path):
     """The OTHER branch of the same OR'd check: a center that's actually far from the axis
-    (not a roundness-noise false positive) should point at --axis/--units, not chord-tol."""
+    (not a roundness-noise false positive) should point at --axis/--units, not a tolerance."""
+    chord_tol = 0.1
+    resid_gate = engine.tol.circle_max_resid(chord_tol)
     msg = engine._non_axisymmetric_hint(
-        zz=50.0, cx=5.0, cy=3.0, max_resid=0.05, chord_tol=0.1)
+        zz=50.0, cx=5.0, cy=3.0, max_resid=0.05, chord_tol=chord_tol,
+        resid_gate=resid_gate, floor_info={"floor_mm": 0.0, "capped": False})
     assert "check --axis" in msg
-    assert "retry with --chord-tol" not in msg
+    assert "--roundness-tol" not in msg
+    assert "--chord-tol" not in msg
 
 
 def test_axial_bounds_hint_does_not_suggest_a_fix_that_cannot_help(tmp_path):

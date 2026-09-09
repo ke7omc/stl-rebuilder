@@ -82,6 +82,61 @@ def test_run_without_analyze_runs_analyze_first_when_auto_chord_tol(window, monk
     assert window._pending_rebuild is False
 
 
+class _NullSignal:
+    def connect(self, *_a, **_k):
+        pass
+
+
+class _FakeRebuildWorker:
+    def __init__(self, opts):
+        self.opts = opts
+        self.progress = _NullSignal()
+        self.finished = _NullSignal()
+        self.failed = _NullSignal()
+
+
+class _FakeThread:
+    def start(self):
+        pass
+
+
+def test_start_rebuild_passes_none_roundness_tol_when_auto(window, monkeypatch, tmp_path):
+    """Decoupled roundness plan (2026-09-09): mirrors the chord-tol auto/manual pattern -- "auto"
+    must pass `None` through to `RebuildOptions.roundness_tol` (so the ENGINE measures the floor
+    itself from the actual run's own chord_tol), not some GUI-side pre-measured value."""
+    captured = []
+
+    def fake_worker_ctor(opts):
+        captured.append(opts)
+        return _FakeRebuildWorker(opts)
+
+    monkeypatch.setattr("app.main_window.RebuildWorker", fake_worker_ctor)
+    monkeypatch.setattr("app.main_window.run_in_thread", lambda worker: _FakeThread())
+    window.input_path_edit.setText("harness/truth/M1.stl")
+    window.output_path_edit.setText(str(tmp_path / "out.step"))
+
+    assert window.roundness_tol_auto.isChecked()  # the default
+    window._start_rebuild()
+    assert captured[-1].roundness_tol is None
+
+    window.roundness_tol_auto.setChecked(False)
+    window.roundness_tol_spin.setValue(0.42)
+    window._start_rebuild()
+    assert captured[-1].roundness_tol == pytest.approx(0.42)
+
+
+def test_on_analyzed_fills_roundness_tol_spin_when_auto(window):
+    from pipeline.engine import Analysis
+    analysis = Analysis(frame_axis=[0, 0, 1], origin_xy_mm=[0, 0], axial_extent_mm=100.0,
+                        body_count=1, is_watertight=True, triangle_count=10,
+                        median_edge_length_mm=1.0, suggested_chord_tol_mm=0.94,
+                        axis_confidence=1.0, units="mm", n_dropped_islands=0,
+                        bounds_mm=[[-1, -1, -1], [1, 1, 1]], suggested_roundness_tol_mm=0.812)
+    assert window.roundness_tol_auto.isChecked()  # the default
+    window._on_analyzed(analysis, None)
+    assert window.roundness_tol_spin.value() == pytest.approx(0.812)
+
+
 def test_run_skips_analyze_when_already_analyzed_for_this_input(window, monkeypatch):
     started = []
     monkeypatch.setattr(window, "_start_rebuild", lambda: started.append(True))
@@ -187,6 +242,14 @@ def _make_analysis(**overrides):
     )
     defaults.update(overrides)
     return Analysis(**defaults)
+
+
+def test_analysis_property_groups_includes_roundness_noise_row():
+    from app.main_window import _analysis_property_groups
+    groups = _analysis_property_groups(_make_analysis(suggested_roundness_tol_mm=0.734))
+    rows = next(g for label, g in groups if label == "Suggested run settings")
+    display_by_name = {name: display for name, display, _raw in rows}
+    assert "0.734" in display_by_name["Roundness noise (auto)"]
 
 
 def test_analyze_log_line_states_watertight_pass_plainly(window):
