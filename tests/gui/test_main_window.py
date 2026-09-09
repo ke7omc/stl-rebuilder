@@ -195,6 +195,35 @@ def test_editing_input_path_directly_shows_preview(window, qtbot):
     qtbot.waitUntil(lambda: window.viewport.has_input_mesh, timeout=15000)
 
 
+def test_changing_units_rescales_an_already_loaded_preview(window, qtbot):
+    """Regression test for a real bug found on Brady's own motor STL (work-machine testing,
+    2026-09-09): the input mesh preview was always displayed at 1mm-per-file-unit, so an inches
+    file loaded while Units was still "mm" rendered 25.4x too small next to the always-mm
+    rebuilt solid. Flipping Units on an already-loaded file must reload the preview at the new
+    scale, not leave the stale one on screen."""
+    window.units_combo.setCurrentText("mm")
+    window.input_path_edit.setText("harness/truth/M1.stl")
+    window.input_path_edit.editingFinished.emit()
+    qtbot.waitUntil(lambda: window.viewport.has_input_mesh, timeout=15000)
+    mm_extent = window.viewport._input_mesh_data.bounds
+
+    window.units_combo.setCurrentText("in")
+    qtbot.waitUntil(
+        lambda: window.viewport._input_mesh_data is not None
+        and window.viewport._input_mesh_data.bounds[1] != mm_extent[1],
+        timeout=15000)
+    in_extent = window.viewport._input_mesh_data.bounds
+    assert (in_extent[1] - in_extent[0]) == pytest.approx(
+        (mm_extent[1] - mm_extent[0]) * 25.4, rel=1e-5)
+
+
+def test_changing_units_with_no_file_loaded_does_nothing(window, qtbot):
+    assert window.input_path_edit.text() == ""
+    window.units_combo.setCurrentText("in")
+    qtbot.wait(200)
+    assert not window.viewport.has_input_mesh
+
+
 def test_editing_input_path_to_nonexistent_file_does_not_load(window, qtbot):
     window.input_path_edit.setText("does/not/exist.stl")
     window.input_path_edit.editingFinished.emit()

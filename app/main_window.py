@@ -644,6 +644,7 @@ class MainWindow(QMainWindow):
         self.units_combo = QComboBox()
         self.units_combo.addItems(["mm", "in", "m"])
         self.units_combo.setMaximumWidth(120)
+        self.units_combo.currentTextChanged.connect(self._on_units_changed)
         form.addRow("Units", self.units_combo)
 
         form.addRow(self._section_label("Fidelity"))
@@ -860,6 +861,19 @@ class MainWindow(QMainWindow):
     def _update_window_title(self, path: str = None):
         self.setWindowTitle(f"{os.path.basename(path)} — {APP_TITLE}" if path else APP_TITLE)
 
+    def _on_units_changed(self, _units: str):
+        """The input mesh preview is displayed at 1mm-per-file-unit (`PreviewWorker`/
+        `AnalyzeWorker`/`RebuildWorker` all scale by `pipeline.io.parse_units`) -- so an already-
+        loaded inches file rendered a real 25.4x too small next to the (always-mm) rebuilt solid
+        until the units were told to it. Reloading here, rather than rescaling the cached mesh in
+        place, keeps this one code path (`_load_input_preview`) as the only place that decides
+        what a freshly-chosen unit means for the display, instead of a second scaling formula
+        someone could get out of sync with the first. Stale Detected/Stations/Output state is
+        correctly cleared too: whatever was computed under the old units no longer applies."""
+        path = self.input_path_edit.text().strip()
+        if path and os.path.exists(path):
+            self._load_input_preview(path)
+
     def _load_input_preview(self, path: str):
         """Show the input mesh in the viewport immediately on file selection, before Analyze or
         Run ever runs -- previously nothing appeared until Analyze completed, leaving no visual
@@ -874,7 +888,7 @@ class MainWindow(QMainWindow):
         self.page_stations.table.set_rows([])
         self.page_stations.chart.set_rows([])
         self.status_label.setText("Loading preview...")
-        worker = PreviewWorker(path)
+        worker = PreviewWorker(path, self.units_combo.currentText())
         worker.finished.connect(self._on_input_preview_loaded)
         worker.failed.connect(self._on_input_preview_failed)
         thread = run_in_thread(worker)

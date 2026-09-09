@@ -6,6 +6,24 @@ import pyvista as pv
 from PySide6.QtCore import QObject, QThread, Signal
 
 from pipeline import engine
+from pipeline.io import parse_units
+
+
+def _read_and_scale_mesh(path: str, units: str) -> pv.DataSet:
+    """Read a preview mesh and scale it to millimetres -- an STL carries no units of its own, and
+    the rebuilt solid's own preview (`result.stl_path`/`AnalyzeWorker`'s analysis) is ALWAYS mm
+    (`pipeline.engine` converts to mm internally before building anything). Every raw `pv.read`
+    of the INPUT file in this module used to skip that conversion, so an inches input rendered at
+    1:1 next to an mm-scale solid was 25.4x too small -- a real bug (Brady, work-machine testing
+    2026-09-09: the input mesh appeared as a giant sphere dwarfing a tiny rebuilt solid, purely a
+    display-scale mismatch, not a reconstruction error). `parse_units` is the same mm-per-unit
+    table `--units`/`RebuildOptions` already use, so this can never disagree with what the engine
+    itself assumes."""
+    mesh = pv.read(path)
+    scale = parse_units(units)
+    if scale != 1.0:
+        mesh.scale([scale, scale, scale], inplace=True)
+    return mesh
 
 
 class PreviewWorker(QObject):
@@ -18,13 +36,14 @@ class PreviewWorker(QObject):
     finished = Signal(object)   # pv.DataSet
     failed = Signal(str)        # message
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, units: str = "mm"):
         super().__init__()
         self.path = path
+        self.units = units
 
     def run(self):
         try:
-            mesh = pv.read(self.path)
+            mesh = _read_and_scale_mesh(self.path, self.units)
         except Exception as exc:
             self.failed.emit(str(exc))
             return
@@ -55,7 +74,7 @@ class AnalyzeWorker(QObject):
         # chance to actually repaint the hide, so the spinner visibly looked frozen (Brady,
         # 2026-09-05 live testing). A failure here is preview-only, not an Analyze failure.
         try:
-            mesh = pv.read(self.input_path)
+            mesh = _read_and_scale_mesh(self.input_path, self.units)
         except Exception:
             mesh = None
         self.finished.emit(analysis, mesh)
@@ -106,7 +125,7 @@ class RebuildWorker(QObject):
         input_mesh = None
         if self.opts.input_stl and os.path.exists(self.opts.input_stl):
             try:
-                input_mesh = pv.read(self.opts.input_stl)
+                input_mesh = _read_and_scale_mesh(self.opts.input_stl, self.opts.units)
             except Exception:
                 input_mesh = None
         self.finished.emit(result, solid_mesh, input_mesh)
