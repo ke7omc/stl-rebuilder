@@ -1,4 +1,9 @@
-# HANDOFF v3 — STL → STEP rebuilder + desktop GUI (M1–M13 PASS, MR skipped, G1–G3 PASS)
+# HANDOFF v3 — STL → STEP rebuilder + desktop GUI (M1–M14 PASS, MR skipped, G1–G3 PASS)
+
+**2026-09-08 addendum**: M14 (a real crash Brady hit on his own motor — end-of-burn island
+severing at both dome tips) was added to the ladder and fixed; `out/score.M14.json` reports
+`pass: true, progress: 1.0` (§2 has the numbers). Everything above this line describes the
+Round 2/3 state as of iteration 84 and is unchanged; M14 is additive, not a revision of it.
 
 Round 2 numbers (§2) were written at iteration 77 on commit `039291b` and are unchanged since —
 `out/score.M1.json` … `out/score.M12.json` (driver's iteration-76 regression sweep,
@@ -71,6 +76,7 @@ max / p99 in mm. Volume error is against the analytic closed-form `V_truth`.
 | M11 | **multi-body** (3 segments, one STL) | 0.0054 (0.05) | 0.125 / 0.118 (0.6 / 0.4) | 0.410 | 120 (40/body) | **3** | revolve / revolve / — | 15 (24) | 2.1 |
 | M12 | near-burnout cavity decomposition, dome breakthrough | 0.0267 (0.3) | 0.448 / 0.165 (1.0 / 0.4) | 0.234 | 120 | 1 | revolve / mixed / wedge | 76 (400) | 7.7 |
 | M13 | **capstone**: M12 in inches on +x, 3.9 M-tri unwelded noisy MC input | 0.2032 (0.5) | 6.087 / 2.874 (12 / 4) | 0.143 | 120 | 1 | revolve / mixed / wedge | 85 (400) | 279.6 |
+| M14 | end-of-burn **island severing at both dome tips** (N disjoint outer loops per station) | 0.0039 (0.3) | 0.434 / 0.301 (1.0 / 0.4) | n/a (no gate — thin island tips, see §6) | 300 | 1 | revolve / prism / — | 67 (100) | 56.0 |
 | MR | real burnback STL | — | — | — | — | — | — | — | **skipped — no real input** |
 
 \* **M6's `paths_used.bore` label is wrong-ish and you should know it.** `pipeline/cli.py:2152`
@@ -91,12 +97,18 @@ star proves. The report just cannot tell you which of the two builders ran. Fix 
 | M13 | `axial_extent_err_mm` | **7.715** | 8 — thin margin, see §6 |
 | M13 | `min_edge_mm` | 9.60 | ≥ 0.1 |
 | M13 | `surface_deviation_p99_by_region` (breakthrough band) | **3.923** | 4 — thin margin |
+| M14 | `dome_stations_min` (fore_dome / aft_dome) | 108 / 108 | ≥ 8 |
+| M14 | `station_bands` (fore_islands / aft_islands) | 15 / 15 | ≥ 10 each |
+| M14 | `topo_events` (worst match error, [250.42, 9749.58] mm) | 0.0017 | ≤ 2.0 (topo_tol) |
+| M14 | `surface_deviation_p99_by_region` (worst band: aft_dome) | 0.364 | 0.4 |
 | all | `step_roundtrip` | ≤ 7e-15 mm | 1e-6 |
 
 Reference volumes, if you want to compare against what SpaceClaim reports (mm³, analytic truth):
 M1 28 588 493 148 · M2 27 547 756 121 · M3 28 077 249 565 · M4 27 584 186 713 ·
 M5 26 668 987 991 · M6 26 129 965 389 · M7 27 269 024 233 · M8/M9 20 595 735 261 ·
-M10 321 808.36 · M11 24 669 356 312 · M12/M13 15 370 275 928.
+M10 321 808.36 · M11 24 669 356 312 · M12/M13 15 370 275 928 · M14 ≈ 15 775 189 000
+(no closed form — M14's truth is graded against the analytic STEP's own OCCT-computed volume,
+not a formula, same as every dilated-cavity milestone from M12 on).
 
 ---
 
@@ -353,7 +365,22 @@ useful for eyeballing the result against the input in a mesh viewer).
    "largest-magnitude component positive". That is *a* rule, and it may disagree with your part's
    fore→aft sense; the scorer does not implement MISSION §7.2's dot<0 flip, so the pipeline owns
    the convention. See §4 item 9.
-8. **Station count is capped by what was tested.** No milestone exceeds 120 sections.
+8. **Station count is capped by what was tested.** No milestone exceeds 120 sections (M14 is the
+   exception at 300 — see item 9).
+9. **M14's severed-island support (2026-09-08) is real but narrow.** A station whose
+   cross-section splits into N disjoint SIMPLY-CONNECTED islands (an end-of-burn breakthrough at
+   a dome tip) is only accepted as a CONTIGUOUS run touching the fore and/or aft end of the
+   sampled sequence; the same topology appearing mid-part is still a hard exit-4 reject (a
+   multi-body input or a genuine mid-grain feature, neither implemented). M14's own truth is
+   flat-CAPPED 30 mm short of each island's exact zero-width pinch (the raw cusp is a valid but
+   unmeshable BRep — gmsh "Invalid boundary mesh" regardless of fillet size, confirmed across 5
+   variants by the geometry task) — the pipeline inherits that same clipped-end shape for free
+   (its cutter already spans the part's full length), but has never been exercised on a REAL,
+   UNCLIPPED motor that ends at (or in mesh noise around) the true burnthrough pinch: expect
+   near-`a_min` island slivers and possibly empty end slices right at the tip (the empty-slice
+   degenerate-severed placeholder exists for exactly this, untested against a real file) or a
+   real pinch the flat-cap radius logic doesn't model. Brady's own incident motor is the first
+   real test of this — see MR (item 1).
 
 ### What to try next (engine)
 

@@ -275,15 +275,24 @@ input mesh**, with gates scaled to the voxel size h (an exact-SDF marching-cubes
 | **M11** | **multi-solid output** | Segmented BATES, 3 annular segments with flat ends: A z∈[0,3000] R_i 300; B z∈[3500,6500] R_i 450 (dual-grain); C z∈[7000,10000] R_i 300; one STL, 3 shells. Closed form. | `n_solids = 3`; `per_solid_volume_err_pct` < 0.05 (centroid-matched); volume < 0.05 %; dev max < 1.2·ct, p99 < 0.8·ct; face_count ≤ 24 | `--axis z --sections 40 --chord-tol 0.5` |
 | **M12** | near-end-of-burn **cavity decomposition**: slots open to the dome, thin webs, multi-outer-loop stations | M5 capsule minus the cavity dilated by w=250: bore 550; obround slots half-width 290, outer r 950 (50 mm web), z∈[5750, 9750], end fillets r=250; aft slots break through the dome for z > 9656 (stations there have 8 disjoint outer polygons); bore exits the dome near z≈83 / 9917. | volume < 0.3 %; dev max < 2·ct, p99 < 0.8·ct; dome_stations_min 8; `station_bands` {fore_wall ≥ 10, breakthrough [9600, 9800] ≥ 10}; `n_stations_max` 120; `topo_events_z_mm` [5750, 9656, 9750] (max 5); `min_edge_mm` ≥ 0.1; face_count ≤ 400; runtime < 600 s | `--axis z --sections 120 --adaptive --chord-tol 0.5` |
 | **M13** | **capstone: a real-STL-shaped input** | M12 truth rotated to +x, translated (2500, −700, 1300) mm, STL in inches. Input: isotropic h=8 mm exact-SDF marching cubes ≈ 3.9e6 triangles; normal noise σ=0.8 mm; **unwelded** (per-facet vertices ± 1e-5 in jitter); 2 % flipped facets; 3 noise islands (5 mm tetrahedra inside the bore); `watertight_expected = False`. | `n_solids = 1` (islands dropped); volume < 0.5 %; dev max < 1.5·h = 12 mm, p99 < 0.5·h = 4 mm; frame_axis_err_deg 0.1; axial_extent_err_mm 8; station_bands as M12; n_stations_max 120; topo events [5750, 9750] tol 8, max 5; min_edge_mm 0.1; face_count ≤ 400; runtime < 900 s, mesh_timeout 600 | `--axis auto --units in --sections 120 --adaptive --chord-tol 8` |
+| **M14** | end-of-burn **island severing at both dome tips** (N disjoint outer loops per station, no prior chain history) | M2-family capsule minus a constant 6-point star bore (R_valley=550, R_tip=900, fillets 40/50), flat-capped 30 mm short of each exact island pinch (the raw cusp is valid but unmeshable): the shrinking dome envelope severs the section into 6 simply-connected islands over z≈[112,250] and [9750,9888]; single non-circular "gear" bore between. | volume < 0.3 %; dev max < 2·ct, p99 < 0.8·ct; dome_stations_min 8; station_bands {fore_islands ≥ 10, aft_islands ≥ 10}; n_stations_max 300; topo_events_z_mm [250.4, 9749.6] (max 4); face_count ≤ 100; runtime < 600 s | `--axis z --sections 300 --adaptive --chord-tol 0.5` |
 | **MR** | **real-STL slot** (`optional = True`) | No truth. The first `real_inputs/*.stl` (gitignored) + optional `real_inputs/<name>.json` {units, axis, known_volume_mm3}. When absent the scorer emits `pass: true, skipped: "no real input"` and selftest prints `[SKIP]`. | self-referential: pipeline_exit; n_solids ≥ 1; brep_valid; volume vs the repaired input mesh (or `known_volume_mm3`) < 0.5 %; deviation vs the input mesh p99 < 1.0·ct_est, max < 4·ct_est (ct_est = median edge length); step_roundtrip; gmsh; min_edge_mm 0.1; runtime < 1800 s | `--axis auto --units <json or mm> --adaptive --sections 120 --chord-tol <ct_est>` |
 | **HANDOFF** | — | `HANDOFF.md` v2 (§9) covering every M above (MR may be "skipped") | — |
 
 Why the ladder holds: M6 adds loft; M7 adds chains and N cutters (its loops are circles, so no
 new loft stress); M8 adds station steering on an analytic mesh; M9 changes only the input; M10
 only the frame; M11 only the body count; M12 only the cavity-decomposition topology; M13
-integrates everything. Why cosine end-clustering cannot pass M8: at n=80 the Round 1 warp spaces
-mid-barrel stations ≈ 310 mm apart, so a 300 mm feature band gets 0–1 stations, and reaching ≥ 10
-with uniform spacing needs n ≈ 500 ≫ `n_stations_max`.
+integrates everything; M14 only the severed-island station topology (a station-loop classifier
+and a dome-model resample of a non-pinch curved end — no new solid-construction geometry: the
+severed islands emerge for free from the existing envelope-revolve-minus-full-length-bore-prism
+boolean, M12's own breakthrough mechanism). Why cosine end-clustering cannot pass M8: at n=80 the
+Round 1 warp spaces mid-barrel stations ≈ 310 mm apart, so a 300 mm feature band gets 0–1
+stations, and reaching ≥ 10 with uniform spacing needs n ≈ 500 ≫ `n_stations_max`. M14's own
+feature bands sit AT the axial extremes rather than mid-barrel, where a naive cosine warp
+clusters *most* densely — at n=80 it still only lands exactly 6 stations in each ~140 mm island
+band (a coincidental near-tie with a naively "generous" threshold), which is why
+`station_bands` there is set to ≥ 10, not ≥ 6: comfortably below real adaptive placement's 15
+per band, comfortably above what n=80 cosine clustering can reach.
 
 ### 6.3 Round 3 — desktop GUI (driver-gated; the geometry scorer does not grade these)
 

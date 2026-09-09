@@ -675,23 +675,27 @@ def _m14() -> MilestoneSpec:
     facets)" on the unclipped solid regardless of fillet size (tried 40/50, 25/25, 15/20, 5/5:
     all failed identically), because the pinch is a topological feature of the crossing itself,
     not a tessellation-quality artefact. Trimming a flat cap `island_clip_margin` mm inside the
-    crossing (confirmed meshable from a 10 mm margin already; 50 mm used here for headroom)
+    crossing (confirmed meshable from a 10 mm margin already; 30 mm used here for headroom)
     removes the singular point while leaving the 6-disjoint-island cross-section intact and
     clearly visible right up to the cap -- exactly the topology the pipeline needs to handle,
     without the geometrically-unrelated "does gmsh tolerate an exact cusp" question attached.
 
-    Gates carry only the same UNIVERSAL sanity checks every milestone has (n_solids, brep_valid,
-    volume_err_pct, step_roundtrip_vol_err, bbox_err_pct, face_count_max) -- required so this
-    milestone's own truth geometry is provably sane and so `tests/test_selftest.py`'s generic
-    per-milestone mutation checks (scaled-copy / bore-filled-copy anti-gaming probes) have
-    something to catch a badly wrong volume with. Deliberately ABSENT: `gmsh_min_sicn` (the
-    island tips are intrinsically thin -- min SICN ~0.02 even well clear of the clip, an honest
-    property of this geometry, not a defect to gate on without more thought) and every
-    topology/station-grading gate (`dome_stations_min`, `station_bands`, `topo_events`,
-    `n_stations_max`, `surface_deviation_p99_by_region`) -- a separate planning pass owns
-    deciding how a FIX's station/topology handling on this milestone should be graded. `regions`
-    and `topo_events_z_mm` below are descriptive (computed from the geometry itself), not gate
-    config.
+    Gates (real station/topology grading, wired by `docs/plans/m14_multilobe_dome_breakthrough.md`
+    Phase D, on top of the universal sanity set the geometry task originally shipped this
+    milestone with -- n_solids, brep_valid, volume_err_pct, step_roundtrip_vol_err, bbox_err_pct,
+    face_count_max): `surface_deviation_p99_mm`/`_max_mm` at M12's own 0.8·ct / 2·ct ratios;
+    `dome_stations_min`/`station_bands`/`n_stations_max` tied together the same way M8+ already
+    are; `topo_events` at `_topo_tol(L, ct)` for the two severed<->single-loop transition planes.
+    Deliberately still ABSENT: `gmsh_min_sicn` -- the island tips are intrinsically thin (min
+    SICN ~0.02 even well clear of the clip), an honest, MEASURED property of this geometry
+    (§Risks in the plan), not a defect to gate on. `topo_events_z_mm` below is the MEASURED
+    severing plane (bisecting `len(polys) > 1` on the real truth STL), not the analytic
+    `z_tip_fore`/`z_tip_aft` computed above from the unfilleted crossing -- the star's tip fillet
+    pulls the true plane 31.6 mm inboard (250.422 measured vs. 282.055 predicted), far outside
+    `topo_tol`'s 2 mm, so the unfilleted value is unusable as gate config; re-measure (the plan's
+    §D.1 one-shot script) and update both constants below if `_make_m14`'s params ever change.
+    `regions` are fractions of the truth's own CANONICAL BBOX EXTENT `[z_clip_lo, z_clip_hi]`
+    (matching how `score.py::_region_at` actually maps `z_frac`), not of `[0, L]`.
     """
     L, R_o, ct = 10_000.0, 1_000.0, CHORD_TOL
     dome_h = R_o / 2.0
@@ -719,6 +723,19 @@ def _m14() -> MilestoneSpec:
     z_clip_lo = z_valley_fore + island_clip_margin  # truth solid's actual fore end (flat cap)
     z_clip_hi = z_valley_aft - island_clip_margin   # truth solid's actual aft end (flat cap)
 
+    # MEASURED severing plane (M14 fix plan §D.1: bisect `pipeline.slicing.slice_station` on
+    # `len(polys) > 1` against `harness/truth/M14.stl` at commit 75e8377) -- 31.6 mm inboard of
+    # the unfilleted `z_tip_fore`/`z_tip_aft` crossing above, because the star's tip FILLET pulls
+    # the true tip-vs-case crossing in from the sharp-cornered analytic prediction. This is what
+    # `topo_events_z_mm` and the island region bands below are built from, not `z_tip_fore`/
+    # `z_tip_aft` themselves (those remain useful only for the human-readable description and as
+    # the "before fillets" reference point the docstring above cites).
+    z_severed_fore = 250.422
+    z_severed_aft = 9_749.578
+    S = z_clip_hi - z_clip_lo  # canonical bbox extent -- `score.py::_region_at` maps z_frac over
+                               # [z_min, z_max] of the truth's OWN bbox, not [0, L]
+    topo_tol = _topo_tol(L, ct)
+
     return MilestoneSpec(
         name="M14",
         description=(
@@ -737,9 +754,16 @@ def _m14() -> MilestoneSpec:
             island_clip_margin=island_clip_margin, z_clip_lo=z_clip_lo, z_clip_hi=z_clip_hi,
         ),
         regions=[
-            RegionBand("fore_islands", z_clip_lo / L, z_tip_fore / L),
-            RegionBand("single_loop", z_tip_fore / L, z_tip_aft / L),
-            RegionBand("aft_islands", z_tip_aft / L, z_clip_hi / L),
+            # Fractions of the truth's own CANONICAL BBOX EXTENT [z_clip_lo, z_clip_hi] (span S),
+            # not of [0, L] -- `score.py::_region_at` maps z_frac over the truth's real bbox.
+            # Island bands listed before the overlapping dome bands they sit inside of, so a
+            # failure hint's `_region_at` lookup (first-hit-wins) localizes to the more specific
+            # label. `dome_stations_min` requires a "dome"-labelled band to exist at all.
+            RegionBand("fore_islands", 0.0, (z_severed_fore - z_clip_lo) / S),
+            RegionBand("fore_dome", 0.0, (dome_h - z_clip_lo) / S),
+            RegionBand("barrel", (dome_h - z_clip_lo) / S, (L - dome_h - z_clip_lo) / S),
+            RegionBand("aft_dome", (L - dome_h - z_clip_lo) / S, 1.0),
+            RegionBand("aft_islands", (z_severed_aft - z_clip_lo) / S, 1.0),
         ],
         rebuild_args=["--axis", "z", "--sections", "300", "--adaptive", "--chord-tol", str(ct)],
         gates=dict(
@@ -749,11 +773,22 @@ def _m14() -> MilestoneSpec:
             step_roundtrip_vol_err=1e-6,
             face_count_max=100,
             bbox_err_pct=0.1,
+            # --- station/topology grading, wired by the M14 fix plan's Phase D on top of the
+            # universal sanity gates above (own commit; see this function's docstring) ---
+            surface_deviation_p99_mm=0.8 * ct,    # M12's own ratio: 0.4 mm
+            surface_deviation_max_mm=2.0 * ct,    # M12's own ratio: 1.0 mm
+            dome_stations_min=8,
+            station_bands=True,
+            n_stations_max=True,
+            topo_events=topo_tol,
         ),
         runtime_cap_s=600.0,
         closed_form_volume=None,
         chord_tol=ct,
-        topo_events_z_mm=[z_tip_fore, z_tip_aft],
+        station_bands={"fore_islands": 10, "aft_islands": 10},
+        n_stations_max=300,
+        topo_events_z_mm=[z_severed_fore, z_severed_aft],
+        topo_events_max=4,   # 2 expected (fore/aft severing plane) + headroom against gaming
     )
 
 
