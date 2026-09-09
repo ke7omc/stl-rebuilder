@@ -1,6 +1,69 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-09 — M15 added: decoupled roundness tolerance from chord_tol, the first real-world
+  (non-synthetic) failure this project has hit (`b07af42`→`2c062ec`→`4203043`).** Brady ran the
+  tool against his first real STL and hit a genuine structural limitation: every derived
+  tolerance in `pipeline/tol.py` scaled directly off the single `--chord-tol` number — safe for
+  every synthetic milestone (roundness noise and faceting precision come from the same
+  generation process there) but broken on a real part whose faceting is extremely fine (~0.009mm)
+  while its actual roundness needed ~0.8mm of slack. No single chord-tol satisfied both the
+  roundness-fit gate and the boolean/sewing construction precision — the tool oscillated between
+  "increase chord-tol" and "chord-tol far coarser than the mesh's precision" hints with no fixed
+  point. Same process as M14: Fable evaluated + planned, then a default (Sonnet-tier) agent
+  implemented end-to-end, with Opus held in reserve (not needed).
+  - **Root cause, confirmed by Fable via an actual constructed measurement, not just code
+    reading**: built a synthetic oval-perturbed fine mesh and ran the pipeline's own estimator
+    against it — chordal-sag estimate 0.0403mm vs. measured circle-fit residual 0.804mm, exactly
+    matching the deliberate 0.8mm ovality injected. Found real refinements beyond the initial
+    hypothesis: **10** `circle_max_resid` call sites, not the ~8 assumed at first read;
+    `tol.sew_tol` is dead code (zero call sites — the real coarse-chord-tol corruption channels
+    are the boolean `fuzzy` tolerance and `export.finalize`'s `ShapeFix` precision); and the
+    verification block's own deviation/bounds tolerances are ALSO chord-tol-coupled, which would
+    have made a successful post-fix rebuild falsely FAIL its own Deviation check unless fixed too.
+  - **Fix**: `circle_max_resid(chord_tol, roundness_tol=0.0) = max(1.5*chord_tol, roundness_tol)`
+    — the same max-of-two-scales idiom already used by `eps_end`/`dz_min` elsewhere in `tol.py`.
+    The roundness floor is auto-measured from the mesh itself (probe slices, outlier-discarded,
+    capped at 2% of median radius so a genuinely non-axisymmetric part can't launder through) and
+    threaded uniformly to all 10 real call sites. Construction-side tolerances (`fuzzy`,
+    `ShapeFix` precision, RDP, `eps_*`) deliberately stay pure chord_tol — that IS the decoupling.
+    New `--roundness-tol` CLI flag (default: auto), plus a GUI control mirroring how `--chord-tol`
+    itself works.
+  - **New permanent regression milestone, M15** (`harness/generators.py::_make_m15`): since
+    Brady's actual real STL is a proprietary work file and can't be used directly, built a
+    synthetic recreation using M9's own truth/input-split pattern — clean M2-style analytic
+    truth, input mesh finely tessellated but displaced by a deterministic smooth ovality+wobble
+    field (no RNG, watertight by construction) — making this class of problem permanently
+    testable the same way M14 made multi-lobe severing permanently testable.
+  - **Three decisions resolved in Brady's absence** (he was asleep; explicitly OK'd by his
+    earlier "yes, proceed" to the whole process) — all using Fable's own recommendations, worth
+    revisiting if he'd have chosen differently: (1) `--roundness-tol` shipped as a permanent CLI
+    flag, not hidden — yes. (2) the auto-measured floor is ON by default for every run including
+    all 14 existing milestones — yes, verified in the actual code (not just trusted) that every
+    changed formula is `max(old_expression, floor_term)`, so gates can only widen, never tighten.
+    (3) the 2%-of-radius anti-laundering cap uses Fable's recommended value — M15's own measured
+    floor (0.975mm on R≈1000) never came close to tripping it, so no adjustment was needed.
+  - **Verification — the most thorough regression check run all session, matching the fact this
+    is the highest-blast-radius change so far** (`circle_max_resid` and siblings touch nearly
+    every milestone's station classification): full `harness/selftest.py` sweep with all truth
+    regenerated from scratch (135 checks, 0 failures); **two independent full M1–M15 regression
+    sweeps, run strictly sequentially with zero overlap, 30/30 pass=True both times** (I watched
+    both directly via a live log monitor rather than trusting the subagent's own report, given the
+    M14 task's precedent of premature/incomplete status updates); one transient test failure
+    traced to the implementer's own concurrent background jobs colliding on the gitignored
+    `harness/truth/` cache (the same known `_truth_hidden()` collision hazard from the M14 work),
+    re-confirmed passing once run in isolation. Full suite: **315 passing** (was 294, +21).
+  - **Process note, reinforcing the one from M14**: the implementation agent again repeatedly
+    paused mid-verification citing background jobs, though this time with much better reasoning
+    each time (correctly identifying real sequential dependencies rather than bare stalls) —
+    Claude watched the actual background processes directly via `kill -0` polling and a live
+    Monitor on the sweep logs rather than repeatedly nudging the agent, which resolved faster and
+    used less token budget than the back-and-forth pattern from the M14 task. Worth defaulting to
+    directly monitoring real long-running processes from the start next time, rather than routing
+    everything through agent-resume round trips.
+  - **`harness-frozen`/`infra-frozen` re-tagged to `4203043`** (both were re-pointed after M14
+    too, so this is current — no drift accumulated between the two fixes).
+  - **9 commits ahead of origin — still nothing pushed.**
 - **2026-09-09 — Fixed a real silent-crash on the Windows desktop shortcut (`748bf5c`).** Brady's
   work machine hit the launcher (Phase D's generated `.lnk`/`pythonw.exe`) crashing instantly and
   silently, zero feedback — diagnosed there (via a different AI assistant) as PySide6's Shiboken
