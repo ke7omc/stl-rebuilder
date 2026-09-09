@@ -25,7 +25,7 @@ from OCP.BRepPrimAPI import (
     BRepPrimAPI_MakeRevol,
     BRepPrimAPI_MakePrism,
 )
-from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse, BRepAlgoAPI_Common
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
@@ -870,6 +870,42 @@ def _make_m11() -> Truth:
     return _finish("M11", compound)
 
 
+def _make_m14() -> Truth:
+    """Real burnback scenario Brady hit off the driver ladder (see `harness/milestones.py::_m14`
+    for the full derivation): M5-family capsule minus a CONSTANT-cross-section M3-style 6-point
+    star bore, dilated so far into the burn that the outer capsule's own shrinking dome radius
+    crosses the star's tip extent well before it crosses the star's valley extent -- severing the
+    ring into 6 disjoint islands near both dome tips with no z-dependent cutter needed.
+
+    The raw cut's islands pinch to an exact zero-width point at z=z_valley (fore/aft) -- a valid
+    but unmeshable BRep (see the gmsh investigation in `_m14`'s docstring). A final boolean
+    intersection with a large-radius cylinder spanning [z_clip_lo, z_clip_hi] caps the solid with
+    flat end faces `island_clip_margin` short of each pinch, trimming away only the singular
+    point while leaving the 6-disjoint-island cross-section fully intact at the cap.
+    """
+    spec = ms.get("M14")
+    p = spec.params
+    outer = _capsule_outer_shape(p["L"], p["R_o"], p["dome_semi_axial"])
+    bore = _star_bore_cutter(
+        p["n_star"], p["R_valley"], p["R_tip"], p["fillet_tip"], p["fillet_valley"], p["L"],
+    )
+    cut = BRepAlgoAPI_Cut(outer, bore)
+    cut.Build()
+    if not cut.IsDone():
+        raise RuntimeError("M14 boolean cut failed")
+
+    z_lo, z_hi = p["z_clip_lo"], p["z_clip_hi"]
+    clip = BRepPrimAPI_MakeCylinder(2.0 * p["R_o"], z_hi - z_lo).Shape()
+    trsf = gp_Trsf()
+    trsf.SetTranslation(gp_Pnt(0.0, 0.0, 0.0), gp_Pnt(0.0, 0.0, z_lo))
+    clip = BRepBuilderAPI_Transform(clip, trsf, True).Shape()
+    common = BRepAlgoAPI_Common(cut.Shape(), clip)
+    common.Build()
+    if not common.IsDone():
+        raise RuntimeError("M14 island-clip boolean intersection failed")
+    return _finish("M14", common.Shape())
+
+
 _MAKERS = {
     "M1": _make_m1,
     "M2": _make_m2,
@@ -884,6 +920,7 @@ _MAKERS = {
     "M11": _make_m11,
     "M12": _make_m12,
     "M13": _make_m13,
+    "M14": _make_m14,
 }
 
 

@@ -650,6 +650,113 @@ def _m13() -> MilestoneSpec:
     )
 
 
+def _m14() -> MilestoneSpec:
+    """Real burnback scenario Brady hit (2026-09-08, off the driver ladder): a 6-point star
+    grain a few seconds from complete burnout, at BOTH domes. Family: the M2/M5/M8/M12 capsule
+    (2:1 domes) with an M3-style star bore (n_star=6, R_valley/R_tip, fillet_tip/fillet_valley),
+    dilated so far into the burn that the tip lobes' web (R_o - R_tip) has already burned through
+    to the case surface well inside each dome, while the valley lobes' web (R_o - R_valley) has
+    not -- severing the single annular station into `n_star` disjoint outer loops. This is the
+    `TopologyError: expected 1 outer loop ... (unsupported topology)` Brady hit at station 1/300
+    on his real motor.
+
+    No z-dependent star dilation is needed: the star bore is a CONSTANT cross-section prism (same
+    construction as `_star_bore_cutter`/M3), and the outer capsule surface is itself a body of
+    revolution whose radius R_case(z) shrinks smoothly to 0 at each apex (`_ellipse_dome_edge`'s
+    2:1 ellipse: R_case(z) = R_o*sqrt(1-((dome_h-z)/dome_h)**2) for z in [0, dome_h], mirrored for
+    the aft dome). Cutting the constant star against that shrinking envelope does the topology
+    work for free: wherever R_valley < R_case(z) < R_tip, the tip regions have already been cut
+    away by the case boundary but the valley regions have not, giving `n_star` disjoint islands.
+
+    `island_clip_margin` stops the truth solid a little short of the exact z where
+    R_case(z) == R_valley: at that precise z each island's cross-section pinches to a single
+    point (a genuine zero-width cusp), which is a valid BRep (`BRepCheck_Analyzer` accepts it)
+    but not a *meshable* one -- gmsh's 3D generator raised "Invalid boundary mesh (overlapping
+    facets)" on the unclipped solid regardless of fillet size (tried 40/50, 25/25, 15/20, 5/5:
+    all failed identically), because the pinch is a topological feature of the crossing itself,
+    not a tessellation-quality artefact. Trimming a flat cap `island_clip_margin` mm inside the
+    crossing (confirmed meshable from a 10 mm margin already; 50 mm used here for headroom)
+    removes the singular point while leaving the 6-disjoint-island cross-section intact and
+    clearly visible right up to the cap -- exactly the topology the pipeline needs to handle,
+    without the geometrically-unrelated "does gmsh tolerate an exact cusp" question attached.
+
+    Gates carry only the same UNIVERSAL sanity checks every milestone has (n_solids, brep_valid,
+    volume_err_pct, step_roundtrip_vol_err, bbox_err_pct, face_count_max) -- required so this
+    milestone's own truth geometry is provably sane and so `tests/test_selftest.py`'s generic
+    per-milestone mutation checks (scaled-copy / bore-filled-copy anti-gaming probes) have
+    something to catch a badly wrong volume with. Deliberately ABSENT: `gmsh_min_sicn` (the
+    island tips are intrinsically thin -- min SICN ~0.02 even well clear of the clip, an honest
+    property of this geometry, not a defect to gate on without more thought) and every
+    topology/station-grading gate (`dome_stations_min`, `station_bands`, `topo_events`,
+    `n_stations_max`, `surface_deviation_p99_by_region`) -- a separate planning pass owns
+    deciding how a FIX's station/topology handling on this milestone should be graded. `regions`
+    and `topo_events_z_mm` below are descriptive (computed from the geometry itself), not gate
+    config.
+    """
+    L, R_o, ct = 10_000.0, 1_000.0, CHORD_TOL
+    dome_h = R_o / 2.0
+    n_star = 6
+    # R_valley/R_tip spread wide (rather than M3-scale 250/450) for a second reason beyond
+    # dilation state: the exposed island band (z_tip .. z_clip_lo) must clear
+    # rebuild.py's own station-placement end-inset (`station_eps` in pipeline/engine.py,
+    # min(max(eps_end, 200*chord_tol), 0.02*L) -- 100 mm at this milestone's default
+    # chord_tol=0.5) or every station lands past the island band and the crash never
+    # reproduces. Measured empirically: R_valley=700 left only an 89 mm exposed band (too
+    # narrow, silently swallowed by the 100 mm inset -- confirmed by a rebuild that ran clean
+    # instead of crashing); R_valley=550 leaves ~170 mm, comfortably clear with headroom for a
+    # somewhat coarser --chord-tol than the default.
+    R_valley, R_tip = 550.0, 900.0
+    fillet_tip, fillet_valley = 40.0, 50.0
+    island_clip_margin = 30.0
+
+    def _z_at_case_radius(r: float) -> float:
+        return dome_h * (1.0 - math.sqrt(1.0 - (r / R_o) ** 2))
+
+    z_tip_fore = _z_at_case_radius(R_tip)          # single-loop -> island-band transition (fore)
+    z_valley_fore = _z_at_case_radius(R_valley)    # exact (unclipped) island pinch-to-a-point, fore
+    z_tip_aft = L - z_tip_fore
+    z_valley_aft = L - z_valley_fore
+    z_clip_lo = z_valley_fore + island_clip_margin  # truth solid's actual fore end (flat cap)
+    z_clip_hi = z_valley_aft - island_clip_margin   # truth solid's actual aft end (flat cap)
+
+    return MilestoneSpec(
+        name="M14",
+        description=(
+            f"M5-family capsule (2:1 domes) minus a 6-point star bore (R_valley={R_valley:.0f}, "
+            f"R_tip={R_tip:.0f}, fillet_tip={fillet_tip:.0f}, fillet_valley={fillet_valley:.0f}), "
+            "dilated to a near-total-burn state: constant cross-section, so the shrinking dome "
+            "envelope alone severs the ring into 6 disjoint islands over "
+            f"z=[{z_clip_lo:.1f},{z_tip_fore:.1f}] (fore) and z=[{z_tip_aft:.1f},{z_clip_hi:.1f}] "
+            f"(aft); the solid is capped with flat end faces {island_clip_margin:.0f} mm short of "
+            "each side's exact zero-width island pinch"
+        ),
+        params=dict(
+            L=L, R_o=R_o, dome_semi_axial=dome_h,
+            n_star=n_star, R_valley=R_valley, R_tip=R_tip,
+            fillet_tip=fillet_tip, fillet_valley=fillet_valley,
+            island_clip_margin=island_clip_margin, z_clip_lo=z_clip_lo, z_clip_hi=z_clip_hi,
+        ),
+        regions=[
+            RegionBand("fore_islands", z_clip_lo / L, z_tip_fore / L),
+            RegionBand("single_loop", z_tip_fore / L, z_tip_aft / L),
+            RegionBand("aft_islands", z_tip_aft / L, z_clip_hi / L),
+        ],
+        rebuild_args=["--axis", "z", "--sections", "300", "--adaptive", "--chord-tol", str(ct)],
+        gates=dict(
+            n_solids=1,
+            brep_valid=True,
+            volume_err_pct=0.3,
+            step_roundtrip_vol_err=1e-6,
+            face_count_max=100,
+            bbox_err_pct=0.1,
+        ),
+        runtime_cap_s=600.0,
+        closed_form_volume=None,
+        chord_tol=ct,
+        topo_events_z_mm=[z_tip_fore, z_tip_aft],
+    )
+
+
 def _mr() -> MilestoneSpec:
     """Real-STL slot: optional, self-referential (no analytic truth). MISSION §6.2 MR.
     Scorer emits pass:true,"skipped": "no real input" when real_inputs/ is empty."""
@@ -680,6 +787,7 @@ MILESTONES: Dict[str, MilestoneSpec] = {
     s.name: s for s in [
         _m1(), _m2(), _m3(), _m4(), _m5(),
         _m6(), _m7(), _m8(), _m9(), _m10(), _m11(), _m12(), _m13(),
+        _m14(),
         _mr(),
     ]
 }
