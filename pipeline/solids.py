@@ -32,6 +32,8 @@ from OCP.BRepBuilderAPI import (
 from OCP.TopoDS import TopoDS
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol, BRepPrimAPI_MakePrism, BRepPrimAPI_MakeCylinder
 from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+from OCP.BRepGProp import BRepGProp
+from OCP.GProp import GProp_GProps
 from OCP.GC import GC_MakeArcOfCircle, GC_MakeArcOfEllipse
 from OCP.GeomAPI import GeomAPI_Interpolate
 from OCP.TColgp import TColgp_HArray1OfPnt
@@ -352,6 +354,19 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
     mismatch between this prism's bore arc and the
     circular cutters it seams against, which otherwise leaves a knife-edge sliver volume at the
     seam that gmsh can't tet cleanly (see PROGRESS.md M5 log, `gmsh_tet` failure)."""
+    wire = _prism_wire_2d(xy_pts, z_lo, r_fillet_thresh, bore_radius)
+    face = BRepBuilderAPI_MakeFace(wire, True).Face()
+    prism = BRepPrimAPI_MakePrism(face, gp_Vec(0.0, 0.0, z_hi - z_lo))
+    if not prism.IsDone():
+        raise RuntimeError("prism extrusion failed")
+    return prism.Shape()
+
+
+def _prism_wire_2d(xy_pts, z: float, r_fillet_thresh: float = None, bore_radius: float = None):
+    """The arc+line hybrid closed wire `build_prism_solid` extrudes, factored out so
+    `prism_cross_section_area` can measure what that wire actually encloses WITHOUT extruding
+    it — see that function's docstring for why this exists (validating `detect_arc_runs`'s own
+    classification against the raw ring's own shoelace area, MISSION §6.2 M14)."""
     pts = [p for p in xy_pts]
     if len(pts) > 1 and math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-9:
         pts = pts[:-1]
@@ -381,7 +396,7 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
 
     def P(idx):
         x, y = pts[idx]
-        return gp_Pnt(x, y, z_lo)
+        return gp_Pnt(x, y, z)
 
     mkwire = BRepBuilderAPI_MakeWire()
     if not arcs:
@@ -422,9 +437,9 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
                     sx0, sy0 = _snap(pts[run[0]])
                     sxm, sym = _snap(pts[run[len(run) // 2]])
                     sx1, sy1 = _snap(pts[run[-1]])
-                    p0 = gp_Pnt(sx0, sy0, z_lo)
-                    pm = gp_Pnt(sxm, sym, z_lo)
-                    p1 = gp_Pnt(sx1, sy1, z_lo)
+                    p0 = gp_Pnt(sx0, sy0, z)
+                    pm = gp_Pnt(sxm, sym, z)
+                    p1 = gp_Pnt(sx1, sy1, z)
             run_endpoints.append((p0, pm, p1))
 
         for i in range(n_arcs):
@@ -457,12 +472,41 @@ def build_prism_solid(xy_pts, z_lo: float, z_hi: float, r_fillet_thresh: float =
     wire = mkwire.Wire()
     if not wire.Closed():
         raise RuntimeError("prism cross-section wire is not closed")
+    return wire
 
+
+def prism_cross_section_area(xy_pts, r_fillet_thresh: float = None,
+                              bore_radius: float = None) -> float:
+    """Area of the SAME arc+line hybrid wire `build_prism_solid` would extrude, without actually
+    extruding it — a cheap validity probe (MISSION §6.2 M14).
+
+    Why this exists: `detect_arc_runs`'s single global elbow threshold assumes local radii split
+    cleanly into "one curved cluster" vs "one straight cluster". M14's 6-point star has TWO real
+    fillet radii close together (tip 40 mm, valley 50 mm, ratio only 1.25) ahead of the straight
+    flanks' much larger local radii — on some raw stations (measured: the ring closest to
+    mid-length among 270 candidates, right after the fore severed-run transition) the elbow
+    search's largest RATIO gap lands inside the noise near the tail of the sorted-radius array
+    instead of at the true fillet/flank boundary, merging most of the ring (4 runs instead of
+    the true 12: 6 tip + 6 valley) into a few wildly ill-conditioned "arc" runs. Each run's exact
+    3-point circle (`GC_MakeArcOfCircle` through first/mid/last) then fits SOME circle through
+    mismatched points spanning a fillet AND its neighboring flank — geometrically meaningless,
+    and measured to bulge the star bore's enclosed area by +30% (1,930,341 mm² vs the true
+    1,480,339 mm², at z≈273 on the final M14 truth) even though `detect_arc_runs` itself never
+    crashes and `_pick_best_ring`'s existing tier scoring (which only checks "are there >= 2
+    runs, none degenerately short") scores this exact misclassification as its BEST tier — fewer,
+    longer runs looks like a *cleaner* fit by that heuristic, not a broken one.
+
+    `_pick_best_ring` calls this on its own top-ranked candidate(s) and compares the result to
+    that candidate's raw shoelace-polygon area (already computed for the constant-cross-section
+    check in `_build_bore_prism_or_loft`): a real fillet's own arc-vs-chord bulge is a few
+    hundred mm² per fillet (order `r^2`, r=40-50 mm here) — well under 1% of a ~1e6 mm² star —
+    so a mismatch far above that means the classification, not the geometry, is at fault, and
+    the next-best-scoring candidate should be tried instead."""
+    wire = _prism_wire_2d(xy_pts, 0.0, r_fillet_thresh, bore_radius)
     face = BRepBuilderAPI_MakeFace(wire, True).Face()
-    prism = BRepPrimAPI_MakePrism(face, gp_Vec(0.0, 0.0, z_hi - z_lo))
-    if not prism.IsDone():
-        raise RuntimeError("prism extrusion failed")
-    return prism.Shape()
+    props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(face, props)
+    return float(props.Mass())
 
 
 def _arc_line_wire(pts, z, arcs):

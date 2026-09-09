@@ -304,6 +304,137 @@ def _non_axisymmetric_hint(zz: float, cx: float, cy: float, max_resid: float,
     return msg
 
 
+def _multi_loop_hint(zz: float, polys, chord_tol: float) -> str:
+    """Actionable message when a station's cross-section is neither the plain single-loop case
+    nor a supported 'severed' section (`_classify_severed_station`, MISSION §6.2 M14: an
+    end-of-burn breakthrough that splits the annulus into N disjoint SIMPLY-CONNECTED islands,
+    accepted only in a contiguous run at the fore and/or aft end of the sampled sequence -- see
+    the post-loop run validation right after the station loop). What lands here is a genuinely
+    mixed topology the severed classifier already rejected: some of the N polygons carry an
+    interior hole and others don't (an N-separate-annuli section, or a real mid-grain feature),
+    which isn't a plain bore-through breakthrough and isn't implemented."""
+    n = len(polys)
+    n_with_holes = sum(1 for p in polys if len(p.interiors) > 0)
+    msg = (f"rebuild.py: expected 1 outer loop at z={zz:.3f}, got {n} "
+          f"({n_with_holes} with interior holes) (unsupported topology)")
+    if n > 1 and n_with_holes == n:
+        msg += ("; every one of the disjoint polygons has its own hole — this looks like N "
+               "separate annuli, not a single end-of-burn severed cross-section (M14 supports N "
+               "disjoint SIMPLY-CONNECTED islands only); if this is a multi-body input, check "
+               "--axis and the input mesh itself")
+    elif n > 1:
+        msg += (f"; {n_with_holes} of {n} disjoint polygons carry a hole and "
+               f"{n - n_with_holes} don't — not a plain end-of-burn breakthrough (M14); if this "
+               "is a real mid-grain feature this topology is not yet implemented")
+    else:
+        msg += ("; if this is a real mid-grain feature this topology is not yet implemented")
+    return msg
+
+
+def _fit_severed_envelope(polys, chord_tol: float):
+    """Fit the shared outer-envelope circle from a 'severed' station's disjoint islands
+    (`_classify_severed_station`): the islands' outermost arcs all lie on the same dome/case
+    surface (MISSION §6.2 M14 — measured on the final M14 truth at z=200: circle fit of the
+    max-radius points across all 6 islands gives R=799.840 vs true case radius 800.000, resid
+    0.290 well inside `circle_max_resid`). Returns (Ro, max_resid), or None if the fit can't be
+    trusted enough to feed the dome model (too few points, or the kept points don't actually
+    span the ring — an ill-conditioned quarter-arc fit through a couple of adjacent islands must
+    not silently bias the dome model the way a real full-circumference sample would)."""
+    pts = np.vstack([np.asarray(p.exterior.coords) for p in polys])
+    r = np.hypot(pts[:, 0], pts[:, 1])
+    r_max = float(r.max())
+    keep = r >= r_max - 2.0 * tol.circle_max_resid(chord_tol)
+    kept = pts[keep]
+    if len(kept) < 12:
+        return None
+    # Angular-coverage gate: the largest gap between consecutive (sorted, wrapped) angles is the
+    # uncovered arc; the kept points must span at least half the circle (>= pi radians) or the
+    # fit is an ill-conditioned few-island arc, not a real envelope sample.
+    ang = np.sort(np.arctan2(kept[:, 1], kept[:, 0]))
+    gaps = np.diff(ang, append=ang[0] + 2.0 * math.pi)
+    if (2.0 * math.pi - float(gaps.max())) < math.pi:
+        return None
+    cx, cy, Ro, max_resid, _ = fit_circle_robust(kept)
+    if max_resid > tol.circle_max_resid(chord_tol) or not _axis_centered(cx, cy, Ro, chord_tol):
+        return None
+    return (Ro, max_resid)
+
+
+def _classify_severed_station(polys, chord_tol: float):
+    """Given `slice_station`'s polys for one station, decide whether this is a 'severed'
+    section: the annulus cut into disjoint simply-connected islands by an end-of-burn
+    breakthrough (M14; MISSION §6.2). Returns either None (not severed — caller applies the
+    normal single-loop rules/error) or a dict `{"n_islands": int, "env": (Ro, max_resid) or
+    None}`.
+
+    Rules (decided in the M14 plan, do not relax):
+      - N >= 2 polygons, EVERY one with 0 interiors -> severed.
+      - N == 1 polygon with 0 interiors -> severed-candidate too (a real scan's sliver filter
+        can eat all but one island right at a tip; the clipped M14 truth never produces this,
+        but Brady's own unclipped real motor can) — the post-loop run-position validation is
+        what keeps this from silently accepting a genuinely unsupported bore-less part.
+      - Any polygon WITH interiors, whether alongside others or alone with n==1 that already has
+        a hole, -> None: that's the normal single-loop-with-bore case (n==1, one poly with
+        interiors) or a genuinely mixed topology (n>1, some with interiors) — unsupported, same
+        as before.
+      - An empty slice (`polys == []`) -> None; the caller's own empty-slice handling covers it.
+    `env` comes from `_fit_severed_envelope` over the union of every island's exterior points;
+    on rejection `env` is None and the station still counts as severed, it just contributes no
+    radius sample to the dome model."""
+    if not polys:
+        return None
+    if any(len(p.interiors) > 0 for p in polys):
+        return None
+    return {"n_islands": len(polys), "env": _fit_severed_envelope(polys, chord_tol)}
+
+
+def _severed_fore_aft_runs(n_all: int, severed_idx: dict) -> tuple:
+    """The maximal PREFIX and SUFFIX of station indices `[0, n_all)` that are in `severed_idx` —
+    the only run shapes a severed/degenerate station is allowed to occur in (MISSION §6.2 M14:
+    end-of-burn breakthrough only happens at a dome tip, i.e. at an END of the sampled sequence).
+    Returns `(fore_run, aft_run)` as sets of indices; either or both may be empty. Pure and
+    mesh-free so `_severed_run_error` (and tests/test_severed.py) can exercise the run-position
+    logic directly on a fabricated `severed_idx` without slicing a real mesh."""
+    fore_run = set()
+    for i in range(n_all):
+        if i not in severed_idx:
+            break
+        fore_run.add(i)
+    aft_run = set()
+    for i in range(n_all - 1, -1, -1):
+        if i not in severed_idx:
+            break
+        aft_run.add(i)
+    return fore_run, aft_run
+
+
+def _severed_run_error(all_zz, severed_idx: dict, fore_run: set, aft_run: set):
+    """Post-loop validation for severed/degenerate stations (MISSION §6.2 M14): only a
+    contiguous run touching the fore and/or aft end of `all_zz` is supported — an end-of-burn
+    breakthrough at a dome tip (or, for the degenerate empty-slice placeholder, a real unclipped
+    part's true tip past the last full island). Returns None when `severed_idx` is a valid
+    configuration, else an actionable message (the caller prints `f"rebuild.py: {msg}"` and
+    returns exit code 4). `fore_run`/`aft_run` come from `_severed_fore_aft_runs`."""
+    n_all = len(all_zz)
+    stray = sorted(set(severed_idx) - fore_run - aft_run)
+    if stray:
+        z_bad = all_zz[stray[0]]
+        n_bad = severed_idx[stray[0]]["n_islands"]
+        return (f"the cross-section at z={z_bad:.3f} splits into {n_bad} disjoint island(s) in "
+               "the middle of the part — only end-of-burn breakthrough at the dome tips (a "
+               "contiguous run touching the fore and/or aft end of the sampled sequence) is "
+               "supported; if this is a multi-body input check the mesh, if it is a real "
+               "mid-grain feature this topology is not yet implemented")
+    if len(severed_idx) == n_all:
+        return ("every sampled station is disjoint islands — no connected cross-section to fit "
+               "a cavity from; try more --sections (to land a station in the connected middle "
+               "band) or check --axis (is it really right?)")
+    if n_all - len(severed_idx) < 2:
+        return ("fewer than 2 connected (non-severed) stations were sampled — not enough to fit "
+               "a cavity/dome model reliably; increase --sections")
+    return None
+
+
 def _fit_r2_quadratic(pts, at_start: bool, min_dz: float, resid_tol: float):
     """Fit R^2 as a quadratic (or linear, with only 2 points) function of z, using stations
     near the start or end of `pts`. Returns (z0, coef, window_z) for `np.polyval(coef, z - z0)`,
@@ -528,6 +659,41 @@ def _dome_model(outer_pts, mesh, at_start: bool, min_dz: float, resid_tol: float
     return z0, coef, window_z, shoulder_z
 
 
+def _curved_end(z0: float, coef, z_end: float, resid_tol: float) -> bool:
+    """True when a NON-pinch end's already-fitted dome model (`_dome_model`) is validated AND
+    genuinely curved across the excluded end-inset gap (MISSION §6.2 M14).
+
+    Why this exists: `is_pinch_start`/`is_pinch_end` decide whether the endpoint radius snaps to
+    a bore/cavity radius, and only a pinch end has ever triggered `_densify_dome_chords`'s
+    resample of the excluded inset gap — correctly, because a flat (non-pinch) end like M1's is
+    a cylinder and a straight chord across it is exact. M14 breaks that equivalence: its ends are
+    flat CAPS (no pinch — `bore_pts` is empty, there's no bore to snap to) sitting well inside
+    real dome curvature (measured: R≈631.8 at the cap vs. the case's own tip radius 900 — the
+    cap is 138 mm inboard of the dome's edge, nowhere near flat). Left un-resampled, the gap from
+    the endpoint to the nearest station whose severed-envelope circle fit actually cleared
+    `circle_max_resid` (M14's thin near-tip islands make several of the closest severed stations
+    fail that fit — an honest per-station rejection, not a bug, see `_fit_severed_envelope`) gets
+    bridged by ONE straight chord across real ellipse curvature — measured on the final M14
+    truth: the first surviving fore envelope sample is ~117 mm past the cap, and a single chord
+    across that gap alone was enough to fail `surface_deviation_max_mm` by two orders of
+    magnitude and bias volume by double digits of percent (an early un-instrumented run of this
+    exact fix, before this check existed).
+
+    Two gates, both against the model itself rather than a milestone-specific constant, so a
+    flat profile (M1/M3/M4/M11's cylindrical outer wall) is provably unaffected: the quadratic's
+    curvature term `a` must be non-negligible (mirrors `_dome_shoulder_z`'s own `abs(a) < 1e-12`
+    threshold), and the model's OWN predicted radius change from its nearest fitted station (z0)
+    out to the true end (`z_end`) must exceed the fit's own residual tolerance — a model that
+    predicts less change than its own noise floor isn't "curved" in any way that would move
+    `surface_deviation_max_mm`."""
+    coef = np.asarray(coef, dtype=float)
+    if coef.size != 3 or abs(float(coef[0])) < 1e-12:
+        return False
+    r_first = _eval_r2_quadratic(z0, coef, z0)
+    r_end = _eval_r2_quadratic(z0, coef, z_end)
+    return abs(r_end - r_first) > resid_tol
+
+
 def _densify_dome_chords(outer_pts, z_lo, z_hi, at_start: bool, min_dz: float, resid_tol: float,
                           window_z: float, n_samples: int = 60, model=None):
     """Replace the real (noisy, unevenly-spaced) circle-fit stations inside the validated dome
@@ -630,6 +796,29 @@ def _bisect_slot_zone_edge(mesh, z_present: float, z_absent: float, chord_tol: f
     return 0.5 * (z_a + z_b)
 
 
+def _bisect_severed_edge(mesh, z_severed: float, z_connected: float, chord_tol: float,
+                          n_iter: int = 50, min_dz: float = 1e-4) -> float:
+    """Localize the z where a station's cross-section switches between 'severed' (N > 1 disjoint
+    outer polygons) and a single connected loop — the end-of-burn breakthrough plane MISSION
+    §6.2 M14 reports as its topology event. Clone of `_bisect_slot_zone_edge` with the predicate
+    `len(polys) > 1` (not `!= 1`): a degenerate empty midpoint slice (`len(polys) == 0`, possible
+    on a real, unclipped input right at the true tip — see the post-loop empty-slice handling)
+    must shrink the bracket toward the CONNECTED side, not oscillate, since an empty slice is not
+    itself evidence of severing. `z_severed` is a station known to be severed (N >= 2 disjoint
+    outer loops), `z_connected` one known to have exactly 1 (order doesn't matter)."""
+    z_a, z_b = z_severed, z_connected
+    for _ in range(n_iter):
+        if abs(z_b - z_a) <= min_dz:
+            break
+        zm = 0.5 * (z_a + z_b)
+        polys, _zz = slice_station(mesh, zm, chord_tol)
+        if len(polys) > 1:
+            z_a = zm
+        else:
+            z_b = zm
+    return 0.5 * (z_a + z_b)
+
+
 def _bisect_topology_event(mesh, z_a: float, z_b: float, chord_tol: float, circ_at_a: bool,
                             n_iter: int = 50, min_dz: float = 1e-4) -> float:
     """Localize the z where a single bore hole's cross-section switches between circular and
@@ -714,7 +903,7 @@ def _bisect_ring_edge(mesh, z_present: float, z_absent: float, chord_tol: float,
     return 0.5 * (z_a + z_b)
 
 
-def _pick_best_ring(bore_rings, z_center: float):
+def _pick_best_ring(bore_rings, z_center: float, validate_area: bool = False):
     """Pick the best-conditioned representative cross-section from `bore_rings` (raw ring points).
 
     Used for a non-circular but axially-constant bore (e.g. M3's star):
@@ -767,7 +956,47 @@ def _pick_best_ring(bore_rings, z_center: float):
     misclassification for a shape with real fillets, not a legitimate simplification). Within a
     tier, prefer fewer wire edges, then break remaining ties by distance to the middle of this
     call's own z-window (least likely to be distorted by inset/end effects, same reasoning the
-    old blind mid-index pick relied on)."""
+    old blind mid-index pick relied on).
+
+    A THIRD failure mode surfaced by M14 (measured on the final truth, station z=273.4): tier 0
+    itself can be wrong. `detect_arc_runs`'s single global elbow threshold assumes local radii
+    split into one curved cluster and one straight cluster; M14's star has TWO real fillet radii
+    close together (tip 40 mm, valley 50 mm -- ratio only 1.25) ahead of the flanks' much larger
+    local radii, and on some stations the elbow search's largest ratio gap lands in the noise
+    near the tail of the sorted-radius array instead of at the true fillet/flank boundary,
+    merging most of the ring into 4 wildly ill-conditioned "runs" instead of the true 12 (6 tip +
+    6 valley). That reads as tier 0 (4 >= 2 runs, none individually short) -- "fewer, longer
+    runs" looks like a CLEANER fit by the existing heuristic, not a broken one -- and each such
+    run's exact 3-point circle then fits SOME circle through points spanning a fillet AND its
+    neighboring flank, bulging the reconstructed area by +30% (measured: 1,930,341 mm² vs the
+    true 1,480,339 mm², an entirely different -- and wrong -- cavity volume once extruded and
+    cut). Guard against it the same way the codebase always validates a fit here: measure it.
+    `solids.prism_cross_section_area` builds the exact wire `build_prism_solid` would extrude
+    (without extruding it) and its area is compared to the candidate's own raw shoelace area
+    (`_ring_area`) -- a real fillet's own arc-vs-chord bulge is tiny (order r^2, a few hundred
+    mm² here, measured <0.02% on every well-classified M14 station) so a mismatch far above that
+    means the CLASSIFICATION is wrong, not the geometry, and the next-best-scoring candidate is
+    tried instead. Only the already best-scoring candidates are ever probed this way (capped at
+    `_CHECK_N`) -- checking all N candidates up front would repeat `build_prism_solid`'s own
+    O(ring size) wire-build cost N times over for no benefit in the common case (M3, M14) where
+    the very first candidate already passes.
+
+    `validate_area` defaults to False -- OFF -- and must be requested explicitly
+    (`_build_prism_bore` passes `validate_area=(bore_radius is None)`, `_build_slot_lobes` never
+    passes it at all). This is a
+    deliberate scope limit, not laziness: M8's OWN top-ranked candidate at `--sections 52
+    --adaptive --chord-tol 0.9436` (a real regression test, `tests/api/test_engine.py::
+    test_validity_hint_does_not_suggest_enabling_adaptive_when_already_on`) also fails this exact
+    area check by -19.9% (raw 1,550,157 mm² vs reconstructed 1,241,586 mm², same underlying
+    `detect_arc_runs` misclassification symptom M14 hits) -- but `_build_slot_lobes` (M8/M12/M13's
+    lobe-decomposition path, the OTHER caller of this function) uses the picked ring only as
+    input to a disc-SPLIT, not as the final extruded cross-section directly, so it tolerates that
+    imperfection and the existing, already-verified crash-with-an-actionable-hint behavior at that
+    exact edge case is correct and must not change. Turning `validate_area` on unconditionally
+    (tried first) silently swapped that in for a WORSE outcome -- a "successful" rebuild with
+    46%/1.96% volume error and up to 550 mm deviation instead of a loud, correctly-diagnosed
+    `GeometryError` -- proving the check must be scoped to the ONE call site (M14's own
+    constant-cross-section prism path) it was actually written for."""
 
     def _score(z, pts) -> tuple:
         pts = list(pts)
@@ -782,23 +1011,54 @@ def _pick_best_ring(bore_rings, z_center: float):
         tier = 0 if min_run >= 3 else 1
         return (tier, 2 * len(runs), abs(z - z_center))
 
-    best_pts, best_score = None, None
+    scored = []
     for z, ring in bore_rings:
         pts = list(ring.coords)
-        s = _score(z, pts)
-        if best_score is None or s < best_score:
-            best_score, best_pts = s, pts
-    if best_pts is None:
-        best_pts = list(bore_rings[len(bore_rings) // 2][1].coords)
-    return best_pts
+        scored.append((_score(z, pts), pts))
+    if not scored:
+        return list(bore_rings[len(bore_rings) // 2][1].coords)
+    scored.sort(key=lambda t: t[0])
+
+    if validate_area:
+        _CHECK_N = min(10, len(scored))
+        for _s, _pts in scored[:_CHECK_N]:
+            raw_area = _ring_area(_pts)
+            if raw_area <= 0.0:
+                continue
+            try:
+                recon_area = solids.prism_cross_section_area(_pts)
+            except Exception:
+                continue
+            if abs(recon_area - raw_area) <= 0.01 * raw_area:
+                return _pts
+        # Every one of the top candidates failed the area-fidelity check (should not happen on
+        # any geometry seen so far on this opted-in call path -- M3/M14 candidates already pass
+        # it at their very first, best-scored try). Fall back to the plain best-scored candidate
+        # rather than raising, matching this function's existing graceful-fallback convention
+        # (the `if not scored` case above).
+    return scored[0][1]
 
 
 def _build_prism_bore(bore_rings, z_min: float, z_max: float, eps_start: float,
                        eps_end_val: float, chord_tol: float, bore_radius: float = None):
-    """Prism cutter for the whole (bore + merged slots) cross-section — see `_pick_best_ring`."""
-    return solids.build_prism_solid(_pick_best_ring(bore_rings, 0.5 * (z_min + z_max)),
-                                     z_min - eps_start, z_max + eps_end_val,
-                                     bore_radius=bore_radius)
+    """Prism cutter for the whole (bore + merged slots) cross-section — see `_pick_best_ring`.
+
+    `validate_area=(bore_radius is None)`: `_pick_best_ring`'s area-fidelity check (MISSION §6.2
+    M14) is scoped to only the calls where NO independently-fitted circular bore radius exists to
+    validate against -- M3/M14's pure constant-cross-section star bore (`_build_bore_prism_or_
+    loft`'s own call below never passes `bore_radius`). The other caller of `_build_prism_bore`
+    (M4/M5/M8's "fin_solid" in the mixed circular+non-circular sandwich, always called WITH a
+    `bore_radius`) already has its own validation via that radius snap, and enabling the area
+    check there too changed a real, already-tested M8 edge case (`--sections 52 --adaptive
+    --chord-tol 0.9436`) from a correctly-diagnosed `GeometryError` into a "successful" but wrong
+    rebuild (46%/1.96% volume error) -- see `_pick_best_ring`'s docstring for the measured
+    numbers. `bore_radius is None` is the same signal `_build_bore_prism_or_loft`'s own call
+    site structurally guarantees (it has no bore_radius parameter at all), so this is not a
+    milestone-name special case, it's "is there already an independent circle to validate
+    against"."""
+    return solids.build_prism_solid(
+        _pick_best_ring(bore_rings, 0.5 * (z_min + z_max), validate_area=(bore_radius is None)),
+        z_min - eps_start, z_max + eps_end_val, bore_radius=bore_radius)
 
 
 def _prism_from_ring(coords, z_lo: float, z_hi: float, area: float, arc_radius: float = None):
@@ -2380,6 +2640,10 @@ def _rebuild_impl(args) -> int:
                      # obround slots), any z -- R is the (possibly poor) Kasa-fit radius, kept
                      # only as a rough size estimate, not used for shape reconstruction
     all_zz = []      # every station z actually sliced, in order (for chain-edge neighbor lookup)
+    severed_idx = {}  # index-in-all_zz -> {"n_islands": int, "env": (Ro, max_resid) or None} for
+                      # every 'severed' station (MISSION §6.2 M14: an end-of-burn breakthrough
+                      # cuts the annulus into disjoint simply-connected islands) — see
+                      # `_classify_severed_station`. Empty for every milestone through M13.
     if _partial is not None:
         _partial["stations_z_mm"] = all_zz  # same list object: grows as stations are sliced
     _dbg_stations = []
@@ -2394,12 +2658,38 @@ def _rebuild_impl(args) -> int:
             _on_progress("stations", _i / max(_n_zs, 1), f"station {_i + 1}/{_n_zs} (z={z:.3f})")
         _n0 = (len(bore_pts), len(bore_rings), len(sat_samples), len(sat_rings))
         polys, zz = slice_station(mesh, z, chord_tol)
+
+        # 'Severed' station (M14): N disjoint simply-connected islands (or a single one, right at
+        # a real tip) cut by an end-of-burn breakthrough. Classified before the plain single-loop
+        # rules below so it can never fall through to the old "expected 1 outer loop"/"expected at
+        # least 1 interior hole" errors — this is the actual crash fix (`TopologyError: expected 1
+        # outer loop ... got 6`, Brady's real motor). Contributes an envelope (z, R) sample to the
+        # dome model like any station, nothing to bore/hole processing, and no chain adjacency —
+        # the post-loop run-position validation below enforces WHERE severed stations may occur.
+        severed = _classify_severed_station(polys, chord_tol)
+        if severed is not None:
+            all_zz.append(zz)
+            severed_idx[len(all_zz) - 1] = severed
+            if severed["env"] is not None:
+                outer_pts.append((zz, severed["env"][0]))
+            continue
+
         if not polys:
-            print(f"rebuild.py: no section recovered at z={z:.3f}", file=sys.stderr)
-            return 4
+            # An empty/unrecoverable slice (`slice_station`'s own jitter retries already failed)
+            # still needs a station index: a real (unclipped) end-of-burn part can slice empty
+            # right at its own true tip past the last full island (M14's own clipped truth never
+            # does — its cap always shows every island at full size, see the M14 plan §1.3 clip
+            # row — but Brady's real motor, ending at the true burnthrough pinch rather than a
+            # deliberate clip plane, can). Record it as a degenerate severed placeholder
+            # (n_islands=0, env=None, no radius sample) so the SAME post-loop run-position
+            # validation that already restricts severed stations to a contiguous fore/aft-end run
+            # covers this for free — an empty slice deep in the part is still the hard error it
+            # always was, just caught by that one shared check instead of a second bespoke one.
+            all_zz.append(zz)
+            severed_idx[len(all_zz) - 1] = {"n_islands": 0, "env": None}
+            continue
         if len(polys) != 1:
-            print(f"rebuild.py: expected 1 outer loop at z={zz:.3f}, got {len(polys)} "
-                  f"(unsupported topology)", file=sys.stderr)
+            print(_multi_loop_hint(zz, polys, chord_tol), file=sys.stderr)
             return 4
         all_zz.append(zz)
 
@@ -2471,6 +2761,55 @@ def _rebuild_impl(args) -> int:
         for _r in _dbg_stations:
             print("DEBUG_M13 st %9.2f %8.2f %2d %d %d %d %d" % _r, file=sys.stderr)
 
+    # Post-loop run-position validation (MISSION §6.2 M14): severed/degenerate stations are only
+    # supported as a contiguous run touching the fore and/or aft end of the SAMPLED sequence —
+    # an end-of-burn breakthrough at a dome tip (or, for the degenerate empty-slice placeholder,
+    # a real unclipped part's true tip past the last full island). Anything else is a genuinely
+    # unsupported topology: keep the typed exit-4, with an actionable hint, rather than silently
+    # treating a mid-part severed band (or a multi-body/misoriented input) as end-of-burn.
+    # `severed_fore`/`severed_aft` survive past this block (used by the analytic breakthrough
+    # detector below, Phase C.2) — always defined, False for every milestone through M13.
+    # The check itself is pure (`_severed_fore_aft_runs`/`_severed_run_error`, tests/
+    # test_severed.py) so it's unit-testable without slicing a real mesh.
+    severed_fore = severed_aft = False
+    fore_run = aft_run = set()
+    if severed_idx:
+        n_all = len(all_zz)
+        fore_run, aft_run = _severed_fore_aft_runs(n_all, severed_idx)
+        severed_fore, severed_aft = bool(fore_run), bool(aft_run)
+        _err = _severed_run_error(all_zz, severed_idx, fore_run, aft_run)
+        if _err is not None:
+            print(f"rebuild.py: {_err}", file=sys.stderr)
+            return 4
+
+    # One topology event per severed end (MISSION §6.2 M14): the measured merge plane, localized
+    # by bisection on `len(polys) > 1` between the run's innermost severed station and the
+    # adjacent connected one (both indices are guaranteed to exist and to be on the correct side
+    # by the validation above — `fore_run`/`aft_run` are non-empty proper prefixes/suffixes, and
+    # at least 2 connected stations remain). The flat clip caps at the part's own axial ends are
+    # NOT events (consistent with M2/M12 never counting a bore/dome pinch as an event) — only the
+    # severed<->single-loop transition is. Empty for every milestone through M13.
+    severed_events = []
+    if severed_fore:
+        _k = len(fore_run)  # first CONNECTED index — guaranteed not in severed_idx (fore_run
+        severed_events.append(                                # is a proper prefix, see above)
+            _bisect_severed_edge(mesh, all_zz[_k - 1], all_zz[_k], chord_tol))
+    if severed_aft:
+        _k = n_all - len(aft_run)  # innermost (smallest-index) severed station of the aft run
+        severed_events.append(
+            _bisect_severed_edge(mesh, all_zz[_k], all_zz[_k - 1], chord_tol))
+
+    # Severed/degenerate stations classify no hole content at all (the per-station loop above
+    # `continue`s before reaching hole classification), so every chain-adjacency and
+    # end-extension test below must walk the CONNECTED subsequence, not the raw sampled
+    # sequence — otherwise a severed run would split what is really one contiguous chain into
+    # two, or an end-extension test would see "not station 0" and bisect against a severed
+    # neighbor that has no hole to bisect against. `severed_idx` is empty for every milestone
+    # through M13, so `_connected_zz` == `all_zz` and every index computed from it is
+    # byte-identical to before this existed.
+    _connected_zz = [z for _i, z in enumerate(all_zz) if _i not in severed_idx]
+    _connected_index = {z: i for i, z in enumerate(_connected_zz)}
+
     if _partial is not None:
         _partial["stage_reached"] = "solids"
     if _on_progress is not None:
@@ -2510,15 +2849,17 @@ def _rebuild_impl(args) -> int:
         Rs = np.array([s[3] for s in ch])
         cx0, cy0, R0 = float(cxs.mean()), float(cys.mean()), float(Rs.mean())
         z_first, z_last = ch[0][0], ch[-1][0]
-        i_first, i_last = all_zz.index(z_first), all_zz.index(z_last)
+        i_first, i_last = _connected_index[z_first], _connected_index[z_last]
         if i_first == 0:
             z_lo = z_min - eps_cut_val
         else:
-            z_lo = _bisect_hole_edge(mesh, z_first, all_zz[i_first - 1], chord_tol, cx0, cy0, R0)
-        if i_last == len(all_zz) - 1:
+            z_lo = _bisect_hole_edge(mesh, z_first, _connected_zz[i_first - 1], chord_tol, cx0,
+                                      cy0, R0)
+        if i_last == len(_connected_zz) - 1:
             z_hi = z_max + eps_cut_val
         else:
-            z_hi = _bisect_hole_edge(mesh, z_last, all_zz[i_last + 1], chord_tol, cx0, cy0, R0)
+            z_hi = _bisect_hole_edge(mesh, z_last, _connected_zz[i_last + 1], chord_tol, cx0,
+                                      cy0, R0)
         if z_hi - z_lo < tol.sat_min_span(chord_tol):
             # Sub-tolerance flicker window (see tol.sat_min_span): a cutter thinner than the
             # boolean fuzzy regime it must survive breaks BRepAlgoAPI_Cut (observed on M8 at
@@ -2538,8 +2879,7 @@ def _rebuild_impl(args) -> int:
         cxr, cyr = float(hole[:, 0].mean()), float(hole[:, 1].mean())
         ring_by_z.setdefault(z, []).append((cxr, cyr, hole))
     ring_chains = []
-    zz_index = {z: i for i, z in enumerate(all_zz)}
-    for z in sorted(ring_by_z, key=lambda zk: zz_index[zk]):
+    for z in sorted(ring_by_z, key=lambda zk: _connected_index[zk]):
         entries = ring_by_z[z]
         if len(entries) > 1:
             match_dist = 0.5 * min(
@@ -2565,7 +2905,7 @@ def _rebuild_impl(args) -> int:
                 # otherwise wrongly bridge two disjoint narrow appearance windows into one
                 # chain spanning the whole merged middle with the WRONG, edge-window cross
                 # section swept across it).
-                if zz_index[z] != zz_index[lz] + 1:
+                if _connected_index[z] != _connected_index[lz] + 1:
                     continue
                 d = math.hypot(cxr - lcx, cyr - lcy)
                 if d < match_dist and (best_d is None or d < best_d):
@@ -2598,10 +2938,10 @@ def _rebuild_impl(args) -> int:
     _bore_rings_z = {z for z, _ring in bore_rings}
     for ch in ring_chains:
         z_first, z_last = ch[0][0], ch[-1][0]
-        i_first, i_last = all_zz.index(z_first), all_zz.index(z_last)
+        i_first, i_last = _connected_index[z_first], _connected_index[z_last]
         touches_bore_rings = (
-            (i_first > 0 and all_zz[i_first - 1] in _bore_rings_z) or
-            (i_last < len(all_zz) - 1 and all_zz[i_last + 1] in _bore_rings_z)
+            (i_first > 0 and _connected_zz[i_first - 1] in _bore_rings_z) or
+            (i_last < len(_connected_zz) - 1 and _connected_zz[i_last + 1] in _bore_rings_z)
         )
         if touches_bore_rings or len(ch) < 3:
             # `_touches_bore_rings`: this chain's own boundary sits right next to where the mixed
@@ -2643,13 +2983,13 @@ def _rebuild_impl(args) -> int:
         if i_first == 0:
             z_lo = z_min - eps_cut_val
         else:
-            z_lo = _bisect_ring_edge(mesh, z_first, all_zz[i_first - 1], chord_tol, cx0, cy0,
-                                      match_dist)
-        if i_last == len(all_zz) - 1:
+            z_lo = _bisect_ring_edge(mesh, z_first, _connected_zz[i_first - 1], chord_tol, cx0,
+                                      cy0, match_dist)
+        if i_last == len(_connected_zz) - 1:
             z_hi = z_max + eps_cut_val
         else:
-            z_hi = _bisect_ring_edge(mesh, z_last, all_zz[i_last + 1], chord_tol, cx0, cy0,
-                                      match_dist)
+            z_hi = _bisect_ring_edge(mesh, z_last, _connected_zz[i_last + 1], chord_tol, cx0,
+                                      cy0, match_dist)
         if z_hi - z_lo < tol.sat_min_span(chord_tol):
             # Same sub-tolerance flicker guard as the circular satellite chains above
             # (tol.sat_min_span): a prism sliver thinner than the boolean fuzzy regime breaks
@@ -2754,17 +3094,17 @@ def _rebuild_impl(args) -> int:
             # 2, inside M8's `topo_events_max` of 3. On M4/M5, where the fins reach the bore at
             # their first station, the two brackets coincide and min/max is a no-op.
             zone_fore, zone_aft = event_fore, event_aft
-            slot_i = [zz_index[z] for z, _ring in bore_rings] + \
-                     [zz_index[z] for z, _cx, _cy, _R, _h in sat_rings]
+            slot_i = [_connected_index[z] for z, _ring in bore_rings] + \
+                     [_connected_index[z] for z, _cx, _cy, _R, _h in sat_rings]
             i_lo, i_hi = min(slot_i), max(slot_i)
             if i_lo > 0:
                 zone_fore = min(zone_fore,
-                                _bisect_slot_zone_edge(mesh, all_zz[i_lo], all_zz[i_lo - 1],
-                                                       chord_tol))
-            if i_hi < len(all_zz) - 1:
+                                _bisect_slot_zone_edge(mesh, _connected_zz[i_lo],
+                                                       _connected_zz[i_lo - 1], chord_tol))
+            if i_hi < len(_connected_zz) - 1:
                 zone_aft = max(zone_aft,
-                               _bisect_slot_zone_edge(mesh, all_zz[i_hi], all_zz[i_hi + 1],
-                                                      chord_tol))
+                               _bisect_slot_zone_edge(mesh, _connected_zz[i_hi],
+                                                      _connected_zz[i_hi + 1], chord_tol))
         else:
             circ_before = bool(pts_before)
             z_a, z_b = (pts_before[-1][0], ring_z_min) if circ_before \
@@ -2848,13 +3188,22 @@ def _rebuild_impl(args) -> int:
             # them. Evaluating/solving the model far outside its fitted domain (e.g. at the far
             # slot end, ~5000 mm past a ~500 mm fore dome) is meaningless extrapolation and was
             # the source of a spurious event here previously. Mirror image for aft.
-            if fore_model is not None and ring_z_min < fore_window_z:
+            #
+            # Suppressed per-end when that end has a severed run (MISSION §6.2 M14): M14's own
+            # cavity ring max radius (~900 mm, the star's tip) exceeds its dome's local envelope
+            # near BOTH axial extremes for exactly the same underlying reason this analytic
+            # breakthrough condition tests for — so this block fires for M14 too, landing within
+            # a couple mm of the measured severed-run event below and reporting it a SECOND time.
+            # The severed-run bisection (Phase C, below) is strictly better evidence there (it
+            # actually re-slices the mesh at the real transition instead of solving a model), so
+            # skip the analytic solve on that end. M12 (never severed) keeps this path unchanged.
+            if fore_model is not None and ring_z_min < fore_window_z and not severed_fore:
                 r_fore_env = _eval_r2_quadratic(fz0, fcoef, ring_z_min)
                 if r_fore_env < ring_r_max:
                     z_bt = _solve_pinch_z(fz0, fcoef, ring_r_max, ring_z_min)
                     if z_bt is not None and ring_z_min < z_bt < fore_window_z:
                         breakthrough_events.append(z_bt)
-            if aft_model is not None and ring_z_max > aft_window_z:
+            if aft_model is not None and ring_z_max > aft_window_z and not severed_aft:
                 r_aft_env = _eval_r2_quadratic(az0, acoef, ring_z_max)
                 if r_aft_env < ring_r_max:
                     z_bt = _solve_pinch_z(az0, acoef, ring_r_max, ring_z_max)
@@ -2871,30 +3220,44 @@ def _rebuild_impl(args) -> int:
         r_start = bore_pts[0][1]
     if is_pinch_end:
         r_end = bore_pts[-1][1]
+    # A NON-pinch end can still sit on real dome curvature (M14: the outer surface is capped flat
+    # well inside a real dome, not at a bore pinch — `bore_pts` is empty so `is_pinch_*` is
+    # correctly False, but the end is nowhere near flat like M1's). Widen the densify trigger to
+    # also cover a validated, genuinely curved non-pinch end (`_curved_end`) so the excluded
+    # end-inset gap gets resampled from the model instead of bridged by one straight chord across
+    # real curvature. A flat profile (M1/M3/M4/M11) is provably unaffected — see `_curved_end`.
+    fore_curved = (not is_pinch_start) and fore_model is not None and \
+        _curved_end(fore_model[0], fore_model[1], z_min, resid_tol)
+    aft_curved = (not is_pinch_end) and aft_model is not None and \
+        _curved_end(aft_model[0], aft_model[1], z_max, resid_tol)
     # Resample every chord inside the validated dome window — the excluded inset band AND the
     # real-station-to-real-station gaps deeper in the dome — from the same quadratic-in-R^2
     # model used for the endpoint itself, replacing (not just densifying between) the raw
     # circle-fit stations there; see `_densify_dome_chords` for why straight chords across real
     # station gaps (not just the end gap) turned out to be the dominant volume error term, and
     # why the raw stations must be dropped rather than kept alongside the resample (face count).
-    # Not done for a non-pinch end (M1): there the profile is flat and a straight chord is exact.
+    # Not done for a flat end (M1): there the profile has no curvature and a straight chord is
+    # exact (`_curved_end` returns False there by construction).
     middle_pts = list(outer_pts)
     fore_gap, aft_gap = [], []
     curve_windows = []
-    if is_pinch_start:
+    if is_pinch_start or fore_curved:
         fore_gap = _densify_dome_chords(outer_pts, z_min, None, True, min_dz, resid_tol,
                                         fore_window_z, model=fore_model)
-        fore_gap[0] = (z_min, r_start)  # keep the bore-snapped value, not the model's own fit there
+        # Keep the already-decided endpoint value: the bore-snapped radius for a pinch end, or
+        # `_extrapolate_end`'s own quadratic-in-R^2 fit for a curved non-pinch end (M14) — there
+        # is nothing to snap to there, so `r_start` IS the model's fit at z_min already.
+        fore_gap[0] = (z_min, r_start)
         middle_pts = [p for p in middle_pts if p[0] > fore_window_z]
         curve_windows.append((z_min, fore_window_z))
-    if is_pinch_end:
+    if is_pinch_end or aft_curved:
         aft_gap = _densify_dome_chords(outer_pts, None, z_max, False, min_dz, resid_tol,
                                        aft_window_z, model=aft_model)
         aft_gap[-1] = (z_max, r_end)
         middle_pts = [p for p in middle_pts if p[0] < aft_window_z]
         curve_windows.append((aft_window_z, z_max))
-    start_pt = [] if is_pinch_start else [(z_min, r_start)]
-    end_pt = [] if is_pinch_end else [(z_max, r_end)]
+    start_pt = [] if (is_pinch_start or fore_curved) else [(z_min, r_start)]
+    end_pt = [] if (is_pinch_end or aft_curved) else [(z_max, r_end)]
     outer_full = sorted(start_pt + fore_gap + middle_pts + aft_gap + end_pt, key=lambda p: p[0])
     outer_solid = solids.build_revolve_solid(outer_full, chord_tol, curve_windows=curve_windows)
 
@@ -3310,7 +3673,7 @@ def _rebuild_impl(args) -> int:
     topo_events_z_mm = sorted(
         ([zone_fore, zone_aft] if zone_fore is not None
          else ([event_z] if event_z is not None else [])) + sat_events_z_mm
-        + breakthrough_events
+        + breakthrough_events + severed_events
     )
     verification = None
     if not getattr(args, "_skip_verification", False):
