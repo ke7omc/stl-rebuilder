@@ -1,6 +1,76 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-08/09 — M14 added: real near-burnout multi-lobe dome-breakthrough topology, fixed
+  and permanently regression-tested (`75e8377`→`0be596f`→`76c24a2`→`b23cccd`).** Brady hit a real
+  crash on a genuine near-burnout 6-point-star grain: `TopologyError: expected 1 outer loop...
+  got 6`. Physically, right at both dome tips the star's thin web burns all the way through in
+  six places before the true end of the part, severing what's normally one connected annular
+  station into six disjoint propellant islands. Treated with full ladder rigor — a real new
+  milestone, not a one-off patch — using the workflow Brady specified: geometry generation (a
+  default/Sonnet-tier agent) and Fable 5.1's code evaluation ran in **parallel** (independent
+  tasks), then a Sonnet-tier implementation pass, with Opus held in reserve if it got stuck (it
+  didn't need to be used).
+  - **Geometry** (`75e8377`, `harness/generators.py::_make_m14`): M2/M5/M8/M12-family capsule
+    minus a **constant-cross-section** M3-style 6-point star bore (R_valley=550, R_tip=900) — no
+    z-dependent dilation needed, since the dome's own shrinking radius naturally falls between
+    R_valley/R_tip near each tip, severing the ring for free. Solid capped 30mm short of each
+    side's exact zero-width pinch (`island_clip_margin`) because the raw cusp is a
+    valid-but-unmeshable BRep (gmsh: "Invalid boundary mesh," reproduced across 5 fillet
+    variants — a real topology limit, not a tessellation-quality one). R_valley had to be widened
+    from an initial 700 to 550 because the narrower value's exposed-island band fell entirely
+    inside `rebuild.py`'s own ~100mm station-placement end-inset and never actually reproduced
+    the crash — a reminder that "looks right" and "actually reproduces the bug" are different
+    bars, and only the second one counts.
+  - **Coordination hiccup, caught and fixed, not silently absorbed**: the geometry task tuned its
+    final parameters (R_valley, the clip margin, real gates) AFTER Fable had already read an
+    earlier draft and written a plan citing stale numbers. Caught immediately by comparing the
+    two agents' reports; sent Fable a targeted correction message (not a full re-run) to
+    re-measure everything against the actual committed geometry — it also surfaced one materially
+    new finding in the process: the clipped M14 ends don't pinch to a point (unlike earlier
+    milestones' domes), so the fix needed to extend dome-chord densification to fire on validated
+    curved non-pinch ends generally, not just the originally-planned pinch-target generalization.
+  - **Root cause** (`0be596f`, Fable's plan): a hard guard in `pipeline/engine.py` kills any
+    station whose slice returns >1 polygon. Important correction to the working theory going in —
+    **M12 does NOT already have working multi-loop station machinery that just fails to engage**;
+    Fable sliced M12's real geometry across its whole "breakthrough" band and every station is
+    still one connected polygon (the fillet keeps the ring from actually severing) — MISSION.md's
+    "8 disjoint outer polygons" text describes the 3D surface shape, not any real cross-section.
+    M14 is genuinely the first geometry to expose this. Fix needed no new solid-construction logic
+    — the severed geometry already exists in the boolean output; the fix is correctly classifying
+    a severed station and feeding its outer envelope as a dome-fit sample.
+  - **Implementation** (`76c24a2` engine fix, `b23cccd` harness gate wiring): found and fixed a
+    REAL regression along the way — the star-bore ring-classification fix needed for M14 initially
+    applied unconditionally and silently broke a real M8 edge case (a correctly-diagnosed
+    `GeometryError` became a "successful" 46%-volume-error rebuild), caught by this project's own
+    `tests/api/test_engine.py`, root-caused (M8's own top ring also fails the same naive check,
+    just less severely), and fixed by scoping the new check to `bore_radius is None` (M3/M14's
+    pure constant-cross-section path only — M4/M5/M8/M12/M13's mixed sandwich path is untouched).
+    This is exactly the self-correcting process Brady asked for working as intended.
+  - **Verification, independently reconfirmed by Claude (not just trusted from the subagent's own
+    report)**: `harness/score.py --milestone M14` passes every gate — both `fore_islands`/
+    `aft_islands` station bands populated (15/15, gate ≥10 each) and both topology-event merge
+    planes matched (250.42mm fore, 9749.58mm aft, worst match error 0.0017mm) proves BOTH dome
+    tips work, not just one. **Full M1–M14 regression swept sequentially** (parallel scoring runs
+    earlier in the session had corrupted the gitignored `harness/truth/` cache via overlapping
+    `_truth_hidden()` renames — a real caching hazard worth remembering, not a code bug): all 14
+    milestones pass, progress 1.0, zero failures. Full test suite: **294 passing** (was 277 before
+    M14; +17 new tests in `tests/test_severed.py`). M13's own selftest (mutation/robustness
+    checks) independently re-run and confirmed clean on the current code, after an earlier
+    mid-iteration snapshot had shown 2 failures there — that finding was from before the fix was
+    complete, not a final regression; worth remembering that intermediate agent status reports
+    during a long iterative task can reflect transient, not final, state.
+  - **Process note for next time**: the implementation agent repeatedly paused mid-verification
+    waiting on its own background jobs without producing a final report (5+ resumes needed before
+    it gave a real status update) — eventually more efficient for Claude to directly watch the
+    actual background processes (via `kill -0` polling on the real PIDs) than keep bouncing
+    messages to a stalled agent. Worth defaulting to this sooner next time a subagent's background
+    task appears to be taking a very long time with an agentic loop, rather than repeated nudges.
+  - **Not yet done**: `harness-frozen`/`infra-frozen` re-tagging (deliberately left to the
+    orchestrator per the plan — needed before any future `./loop.sh` run, or it would silently
+    revert M14 back out via the frozen-tag restore). M14's severed-run support has never been
+    tested against a real, unclipped, non-synthetic motor — HANDOFF.md's own limitations list
+    flags this as the real next test. **`git push`** — repo is committed and clean.
 - **2026-09-08 — First live-testing round on the new tour system: a real bug fixed, 3 more
   graphics requests done by Fable 5.1 (`ac99f94`, `fb5c197`).** Brady ran the M1 demo for real
   and got blocked at step 9 (the Analyze click) — a genuine regression, not user error. Root
