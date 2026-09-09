@@ -162,8 +162,8 @@ birth/death events localized by bisection — not zoned lofts of the entire sect
 ```
 .venv/bin/python rebuild.py <input.stl> --axis z|x|y|auto|"vx,vy,vz" [--origin auto|"x,y,z"] \
     --units mm|in|m --sections 40 [--refine-bands "0:0.15:3x,0.85:1.0:3x"] [--adaptive] \
-    [--chord-tol 0.5] -o out/<name>.step [--report out/<name>.report.json] \
-    [--stl out/<name>.result.stl] [--progress-json]
+    [--chord-tol 0.5] [--roundness-tol MM] -o out/<name>.step \
+    [--report out/<name>.report.json] [--stl out/<name>.result.stl] [--progress-json]
 ```
 Exit 0 on success, non-zero with a one-line reason on stderr on failure — **and the report JSON
 is written on every exit path** (§7.2). `--refine-bands` is `start:end:factor` in normalized
@@ -183,7 +183,9 @@ input has N propellant bodies.
    last plane whose section area > `A_min`; classify each end flat / dome / pinch from dA/dz; the
    first fitted station is where the outer circle-fit residual settles under `circle_max_resid`,
    capped at 0.02·L — this replaces the hard-coded `200·chord_tol` inset. Never place a station
-   outside the material. Report `axial_extent_mm`, `end_kinds`.
+   outside the material. Report `axial_extent_mm`, `end_kinds`. (2026-09-09, M15:
+   `circle_max_resid` gained a measured roundness-noise floor, auto from the mesh or
+   `--roundness-tol` — see §5.4/§6.2 M15.)
 3. **Cavity decomposition** (`pipeline/loops.py`): per station, envelope = axisymmetric fit of the
    max-radius profile; cavity polygons = envelope disc − section (shapely). Holes, slots, and
    slots that have burned through to the outside are all cavity polygons, so a station with
@@ -229,7 +231,7 @@ input has N propellant bodies.
 | `fuzzy` | chord_tol (retry 3×) | boolean fuzzy value |
 | `sew_tol` | 2·chord_tol | sewing / custom loft |
 | `A_min` | π·(5·chord_tol)² | sliver loop rejection |
-| `circle_max_resid` | 1.5·chord_tol | circle acceptance |
+| `circle_max_resid` | max(1.5·chord_tol, roundness_tol) | circle acceptance — `roundness_tol` is a measured roundness-noise floor, auto from the mesh (`_estimate_roundness_noise`) or `--roundness-tol`; 2026-09-09, M15 |
 | `dz_min` | max(4·chord_tol, L/5000) | adaptive bisection floor |
 | `topo_tol` | max(dz_min, 4·chord_tol) | topology-event localization |
 
@@ -276,6 +278,7 @@ input mesh**, with gates scaled to the voxel size h (an exact-SDF marching-cubes
 | **M12** | near-end-of-burn **cavity decomposition**: slots open to the dome, thin webs, multi-outer-loop stations | M5 capsule minus the cavity dilated by w=250: bore 550; obround slots half-width 290, outer r 950 (50 mm web), z∈[5750, 9750], end fillets r=250; aft slots break through the dome for z > 9656 (stations there have 8 disjoint outer polygons); bore exits the dome near z≈83 / 9917. | volume < 0.3 %; dev max < 2·ct, p99 < 0.8·ct; dome_stations_min 8; `station_bands` {fore_wall ≥ 10, breakthrough [9600, 9800] ≥ 10}; `n_stations_max` 120; `topo_events_z_mm` [5750, 9656, 9750] (max 5); `min_edge_mm` ≥ 0.1; face_count ≤ 400; runtime < 600 s | `--axis z --sections 120 --adaptive --chord-tol 0.5` |
 | **M13** | **capstone: a real-STL-shaped input** | M12 truth rotated to +x, translated (2500, −700, 1300) mm, STL in inches. Input: isotropic h=8 mm exact-SDF marching cubes ≈ 3.9e6 triangles; normal noise σ=0.8 mm; **unwelded** (per-facet vertices ± 1e-5 in jitter); 2 % flipped facets; 3 noise islands (5 mm tetrahedra inside the bore); `watertight_expected = False`. | `n_solids = 1` (islands dropped); volume < 0.5 %; dev max < 1.5·h = 12 mm, p99 < 0.5·h = 4 mm; frame_axis_err_deg 0.1; axial_extent_err_mm 8; station_bands as M12; n_stations_max 120; topo events [5750, 9750] tol 8, max 5; min_edge_mm 0.1; face_count ≤ 400; runtime < 900 s, mesh_timeout 600 | `--axis auto --units in --sections 120 --adaptive --chord-tol 8` |
 | **M14** | end-of-burn **island severing at both dome tips** (N disjoint outer loops per station, no prior chain history) | M2-family capsule minus a constant 6-point star bore (R_valley=550, R_tip=900, fillets 40/50), flat-capped 30 mm short of each exact island pinch (the raw cusp is valid but unmeshable): the shrinking dome envelope severs the section into 6 simply-connected islands over z≈[112,250] and [9750,9888]; single non-circular "gear" bore between. | volume < 0.3 %; dev max < 2·ct, p99 < 0.8·ct; dome_stations_min 8; station_bands {fore_islands ≥ 10, aft_islands ≥ 10}; n_stations_max 300; topo_events_z_mm [250.4, 9749.6] (max 4); face_count ≤ 100; runtime < 600 s | `--axis z --sections 300 --adaptive --chord-tol 0.5` |
+| **M15** | **decoupled roundness**: finely tessellated but genuinely out-of-round input (real-CAD/scan characteristic; no single chord-tol satisfies both the circle gates and the boolean/ShapeFix precisions) | M2's exact truth (2:1 domes, straight bore); input STL is a 0.01 mm-deflection tessellation displaced by a smooth deterministic field: 0.8 mm m=2 ovality (slow phase twist) + 0.25 mm center wobble, bore included — chordal-sag estimate stays ~0.010 mm while circle-fit residuals sit at ~0.8 mm (measured floor ≈ 0.97 mm, a ~60× decoupling ratio). | volume < 0.05 %; dev p99 < 0.4 mm, max < 0.45 mm (ABSOLUTE, not ct-scaled — see §6.2 note below); dome_stations_min 8; n_stations_max 60; face_count ≤ 10; bbox_err_pct 0.1; gmsh ≥ 0.1; runtime < 600 s | `--axis z --sections 60 --chord-tol 0.010` |
 | **MR** | **real-STL slot** (`optional = True`) | No truth. The first `real_inputs/*.stl` (gitignored) + optional `real_inputs/<name>.json` {units, axis, known_volume_mm3}. When absent the scorer emits `pass: true, skipped: "no real input"` and selftest prints `[SKIP]`. | self-referential: pipeline_exit; n_solids ≥ 1; brep_valid; volume vs the repaired input mesh (or `known_volume_mm3`) < 0.5 %; deviation vs the input mesh p99 < 1.0·ct_est, max < 4·ct_est (ct_est = median edge length); step_roundtrip; gmsh; min_edge_mm 0.1; runtime < 1800 s | `--axis auto --units <json or mm> --adaptive --sections 120 --chord-tol <ct_est>` |
 | **HANDOFF** | — | `HANDOFF.md` v2 (§9) covering every M above (MR may be "skipped") | — |
 
@@ -285,7 +288,13 @@ only the frame; M11 only the body count; M12 only the cavity-decomposition topol
 integrates everything; M14 only the severed-island station topology (a station-loop classifier
 and a dome-model resample of a non-pinch curved end — no new solid-construction geometry: the
 severed islands emerge for free from the existing envelope-revolve-minus-full-length-bore-prism
-boolean, M12's own breakthrough mechanism). Why cosine end-clustering cannot pass M8: at n=80 the
+boolean, M12's own breakthrough mechanism); M15 only the roundness/precision decoupling (the
+classification-gate floor) — no new solid-construction geometry either, M2's own revolve path.
+M15's deviation gates are deliberately ABSOLUTE mm, not a `chord_tol` multiple like every other
+row here: at `chord_tol` ≈ 0.010 mm, `0.8·ct` would be ≈ 0.008 mm, unreachable — real
+reconstruction error at this milestone is dominated by chord_tol-INDEPENDENT terms
+(`rdp_profile_eps`'s `2e-4·r_ref` cap, dome resample density), not by faceting; do not
+"normalize" these back to a chord_tol ratio, that would make them unpassable. Why cosine end-clustering cannot pass M8: at n=80 the
 Round 1 warp spaces mid-barrel stations ≈ 310 mm apart, so a 300 mm feature band gets 0–1
 stations, and reaching ≥ 10 with uniform spacing needs n ≈ 500 ≫ `n_stations_max`. M14's own
 feature bands sit AT the axial extremes rather than mid-barrel, where a naive cosine warp

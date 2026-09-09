@@ -1,4 +1,12 @@
-# HANDOFF v3 — STL → STEP rebuilder + desktop GUI (M1–M14 PASS, MR skipped, G1–G3 PASS)
+# HANDOFF v3 — STL → STEP rebuilder + desktop GUI (M1–M15 PASS, MR skipped, G1–G3 PASS)
+
+**2026-09-09 addendum**: M15 (decoupled roundness tolerance — a real trap Brady hit on his own
+motor: finely tessellated but genuinely out-of-round, so no single `--chord-tol` satisfied both
+the roundness gate and the boolean/ShapeFix construction precisions) was added to the ladder and
+fixed; `circle_max_resid` now takes an independent, mesh-measured (or `--roundness-tol`-stated)
+roundness-noise floor alongside `chord_tol` (`pipeline/tol.py`). Real score.py run:
+`pass: true, progress: 1.0`, volume err 0.0003% (gate 0.05%), dev max/p99 0.275/0.254 mm (gate
+0.45/0.4, absolute — see §2). §5.5 item 2 and §6 item 2 below are updated for the new model.
 
 **2026-09-08 addendum**: M14 (a real crash Brady hit on his own motor — end-of-burn island
 severing at both dome tips) was added to the ladder and fixed; `out/score.M14.json` reports
@@ -77,6 +85,7 @@ max / p99 in mm. Volume error is against the analytic closed-form `V_truth`.
 | M12 | near-burnout cavity decomposition, dome breakthrough | 0.0267 (0.3) | 0.448 / 0.165 (1.0 / 0.4) | 0.234 | 120 | 1 | revolve / mixed / wedge | 76 (400) | 7.7 |
 | M13 | **capstone**: M12 in inches on +x, 3.9 M-tri unwelded noisy MC input | 0.2032 (0.5) | 6.087 / 2.874 (12 / 4) | 0.143 | 120 | 1 | revolve / mixed / wedge | 85 (400) | 279.6 |
 | M14 | end-of-burn **island severing at both dome tips** (N disjoint outer loops per station) | 0.0039 (0.3) | 0.434 / 0.301 (1.0 / 0.4) | n/a (no gate — thin island tips, see §6) | 300 | 1 | revolve / prism / — | 67 (100) | 56.0 |
+| M15 | **decoupled roundness**: finely tessellated (ct≈0.010) but genuinely out-of-round (0.8 mm ovality + 0.25 mm wobble) input | 0.0003 (0.05) | 0.275 / 0.254 (0.45 / 0.4, absolute mm) | 0.401 | 60 (14+14 dome) | 1 | revolve / revolve / — | 4 (10) | 48.9 |
 | MR | real burnback STL | — | — | — | — | — | — | — | **skipped — no real input** |
 
 \* **M6's `paths_used.bore` label is wrong-ish and you should know it.** `pipeline/cli.py:2152`
@@ -326,6 +335,17 @@ any non-zero exit no report is written**, so an absent `--report` file *is* the 
    **`--adaptive`** (on by default in the recommended command; turning it off is worth one try
    if adaptive placement is what put a station on the edge). Note the milestones are all
    ≤ 120 sections; higher values are untested for runtime.
+   **"not an axis-centered circle" specifically (2026-09-09, decoupled roundness fix, M15):**
+   this is NO LONGER a `--chord-tol` problem. Brady's own first real STL hit exactly this — its
+   mesh faceting is extremely fine (~0.009 mm) but its true roundness needed ~0.8 mm of slack,
+   and no single `--chord-tol` value could satisfy both the roundness gate and the boolean/
+   ShapeFix construction precisions (raising `--chord-tol` cleared the roundness gate but then
+   failed `BRepCheck_Analyzer`; lowering it back sent you in a circle). `--chord-tol` should stay
+   at/near what Analyze suggests (the mesh's honest faceting precision); leave `--roundness-tol`
+   on **auto** (the default) and it measures the real out-of-roundness from the mesh itself. Only
+   pass `--roundness-tol` explicitly if the auto estimate under- or over-judges (the hint on a
+   failing station names the exact value to try); `--roundness-tol 0` restores the old
+   `chord-tol`-only behavior if you need to bisect whether a failure is roundness-related at all.
 
 3. **Mesh noise gets reconstructed instead of smoothed, or real features get simplified away →
    the run succeeds but volume/deviation are bad, or the face count explodes.**
@@ -347,9 +367,20 @@ useful for eyeballing the result against the input in a mesh viewer).
 
 1. **No real burnback STL has ever been through this.** MR is `skipped`. Every claim in §2 is
    against a mesh we synthesised from a solid we authored.
-2. **The outer wall must be axisymmetric.** `paths_used.outer` is `revolve` in all thirteen
-   milestones; a station whose outer loop is not an axis-centred circle is a hard exit-4 reject
+2. **The outer wall must be axisymmetric.** `paths_used.outer` is `revolve` in every milestone;
+   a station whose outer loop is not an axis-centred circle is a hard exit-4 reject
    (`cli.py:1386`). Real cases (external insulation steps, non-round cases) are not supported.
+   As of M15 (2026-09-09), "axis-centred circle" no longer means "round to `1.5*chord_tol`" —
+   the gate floats up to a mesh-measured (or user-stated) real out-of-roundness floor
+   (`--roundness-tol`, auto by default), so a finely tessellated but genuinely slightly-oval part
+   (a real CAD export or scan) now passes. That floor is capped at **2% of the fitted radius**
+   (`_estimate_roundness_noise`) so a GENUINELY non-axisymmetric envelope (an ellipse, a
+   polygon, external steps) still can't launder itself through — it hits a distinct hint
+   ("...is genuinely non-axisymmetric, which is out of scope") rather than the old vague circle-
+   fit failure. If a real part legitimately needs more than 2% before Brady is confident it's
+   still "round with unusual noise", that message tells you the exact number to force via
+   `--roundness-tol` — but a failure past the cap is much more likely a real non-axisymmetric
+   part than noise, and should be treated as out of scope, not bisected around.
 3. **M13's margins are thin.** `axial_extent_err_mm` 7.715 / 8, `surface_deviation_p99` in the
    breakthrough band 3.923 / 4, gmsh min SICN 0.143 / 0.1. The extent one has a known clean fix
    if it bites: measure axial extent from the coarse section-area sweep (MISSION §5.5.2) instead

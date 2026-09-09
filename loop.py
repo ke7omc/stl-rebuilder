@@ -101,7 +101,8 @@ INFRA_PATHS = ["loop.py", "loop.sh", "driver", "PROMPT.md", "MISSION.md", "CLAUD
 INFRA_TAG, HARNESS_TAG = "infra-frozen", "harness-frozen"
 MILESTONES = ["M0", "M1", "M2", "M3", "M4", "M5",                       # Round 1 (frozen 2026-08-29)
               "M6", "M7", "M8", "M9", "M10", "M11", "M12", "M13",        # Round 2 (MISSION §6.2)
-              "M14", "MR",              # M14: severed-island fix (MISSION §6.2, 2026-09-08)
+              "M14",                    # M14: severed-island fix (MISSION §6.2, 2026-09-08)
+              "M15", "MR",              # M15: decoupled roundness tolerance (MISSION §6.2, 2026-09-09)
               "G1", "G2", "G3",                                          # Round 3 GUI (MISSION §6.3)
               "HANDOFF", "DONE"]
 SCORED = [m for m in MILESTONES if m.startswith("M") and m != "M0"]   # milestones the frozen scorer grades
