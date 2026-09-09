@@ -792,6 +792,127 @@ def _m14() -> MilestoneSpec:
     )
 
 
+def _m15() -> MilestoneSpec:
+    """Decoupled-roundness milestone (`docs/plans/decoupled_roundness_tolerance.md`, incident
+    2026-09-09 -- Brady's first real burnback STL, off the driver ladder). His part's mesh
+    faceting is extremely fine (~0.009 mm) but its real-world roundness is not: at the tool's own
+    suggested `--chord-tol`, every station's circle fit rejects (`_non_axisymmetric_hint`, "retry
+    with --chord-tol ... or larger"), and following that hint up to the value that finally clears
+    the roundness gates (~0.8 mm) makes the final solid fail `BRepCheck_Analyzer`, whose own hint
+    ("far coarser than the mesh's estimated chordal deviation... retry with --chord-tol 0.00907")
+    sends him straight back down. THERE IS NO FIXED POINT: every derived tolerance in
+    `pipeline/tol.py` was a function of the single `chord_tol` scalar, so the tool could not
+    represent "finely tessellated but genuinely not very round" -- a real-CAD-export/scan
+    characteristic no synthetic milestone through M14 had ever exercised (every earlier
+    milestone's roundness noise and faceting precision come from the same generation process, so
+    they always happened to coincide).
+
+    The fix (this same commit) decouples the two: `tol.circle_max_resid` gains a `roundness_tol`
+    argument and becomes `max(1.5*chord_tol, roundness_tol)`, and every station/hole
+    classification gate (never the boolean/ShapeFix construction-precision tolerances, which stay
+    a pure function of `chord_tol`) is threaded a `resid_gate` computed from a mesh-measured
+    roundness-noise floor (`pipeline.engine._estimate_roundness_noise`, auto by default, override
+    with `--roundness-tol`). M15 makes the trap permanent and regression-gated, the same way M14
+    did for the severed-island crash it was built from.
+
+    Geometry is deliberately UNCHANGED from M2's exact solid (2:1 domes, straight bore, clean
+    truth STEP/volume/bbox) -- only the INPUT STL is pathological: a 0.01 mm-deflection
+    tessellation (`fine_deflection_mm`) displaced by a smooth, deterministic field (`ovality_mm`
+    of m=2 ovality with a slow axial phase twist, `wobble_mm` of two-incommensurate-frequency
+    center wobble), applied to outer AND bore alike. See `harness/generators.py::_make_m15` for
+    why a SMOOTH perturbation (not M9/M13's per-vertex Gaussian noise) is what reproduces this
+    specific trap: a long-wavelength field keeps facet dihedral angles tiny, so the chordal-sag
+    estimate stays at the mesh's true faceting scale while the circle-fit residual sits at the
+    ovality scale -- two decoupled scales from one mesh. Per-vertex noise bends every edge and
+    inflates BOTH estimates together, which is exactly the coupling this milestone exists to
+    break; M9/M13 cannot reproduce this trap at any noise sigma.
+
+    `rebuild_args`/`chord_tol` below are the MEASURED `_estimate_chord_tol` of the generated
+    M15.stl (measure-and-lock discipline, same as every Round-2+ milestone: never trust a derived
+    number into gate config -- re-measure with the measure-and-lock script whenever
+    `fine_deflection_mm`/`ovality_mm`/`wobble_mm` change). No `--roundness-tol` in the args: the
+    milestone's entire point is that the AUTO floor must carry the pinned chord-tol to a clean
+    rebuild on its own, with no extra flag. No `--adaptive`: no topology events, M2 didn't need
+    it either.
+
+    `--sections 60`, not 40 (measured, 2026-09-09): at 40 sections the fixed cosine^2 end-warp
+    (`stations.uniform_stations`) places its first 2-3 non-adaptive stations within ~1 mm of each
+    other right at the very start of the dome band -- at chord_tol this fine, `min_dz = 5*ct`
+    (~0.05 mm) barely filters that cluster, so `_fit_r2_quadratic`'s seed seeds itself from 3
+    near-coincident points on a curve with real dR/dz ~2 (a genuinely steep pinch region), and
+    the resulting quadratic's OWN extrapolation error over the ~130 mm inset back to the true
+    pinch is large enough that the growth-validation test then rejects every further real dome
+    point too -- window stops after 1 mm, solid stops 72 mm short of the true tip (bounds-Z FAIL
+    by 62 mm over gate). This is a station-placement CONDITIONING issue, not a roundness-gate
+    issue (M10 sidesteps it entirely via `--adaptive`, which this milestone deliberately doesn't
+    use -- see above); more sections spreads the fixed warp's early samples enough to give the
+    seed real curvature signal. Measured: 40 fails bounds-Z by 62 mm; 60/80/120 all pass cleanly
+    (bounds-Z max dev 0.01-0.06 mm, deviation p95 0.73-0.85 mm); 60 is the smallest of those, kept
+    for runtime.
+
+    `surface_deviation_p99_mm`/`_max_mm` below are deliberately ABSOLUTE mm, NOT a `chord_tol`
+    multiple like every earlier milestone -- the first milestone in the ladder where that's true.
+    At `chord_tol` ~0.02 mm, `0.8*chord_tol` would be ~0.016 mm, an unreachable bound: real
+    reconstruction error here is dominated by chord_tol-INDEPENDENT terms (`rdp_profile_eps`'s
+    `2e-4*r_ref` cap, dome resample density), not by faceting. Do not "normalize" these back to a
+    chord_tol ratio -- that would make them unpassable at this milestone's fine chord-tol.
+    """
+    L, R_o, R_i = 10_000.0, 1_000.0, 300.0
+    dome_h = R_o / 2.0
+    fine_deflection_mm = 0.01
+    ovality_mm = 0.8
+    wobble_mm = 0.25
+    # MEASURED (harness/truth/M15.ref.stl, `_estimate_chord_tol`, rounded to 2 sig figs -- see
+    # this function's docstring, measure-and-lock discipline): the honest chordal-sag scale of
+    # the fine tessellation, decoupled from the ~0.97 mm roundness-noise floor the ovality/wobble
+    # field above induces (floor = 1.2 * max-of-12-probes(max(resid, 2*center_offset)), capped at
+    # 2% of the fitted radius -- see `pipeline.engine._estimate_roundness_noise`).
+    ct = 0.010
+    return MilestoneSpec(
+        name="M15",
+        description=(
+            "Decoupled roundness: M2's exact capsule (2:1 domes, straight bore) as the truth, "
+            f"but the input STL is a {fine_deflection_mm:g} mm-deflection tessellation displaced "
+            f"by a smooth deterministic field ({ovality_mm:g} mm m=2 ovality with a slow phase "
+            f"twist + {wobble_mm:g} mm center wobble, bore included) -- finely tessellated but "
+            "genuinely out-of-round, the real-CAD/scan characteristic no single --chord-tol can "
+            "satisfy without the decoupled roundness-tolerance floor"
+        ),
+        params=dict(
+            L=L, R_o=R_o, R_i=R_i, dome_semi_axial=dome_h,
+            fine_deflection_mm=fine_deflection_mm, ovality_mm=ovality_mm, wobble_mm=wobble_mm,
+        ),
+        regions=[
+            RegionBand("fore_dome",  0.0,              dome_h / L),
+            RegionBand("cylinder",   dome_h / L,       1.0 - dome_h / L),
+            RegionBand("aft_dome",   1.0 - dome_h / L, 1.0),
+        ],
+        rebuild_args=["--axis", "z", "--sections", "60", "--chord-tol", str(ct)],
+        gates=dict(
+            n_solids=1,
+            brep_valid=True,
+            volume_err_pct=0.05,             # vs the CLEAN truth; the robust circle fit recovers
+                                              # R to ~4 microns through the ovality (plan §1.5),
+                                              # so M2's own bar is achievable
+            # Deliberately ABSOLUTE mm, not a chord_tol ratio -- see docstring above. Locked from
+            # the first honest post-fix score.py run (2026-09-09): measured p99 0.254 mm / max
+            # 0.275 mm / n_faces 4 -- gates below are measured + ~50% headroom (plan §5.5 step 5).
+            surface_deviation_p99_mm=0.4,
+            surface_deviation_max_mm=0.45,
+            dome_stations_min=8,
+            n_stations_max=True,
+            face_count_max=10,
+            bbox_err_pct=0.1,
+            step_roundtrip_vol_err=1e-6,
+            gmsh_min_sicn=0.1,
+        ),
+        runtime_cap_s=600.0,
+        closed_form_volume=None,   # dome geometry, same as M2
+        chord_tol=ct,
+        n_stations_max=60,
+    )
+
+
 def _mr() -> MilestoneSpec:
     """Real-STL slot: optional, self-referential (no analytic truth). MISSION §6.2 MR.
     Scorer emits pass:true,"skipped": "no real input" when real_inputs/ is empty."""
@@ -822,7 +943,7 @@ MILESTONES: Dict[str, MilestoneSpec] = {
     s.name: s for s in [
         _m1(), _m2(), _m3(), _m4(), _m5(),
         _m6(), _m7(), _m8(), _m9(), _m10(), _m11(), _m12(), _m13(),
-        _m14(),
+        _m14(), _m15(),
         _mr(),
     ]
 }

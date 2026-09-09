@@ -20,6 +20,8 @@ from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
+import numpy as np
+
 from OCP.BRepPrimAPI import (
     BRepPrimAPI_MakeCylinder,
     BRepPrimAPI_MakeRevol,
@@ -906,6 +908,83 @@ def _make_m14() -> Truth:
     return _finish("M14", common.Shape())
 
 
+def _make_m15() -> Truth:
+    """Decoupled-roundness milestone (`docs/plans/decoupled_roundness_tolerance.md`, incident
+    2026-09-09 -- Brady's first real burnback STL): M2's exact solid as the truth (clean STEP,
+    analytic volume/bbox), but the input STL fed to the pipeline is a finely tessellated
+    (`fine_deflection_mm` = 0.01 mm) mesh whose vertices are displaced by a smooth, deterministic
+    field -- `ovality_mm` of m=2 ovality with a slow axial phase twist, plus `wobble_mm` of
+    (two-incommensurate-frequency) center wobble -- applied to both the outer surface and the
+    bore alike (the bore runs through both domes, so r >= R_i everywhere and the scale-by-radius
+    perturbation below never divides by ~0).
+
+    Why a SMOOTH perturbation, not M9/M13-style per-vertex noise (measured, plan §0/§1.5): a
+    long-wavelength field keeps facet dihedral angles tiny (deep in `_estimate_chord_tol`'s
+    clean-CAD branch, p75 dihedral ~0.009 rad on the probe that validated this design), so the
+    chordal-sag estimate stays at the mesh's true faceting scale (~0.02-0.05 mm) while every
+    station's circle-fit residual sits at the ovality scale (~0.8 mm) -- two decoupled scales
+    from ONE mesh, exactly the "finely tessellated but genuinely not round" property no single
+    `chord_tol` can satisfy (the roundness gates need >= ~0.5 mm of slack; the boolean/ShapeFix
+    construction precisions need to stay near the honest 0.02-0.05 mm faceting scale). Per-vertex
+    Gaussian noise bends every edge instead, which flips `_estimate_chord_tol` into its
+    scan/marching-cubes branch and inflates the chord-tol estimate TOGETHER WITH the roundness
+    noise -- exactly the coupling this milestone exists to break, which is why M9/M13 cannot
+    reproduce this trap no matter how the noise sigma is tuned.
+
+    The multiplicative radial scale (`(r + dr) / r`, not an additive per-axis offset) is what
+    keeps a plain circle fit honest: it displaces every vertex by exactly `dr` along its own
+    radial direction, so a robust Kasa fit still recovers the NOMINAL radius to within a few
+    microns through 0.8 mm of applied ovality (measured on the plan's probe mesh) -- the
+    milestone's volume/deviation gates can therefore stay tight against the clean M2 truth
+    without themselves absorbing the perturbation.
+    """
+    spec = ms.get("M15")
+    p = spec.params
+    outer = _capsule_outer_shape(p["L"], p["R_o"], p["dome_semi_axial"])
+    bore = _straight_bore(p["R_i"], p["L"])
+    cut = BRepAlgoAPI_Cut(outer, bore)
+    cut.Build()
+    if not cut.IsDone():
+        raise RuntimeError("M15 boolean cut failed")
+    shape = cut.Shape()
+
+    V, A = _volume_area(shape)
+    bbox = _bbox(shape)
+    step_path = TRUTH_DIR / "M15.step"
+    stl_path = TRUTH_DIR / "M15.stl"
+    _write_step(shape, step_path)
+
+    # Clean fine tessellation -- never written to M15.stl itself, only used as the base mesh the
+    # smooth ovality/wobble field below displaces (same "ref" pattern as M9/M13's voxelize input,
+    # just with a deterministic analytic perturbation instead of a marching-cubes resample).
+    ref_path = TRUTH_DIR / "M15.ref.stl"
+    _write_stl(shape, ref_path, chord_tol=p["fine_deflection_mm"])
+    mesh = metrics.load_mesh(ref_path)
+
+    L = p["L"]
+    V_verts = np.asarray(mesh.vertices, dtype=float)
+    x, y, z = V_verts[:, 0], V_verts[:, 1], V_verts[:, 2]
+    r = np.hypot(x, y)
+    th = np.arctan2(y, x)
+    dr = p["ovality_mm"] * np.cos(2.0 * th + math.pi * z / L)          # m=2 ovality, slow twist
+    wob_cx = p["wobble_mm"] * np.sin(1.4 * math.pi * z / L)            # two incommensurate
+    wob_cy = p["wobble_mm"] * np.cos(1.8 * math.pi * z / L)            # frequencies keep the
+                                                                        # "true axis" honest
+    scale = np.where(r > 1e-9, (r + dr) / np.maximum(r, 1e-9), 1.0)
+    mesh.vertices = np.column_stack([x * scale + wob_cx, y * scale + wob_cy, z])
+    mesh.export(str(stl_path))
+
+    return Truth(
+        milestone="M15",
+        shape=shape,
+        V_truth=V,
+        A_truth=A,
+        bbox=bbox,
+        step_path=step_path,
+        stl_path=stl_path,
+    )
+
+
 _MAKERS = {
     "M1": _make_m1,
     "M2": _make_m2,
@@ -921,6 +1000,7 @@ _MAKERS = {
     "M12": _make_m12,
     "M13": _make_m13,
     "M14": _make_m14,
+    "M15": _make_m15,
 }
 
 

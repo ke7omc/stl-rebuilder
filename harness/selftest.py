@@ -484,6 +484,29 @@ def _make_bore_filled_m14(spec, work_dir: Path) -> Path:
     return path
 
 
+def _make_bore_filled_m15(spec, work_dir: Path) -> Path:
+    """M15 without the bore: the solid capsule (domes + cylinder), no hole -- should badly fail
+    volume_err_pct against the bored (clean, decoupled-roundness) truth.
+
+    Identical construction to `_make_bore_filled_m2` (M15's truth geometry IS M2's exact solid,
+    see `ms._m15`), fused rather than left bare for the same reason: the raw revolve's on-axis
+    meridian edge survives a BRepCheck_Analyzer check in memory but not a STEP round-trip."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+
+    L, R_o = spec.params["L"], spec.params["R_o"]
+    R_i = spec.params["R_i"]
+    dome_h = spec.params["dome_semi_axial"]
+    outer = generators._capsule_outer_shape(L, R_o, dome_h)
+    bore = generators._straight_bore(R_i, L)
+    fuse = BRepAlgoAPI_Fuse(outer, bore)
+    fuse.Build()
+    if not fuse.IsDone():
+        raise RuntimeError("M15 bore-filler fuse failed")
+    path = work_dir / "M15_bore_filled.step"
+    generators._write_step(fuse.Shape(), path)
+    return path
+
+
 _BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2,
                   "M3": _make_bore_filled_m3, "M4": _make_bore_filled_m4,
                   "M5": _make_bore_filled_m5, "M6": _make_bore_filled_m6,
@@ -491,7 +514,8 @@ _BORE_FILLERS = {"M1": _make_bore_filled_m1, "M2": _make_bore_filled_m2,
                   "M9": _make_bore_filled_m9,
                   "M10": _make_bore_filled_m10,
                   "M11": _make_bore_filled_m11, "M12": _make_bore_filled_m12,
-                  "M13": _make_bore_filled_m13, "M14": _make_bore_filled_m14}
+                  "M13": _make_bore_filled_m13, "M14": _make_bore_filled_m14,
+                  "M15": _make_bore_filled_m15}
 
 
 def check_mr(name: str = "MR") -> None:
