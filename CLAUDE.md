@@ -1,6 +1,24 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-09 — Fixed a real silent-crash on the Windows desktop shortcut (`748bf5c`).** Brady's
+  work machine hit the launcher (Phase D's generated `.lnk`/`pythonw.exe`) crashing instantly and
+  silently, zero feedback — diagnosed there (via a different AI assistant) as PySide6's Shiboken
+  import hook choking on `six` (a transitive pyvista dependency) when it's imported for the first
+  time AFTER PySide6 registers its hook. Verified independently against this actual codebase
+  before touching anything: `app/__main__.py` really does import PySide6 (line ~25) before
+  `app.main_window` pulls in `app.viewport`'s matplotlib import (line ~26) — exactly the bad
+  order. Fixed by importing `six`/`matplotlib` at the very top of `app/__main__.py`, before
+  anything else. **Deliberately not** the fix as first suggested (`import matplotlib.pyplot`) —
+  pyplot forces an early GUI-backend selection, a real side effect that could interact badly with
+  Qt's own event loop on either platform; bare `import matplotlib` fixes the same import-order
+  issue with none of that risk. `six` isn't a direct dependency of this project, so its import is
+  guarded (try/except) — its absence stays harmless. Applied at the one shared entry point, not
+  Windows-only, since the underlying import-order bug is platform-independent even though its
+  Windows symptom (silent death under `pythonw.exe`, no console to show a traceback) is what
+  actually surfaced it. Verified on this Mac: smoke test clean, full `tests/gui` green (193
+  passed) — **the fix itself is not yet confirmed on the actual Windows machine that hit the bug**,
+  that's the real test. **6 commits ahead of origin, still nothing pushed.**
 - **2026-09-08/09 — M14 added: real near-burnout multi-lobe dome-breakthrough topology, fixed
   and permanently regression-tested (`75e8377`→`0be596f`→`76c24a2`→`b23cccd`).** Brady hit a real
   crash on a genuine near-burnout 6-point-star grain: `TopologyError: expected 1 outer loop...
