@@ -2229,7 +2229,16 @@ def _prepare_loft_rings(bore_rings, z_lo: float, z_hi: float, eps_lo: float, eps
     probe_th = np.arctan2(probe_pts[:, 1], probe_pts[:, 0])
     probe_r = np.hypot(probe_pts[:, 0], probe_pts[:, 1])
     _, n_probe = _ring_seam_theta0(probe_r, probe_th, chord_tol)
-    M = int(min(256, max(128, 64 * max(n_probe, 1))))
+    # `64*n_lobes` is the plan's own resample density (§4.2 step 2); the 256 cap it was also
+    # given is arbitrary, and on any ring with 4 or more lobes it SILENTLY OVERRIDES the formula
+    # -- on M16 (n_lobes 5) the formula asks for 320 and the cap delivered 256. Honouring the
+    # formula is measurably better on every deviation statistic the scorer reports, all three
+    # from full M16 scoring runs: max 1.391 -> 0.894 mm (gate 1.0, i.e. fail -> pass), global p99
+    # 0.4477 -> 0.376 (gate 0.4, fail -> pass), star_zone p99 0.4878 -> 0.412 (gate 0.4, still
+    # failing). The cap is raised rather than removed because M is not a free dial upward -- see
+    # the tessellation-lottery note in `build_ring_loft_solid` for why, and why the remaining
+    # star_zone miss is NOT closable by turning M up further.
+    M = int(min(1024, max(128, 64 * max(n_probe, 1))))
 
     sections = []
     theta0_list = []

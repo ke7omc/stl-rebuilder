@@ -757,7 +757,46 @@ def build_ring_loft_solid(sections, is_ruled: bool = False) -> TopoDS_Shape:
     Raises (never silently returns an invalid shape) on interpolation/loft failure or a
     `BRepCheck_Analyzer`-invalid result -- the caller treats any exception here as "this rung
     unavailable" and falls back further, matching this module's existing fallback-ladder
-    convention (`_build_slot_wedges`/`_build_slot_lobes`)."""
+    convention (`_build_slot_wedges`/`_build_slot_lobes`).
+
+    KNOWN LIMIT -- the tessellation lottery (measured 2026-09-10, M16). The surface this builds
+    is accurate; OCCT's tessellation of it intermittently is not. `BRepMesh_IncrementalMesh` at
+    a 0.25 mm linear deflection emits isolated triangles 1.4-14 mm away from these ruled B-spline
+    faces, always at the cross-section's tightest-curvature corners (on M16, always a multiple of
+    18 deg -- a star tip or valley -- never the periodic seam). It is the MESH that is wrong, not
+    the geometry: slicing the built solid at the worst point's own z put its section within
+    0.12 mm of the section stack it was lofted from and ~0.5 mm of truth, while the tessellation
+    there was 9.86 mm out.
+
+    It behaves as a lottery in `M` (the caller's resample count) with no usable pattern -- clean
+    at M=256/320/512, catastrophic at 288/384/448/576/640 (cutter-level max 3.91/3.87/1.98/9.86/
+    4.98 mm) -- and the BOOLEAN RE-ROLLS IT: M=512 gives the cleanest cutter measured (max
+    0.747 mm, zero points over 1 mm) and the worst final solid (max 8.33 mm). That last fact is
+    what rules out the obvious mitigation: no screen applied to the cutter can predict the
+    tessellation quality of the solid it will become, so `M` cannot be chosen by any measured
+    pre-boolean criterion, and no curvature/chord-error rule for `M` is safe.
+
+    Falsified as causes, each by direct measurement on M16's own section stack, so nobody
+    re-derives them: per-section chord-length knot vectors needing unification across sections
+    (rebuilt with identical uniform parameters -- same lottery, different M values); the periodic
+    seam (failures sit 50-165 deg away from it; rebuilding the sections closed-but-not-periodic,
+    with and without a supplied closing tangent, is equal or worse); near-zero-height sliver
+    sections (raising the minimum section spacing 1 mm -> 10 mm reproduces every failure to four
+    decimals); and section count (RDP compression in z cannot compress at all, because the
+    per-station slice noise exceeds any sane tolerance).
+
+    The structural fix is to stop emitting B-spline faces for this shape class and emit analytic
+    arcs and lines instead, the way the truth solids themselves are built (`build_fillet_loft_
+    solid`), since analytic faces tessellate exactly. Two things block that today and both are
+    measured: `fitting.detect_arc_runs` cannot segment these rings at all (its curvature elbow
+    needs a 3x gap between consecutive sorted local radii; M16's are a continuum, max ratio
+    1.3-1.7), and `fitting.fit_fillet_ring` -- which recovers each corner by intersecting its two
+    adjacent flank lines -- is ill-conditioned on M16's shallow valleys, returning radii of
+    400-860 mm where the truth is 30-52 mm (ring deviation up to 216 mm). Segmenting by the
+    lobes' own r(theta) extrema instead DOES work (20 of 20 corners on 73 of 73 stations), so the
+    remaining piece is a corner reconstruction that does not depend on near-parallel flank
+    intersection -- plus, because an arc/line wire costs 2*m faces per section pair (40 here,
+    against a `face_count_max` of 120), compression of the fitted parameters along z."""
     sections = sorted(sections, key=lambda s: s[0])
     if len(sections) < 2:
         raise ValueError("ring loft needs at least 2 sections")
