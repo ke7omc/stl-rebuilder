@@ -199,17 +199,48 @@ and ~0.5 mm of truth, while the tessellation there was **9.86 mm** out.
    §4.3 `is_simple` screen (fires on the good M values too, at overshoots of 0.000–0.089 mm).
 3. **The structural fix is to stop emitting B-spline faces for this shape class** and emit
    analytic arcs and lines instead — the way the truth solids themselves are built
-   (`build_fillet_loft_solid`) — since analytic faces tessellate exactly. Two blockers, both
-   measured, one now solved: `fitting.detect_arc_runs` cannot segment these rings at all (its
-   curvature elbow needs a 3× gap between consecutive sorted local radii; M16's are a continuum,
-   max ratio 1.3–1.7), and `fitting.fit_fillet_ring` — which recovers each corner by intersecting
-   its two adjacent flank lines — is ill-conditioned on M16's shallow valleys, returning radii of
-   400–860 mm where the truth is 30–52 mm (ring deviation up to 216 mm). **Segmenting by the
-   lobes' own r(θ) extrema instead DOES work: 20 of 20 corners on 73 of 73 stations.** So the
-   remaining piece is a corner reconstruction that does not depend on near-parallel flank
-   intersection — plus, because an arc/line wire costs 2·m faces per section pair (40 here,
-   against a `face_count_max` of 120), compression of the fitted parameters along z, which
-   becomes feasible precisely because fitted parameters are far less noisy than raw slice points.
+   (`build_fillet_loft_solid`) — since analytic faces tessellate exactly. This was prototyped
+   this session (scratchpad only, nothing committed); it is the right route and it is further
+   along than "an idea", but it is not yet robust. Status, all measured on M16's own 73 stations:
+
+   - **Segmentation: SOLVED.** `fitting.detect_arc_runs` cannot segment these rings at all (its
+     curvature elbow needs a 3× gap between consecutive sorted local radii; M16's are a
+     continuum, max ratio 1.3–1.7). Taking the corners as the 2·n_tips extrema of r(θ) instead
+     gives 20 of 20 corners on 73 of 73 stations.
+   - **The near-parallel-flank degeneracy: SOLVED, and it was the right diagnosis.**
+     `fitting.fit_fillet_ring` recovers each corner by intersecting its two adjacent flank
+     lines, which on M16's shallow valleys returned radii of 400–860 mm where truth is 30–52 mm
+     (ring deviation up to 216 mm). Fitting each corner's circle directly from its own points and
+     joining consecutive circles by their **common tangent line** — closed form from the two
+     centres, radii and turn directions, never constructing or intersecting a flank line — removes
+     the degeneracy completely: radii come back at 23–52 mm and the wire closes G1 by
+     construction. Two ways of bounding each arc were tried: region-growing by circle residual
+     (73/73 stations reconstruct, radii 22.7–122.8) and classifying the straight flanks first and
+     taking the complement (60–70/73 depending on the line tolerance, radii 9.7–141.5).
+   - **The next blocker is the conditioning of the per-corner arc fits themselves**, which is a
+     different problem from the one above. M16's corner arcs carry only ~10–20 points and the
+     input mesh's per-point noise (0.2–0.9 mm) is a large fraction of their sagitta, so individual
+     radii scatter badly (single corners at 9.7 mm and 141 mm). Cross-station smoothing helps a
+     lot and is clearly part of the answer — fitting each corner's radius and centre as a robust
+     linear function of z over all 73 stations recovers the aft end well (model vs truth max
+     0.41–0.51 mm where the raw slice polygon is 0.65–0.90, i.e. genuinely beating the input
+     mesh, and the modelled radii at z=9850 land at 51.3/34.2/36.9 against a truth of
+     51.5/33.8/37.9) — but the fore end retains a systematic ~1–3 mm radius underestimate
+     (modelled 38.8/27.0/33.0 at z=6000 against a truth of 40/30/35), which the linear fit then
+     propagates, leaving 1.65 mm at z=6091. That bias comes from the arc/flank boundary being
+     placed inconsistently along z, not from the smoothing.
+   - **What it needs to finish**: a joint estimation per ring — all m arcs and m flanks solved
+     simultaneously under the tangency constraints (Levenberg–Marquardt over the full parameter
+     vector, seeded from the per-corner estimates above), rather than a pipeline of independent
+     local fits each with its own boundary decision. That removes the boundary-placement bias by
+     construction, because the tangent points become solved unknowns rather than a classification.
+   - **Face count is not expected to block it**, and cross-station smoothing is what makes that
+     true: an arc/line wire costs 2·m faces per section pair (40 here, against a
+     `face_count_max` of 120), so one wire per station is impossible, but a robust linear-in-z
+     parameter model is a TWO-section loft — 40 lateral faces, ~47 on the final solid. A curved
+     taper would keep more breakpoints via RDP on the fitted parameters, which is well conditioned
+     precisely because fitted parameters are far less noisy than raw slice points (RDP on the raw
+     points cannot compress at all — see item 2).
 
 Nothing here was force-fit: no gate was loosened, no deviation check weakened, and no `M` was
 chosen because it happened to pass — the cap was raised to honour the design's own formula, and
