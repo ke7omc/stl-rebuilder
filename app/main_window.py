@@ -1286,6 +1286,13 @@ def _verification_group(verif: dict):
                     f"{fmt_num(vol['solid_mm3'] / 1e6, 3)} L "
                     f"(Δ {vol['delta_pct']:.4g} % ≤ {vol['tol_pct']:g} %)")
         rows.append(("Volume", _with_hint(vol, text), str(vol), color))
+    area = verif.get("surface_area")
+    if area:
+        glyph, color = _verification_glyph(area.get("pass"))
+        text = (f"{glyph}  {fmt_num(area['input_mm2'] / 1e6, 3)} m² vs "
+                f"{fmt_num(area['solid_mm2'] / 1e6, 3)} m² "
+                f"(Δ {area['delta_pct']:.4g} % ≤ {area['tol_pct']:g} %)")
+        rows.append(("Surface area", _with_hint(area, text), str(area), color))
     for ax in ("x", "y", "z"):
         b = (verif.get("bounds") or {}).get(ax)
         if not b:
@@ -1329,8 +1336,8 @@ def _verification_all_passed(report: dict) -> bool:
     check failed", never on the reassuring side. (`_verification_group`'s own caller makes the
     same call -- `ok = bool(report.get("verification"))`.)"""
     verif = (report or {}).get("verification") or {}
-    checks = [verif.get("watertight"), verif.get("volume"), verif.get("bodies"),
-              verif.get("deviation")]
+    checks = [verif.get("watertight"), verif.get("volume"), verif.get("surface_area"),
+              verif.get("bodies"), verif.get("deviation")]
     checks += [(verif.get("bounds") or {}).get(ax) for ax in ("x", "y", "z")]
     checks = [c for c in checks if isinstance(c, dict)]
     if not checks or "error" in verif:

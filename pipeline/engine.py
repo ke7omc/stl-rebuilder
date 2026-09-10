@@ -620,6 +620,54 @@ def _solve_pinch_z(z0: float, coef, target_r: float, near_z: float):
     return min(cands, key=lambda z: abs(z - near_z))
 
 
+def _measure_end_radius(mesh, z_bound: float, at_start: bool, chord_tol: float,
+                         resid_gate: float):
+    """Measure the OUTER surface radius near an axial bound by actually slicing the mesh there,
+    instead of trusting `_dome_model`'s quadratic extrapolated past its last fitted station.
+    Returns `(R_meas, max_resid, z_probe)`, or `None` when the mesh doesn't offer a clean
+    single-loop station near this bound (a degenerate/noisy end) — every caller has an explicit
+    None-fallback that reproduces the pre-existing (measurement-free) behavior, so refusing to
+    answer is itself a safe, load-bearing outcome here, not a bug to work around.
+
+    Why this needs to exist at all (tapered_bore_dome_pinch_and_surface_area.md §2, probe B):
+    the pinch-override at the caller and the curved-end endpoint snap both used to trust a model
+    that is, by construction, fit from stations that stop `station_eps` short of the true bound
+    and then EXTRAPOLATED across that gap. On a flat-capped end well inside real dome curvature
+    that extrapolation can walk the quadratic-in-R^2 model down to the bore radius (a spurious
+    "pinch") even though the mesh itself is flat there — measured on probe B: the model predicts
+    a pinch 54.4 mm past a real flat cap at envelope radius 714 mm. Slicing the mesh directly
+    settles the question against ground truth instead of against the model that produced it.
+
+    `inset` follows the same epsilon convention as every other end-probe in this module (e.g.
+    the M13 end-window probe above, `tol.eps_end`'s own precedent): `max(2*chord_tol, 1e-4*L)`,
+    `L` the mesh's own z-extent — large enough to clear boundary-facet noise on a coarse mesh,
+    small enough to stay inside genuine end features on any milestone's shortest axial span.
+    The probe point moves INWARD from `z_bound` (`+inset` at the fore end, `-inset` at the aft
+    end) so it always lands on real material, never past the mesh's own extent.
+
+    Only the exterior ring is fit (a hole here is a bore/cavity at a *different* radius, not
+    part of the outer-surface question this function answers); `fit_circle_robust` + a
+    `resid_gate`/`_axis_centered` acceptance mirrors every other circle-fit gate in this module
+    so "measurable" means the same thing everywhere."""
+    zmin_mesh, zmax_mesh = float(mesh.bounds[0][2]), float(mesh.bounds[1][2])
+    L = max(zmax_mesh - zmin_mesh, 1e-6)
+    inset = max(2.0 * chord_tol, 1e-4 * L)
+    z_probe = z_bound + inset if at_start else z_bound - inset
+    try:
+        polys, zz = slice_station(mesh, z_probe, chord_tol)
+    except Exception:
+        return None
+    if len(polys) != 1:
+        return None
+    ext = np.asarray(polys[0].exterior.coords)[:-1]
+    if len(ext) < 8:
+        return None
+    cx, cy, R, max_resid, _rms = fit_circle_robust(ext)
+    if max_resid > resid_gate or not _axis_centered(cx, cy, R, resid_gate):
+        return None
+    return float(R), float(max_resid), float(zz)
+
+
 def _refine_dome_model_from_vertices(mesh, z0: float, coef, z_lo: float, z_hi: float,
                                       chord_tol: float):
     """Refit the quadratic-in-R^2 dome model to the mesh's own outer-surface VERTICES inside
@@ -791,6 +839,76 @@ def _curved_end(z0: float, coef, z_end: float, resid_tol: float) -> bool:
     r_first = _eval_r2_quadratic(z0, coef, z0)
     r_end = _eval_r2_quadratic(z0, coef, z_end)
     return abs(r_end - r_first) > resid_tol
+
+
+def _is_monotonic(vals) -> bool:
+    diffs = np.diff(np.asarray(vals, dtype=float))
+    return bool(np.all(diffs >= -1e-9) or np.all(diffs <= 1e-9))
+
+
+def _blend_curved_endpoint(gap, R_meas: float, R_model_end: float, z_end: float,
+                           z0_first: float, chord_tol: float, resid_gate: float):
+    """Blend a validated end-slice measurement into `_densify_dome_chords`' resampled points
+    across the excluded extrapolation inset (tapered_bore_dome_pinch_and_surface_area.md §2.3),
+    when the measurement disagrees with the model by more than noise. `gap` spans the true end
+    (`z_end`) through the model's last validated station; only the band between `z_end` and the
+    model's own anchor station `z0_first` is blended (weight 1 at `z_end`, 0 at `z0_first`,
+    clamped beyond it) — inside its own fitted span the model already agrees with real station
+    data, so blending there would double-correct rather than fix an extrapolation error.
+
+    Refuses (returns `gap` unchanged) when blending would turn an already-monotonic radius
+    profile non-monotonic: a kinked profile fails `build_revolve_solid`'s RDP simplification
+    worse than a small uniform radial offset does, so the plain endpoint-only snap (already
+    applied by the caller before this runs) is the safer fallback.
+
+    Blends in R^2, not R: every dome model in this module (`_fit_r2_quadratic`, `_solve_pinch_z`,
+    `_eval_r2_quadratic`) represents the meridian as quadratic in R^2 vs z, and
+    `build_revolve_solid`'s own curved-window edge builder (`_ellipse_arc_edge`) re-fits exactly
+    that form to whatever points a curve window hands it. Blending in raw R (measured directly
+    and reverted after this was first tried) can locally distort the R^2-vs-z shape enough that
+    `_ellipse_arc_edge`'s own re-fit lands on a wildly different, sometimes near-degenerate
+    ellipse (a mis-placed apex/`t_of_z` domain) even though the blended SAMPLES themselves stay
+    monotonic in R — measured on probe B: an R-space blend passed this function's own monotonic
+    guard yet produced a self-intersecting revolve (volume exactly 0.0, zero solids in the final
+    shape). Blending the R^2 values keeps the corrected points compatible with the same
+    quadratic-in-R^2 assumption every consumer of this profile already relies on."""
+    delta = R_meas - R_model_end
+    if abs(delta) <= max(4.0 * chord_tol, resid_gate):
+        return gap
+    span = z0_first - z_end
+    if abs(span) < 1e-9:
+        return gap
+    was_monotonic = _is_monotonic([r for _, r in gap])
+    delta_r2 = R_meas ** 2 - R_model_end ** 2
+    blended = []
+    for z, r in gap:
+        w = max(0.0, min(1.0, (z0_first - z) / span))
+        blended.append((z, math.sqrt(max(0.0, r * r + delta_r2 * w))))
+    if was_monotonic and not _is_monotonic([r for _, r in blended]):
+        return gap
+    # `build_revolve_solid`'s curved-window edge builder (`_ellipse_arc_edge`) independently
+    # RE-FITS a fresh quadratic-in-R^2 to whatever points this curve window hands it, and its
+    # own fit-quality guard is generous (5% of radial) -- a monotonic-in-R blended curve can
+    # still pass that check while landing on a wildly different, sometimes near-degenerate
+    # ellipse (a mis-placed apex/angular domain), because "monotonic" alone doesn't imply "close
+    # to *some* quadratic-in-R^2 shape". Measured on probe B: an R^2-space blend that passed the
+    # monotonic guard above still produced a self-intersecting revolve (volume exactly 0.0, zero
+    # solids in the final shape) via exactly this path. Pre-validate the same fit
+    # `_ellipse_arc_edge` will perform, at a TIGHTER 2% tolerance (headroom under its own 5%),
+    # and refuse the blend (falling back to the endpoint-only snap) when the blended curve
+    # doesn't actually resemble one clean quadratic-in-R^2 arc.
+    zs = np.array([z for z, _ in blended], dtype=float)
+    rs = np.array([r for _, r in blended], dtype=float)
+    try:
+        coef2 = np.polyfit(zs - zs[0], rs ** 2, 2)
+        if float(coef2[0]) >= 0.0:
+            return gap
+        pred = np.sqrt(np.maximum(0.0, np.polyval(coef2, zs - zs[0])))
+        if float(np.max(np.abs(pred - rs))) > max(1e-3, 0.02 * float(rs.max())):
+            return gap
+    except Exception:
+        return gap
+    return blended
 
 
 def _densify_dome_chords(outer_pts, z_lo, z_hi, at_start: bool, min_dz: float, resid_tol: float,
@@ -1223,6 +1341,19 @@ def _solid_volume(shape) -> float:
     from OCP.BRepGProp import BRepGProp
     from OCP.GProp import GProp_GProps
 
+    # Deliberately the FAST default-epsilon call, not the tight one `_compute_verification`'s
+    # own reported volume uses (tapered_bore_dome_pinch_and_surface_area.md, M16 fix). Measured:
+    # tight-epsilon adaptive integration on a shape with the actual-rings loft's high-degree (8)
+    # B-spline lateral surface costs ~6.3 s per call (vs ~0.03 s at default) -- and this function
+    # backs every INTERNAL sanity/floor check during construction (`_fuse_ok`'s floor,
+    # `_build_tapered_bore_cutter`'s rung-3 plausibility check, which can run several times per
+    # rebuild while trying rungs), where paying that cost repeatedly would meaningfully slow
+    # every non-trivial rebuild for no benefit: those checks only need to tell "plausible" from
+    # "off by 10x+" (a self-intersecting loft measured off by *orders of magnitude*, 1e24 mm^3
+    # against a true ~2.9e9), and the default epsilon's own ~3% inaccuracy on this shape class is
+    # nowhere near that threshold. The accurate (tight-epsilon) value is computed exactly once
+    # per rebuild, in `_compute_verification`'s own volume block, where the 0.3-0.5% gates
+    # actually need it.
     props = GProp_GProps()
     BRepGProp.VolumeProperties_s(shape, props)
     return props.Mass()
@@ -1326,10 +1457,10 @@ def _fuse_sandwich_bore(bore_rings, pts_before, pts_after, z_min: float, z_max: 
                          event_fore: float, event_aft: float, circ_overlap: float,
                          fin_overlap: float, seam_eps: float, eps_cut_val: float,
                          seam_bore_radius: float, chord_tol: float,
-                         bore_seam_clearance: float):
+                         bore_seam_clearance: float, path_out: dict = None, mesh=None):
     """Round 1's three-cutter tool for the M5/M8 sandwich bore: circular revolve fore of
-    `event_fore`, the merged bore+slot ring as one prism through the slot zone, circular revolve
-    aft of `event_aft`, fused into a single cutter.
+    `event_fore`, the merged bore+slot ring as one CONSTANT-cross-section prism through the slot
+    zone, circular revolve aft of `event_aft`, fused into a single cutter.
 
     `bore_seam_clearance` drops the circular cutters' radius at the overlap end (a taper from the
     last real point, never a step — a step puts a real feature at the seam plane that the prism
@@ -1341,14 +1472,37 @@ def _fuse_sandwich_bore(bore_rings, pts_before, pts_after, z_min: float, z_max: 
     gives gmsh min SICN 0.0062 against a 0.1 gate where clearance 0 gives 0.291. So the caller
     tries 0 first and only pays the clearance when the fuse is otherwise invalid.
 
+    Deliberately still the plain `_build_prism_bore` here, NOT the `_build_tapered_bore_cutter`
+    selector `_build_prism_bore`'s single-event siblings now use (tapered_bore_dome_pinch_and_
+    surface_area.md §3.2) -- tried and reverted (this commit). The plan assumed M5/M8's sandwich
+    zone would measure as axially constant (rung 1) and stay byte-identical; MEASURED instead
+    (M8, `--sections 40 --adaptive --chord-tol 0.5`, the `_build_slot_wedges`-fails fallback
+    path this function exists for): the merged bore+slot ring's own real fillet-taper transition
+    bands at each end of the zone give a station-to-station area span of ~7% of the mean --
+    comfortably past the `1e-3` constant-rung threshold, which the ORIGINAL hardcoded-prism call
+    site was never exposed to (only the single-event paths were). That routed this fallback
+    through rung 3 (the actual-rings loft), which is not designed for a merged bore+multi-slot
+    ring's topology (many lobes, none of them the loft's assumed "one smooth non-circular bore"
+    shape) and produced a 400000+-entity pathological STEP export that took minutes where the
+    plain prism takes seconds -- confirmed via `faulthandler.dump_traceback_later` catching the
+    hang inside `booleans.fuse` on an oversized cutter, then reproducing the same
+    `_build_tapered_bore_cutter` rung classification directly on the extracted station rings.
+    `path_out`/`mesh` are still accepted for call-site compatibility but unused: a real sandwich-
+    tapered motor is not exercised by any current milestone, and this specific classifier is not
+    safe to apply to a merged multi-lobe ring without further work (a real follow-up, not
+    something to force through here).
+
     The caller must check the result with `BRepCheck_Analyzer` — see the call site.
     """
+    del mesh  # accepted for call-site symmetry with the single-event paths; see docstring
     circ_fore_full = [(z_min - eps_cut_val, pts_before[0][1])] + pts_before \
         + [(event_fore + circ_overlap, pts_before[-1][1] - bore_seam_clearance)]
     circ_aft_full = [(event_aft - circ_overlap, pts_after[0][1] - bore_seam_clearance)] \
         + pts_after + [(z_max + eps_cut_val, pts_after[-1][1])]
     fin_solid = _build_prism_bore(bore_rings, event_fore, event_aft, fin_overlap, fin_overlap,
                                    chord_tol, bore_radius=seam_bore_radius)
+    if path_out is not None:
+        path_out["bore"] = "prism"
     circ_fore_solid = solids.build_revolve_solid(circ_fore_full, chord_tol)
     circ_aft_solid = solids.build_revolve_solid(circ_aft_full, chord_tol)
     fused = booleans.fuse(circ_fore_solid, fin_solid, seam_eps)
@@ -1798,43 +1952,121 @@ def _fit_ref_fillets(raw_pts, simp_pts, chord_tol: float):
     return fillets
 
 
-def _build_bore_prism_or_loft(bore_rings, z_min: float, z_max: float, eps_cut_val: float,
-                               chord_tol: float):
-    """Select the constant-cross-section prism path (`_build_prism_bore`, M3's star bore) or the
-    ruled-loft path (`solids.build_ruled_loft_solid`, M6's linearly-scaling star bore) based on
-    what the stations actually measured, not on the milestone name. Ring area is proportional to
-    scale^2 for a shape that uniformly scales about the axis, and MISSION §6.2 M6 says the scale
-    itself is linear in z, so area(z) should be exactly quadratic in z; a `np.polyfit` degree-2 fit
-    across every non-circular station's own measured area both detects "does this bore's size
-    actually change" (M3: near-zero span, noise only) and, when it does, gives an accurate
-    extrapolation to the cutter's true ends (`z_min - eps_cut_val`, `z_max + eps_cut_val`) without
-    needing station data all the way out there (the true loft in MISSION spans z=-10..L+10, past
-    what the input STL even covers at z=[z_min, z_max]).
+def _r_at_theta_pairs(th, r, theta_query):
+    """Linear interpolation of radius vs angle, given already-computed `(th, r)` samples about
+    the axis (0, 0) -- shared core of `_ring_r_at_theta` and `_check_proportional_scaling` (the
+    latter interpolates a pre-simplified, not raw, point set, so it cannot go through
+    `_ring_r_at_theta`'s own `(x, y)`-in signature). Wraps across the +-pi seam so a query angle
+    near the branch cut still interpolates between its true neighbors."""
+    order = np.argsort(th)
+    th, r = np.asarray(th)[order], np.asarray(r)[order]
+    th_ext = np.concatenate([th - 2.0 * np.pi, th, th + 2.0 * np.pi])
+    r_ext = np.concatenate([r, r, r])
+    tq = ((np.asarray(theta_query, dtype=float) + np.pi) % (2.0 * np.pi)) - np.pi
+    return np.interp(tq, th_ext, r_ext)
 
-    When lofting, the two end profiles are built by scaling ONE well-conditioned reference ring
-    (the mid-station's raw points -- same choice `_build_prism_bore` makes, least likely to be
-    distorted by inset/end effects) by the fitted scale ratio, rather than re-deriving each end's
-    own geometry from noisy raw points near the (nonexistent, extrapolated) ends. The reference
-    ring is first reduced with `fitting.simplify_closed_ring` (RDP on the closed 2D ring, `eps =
-    chord_tol`) -- tried fitting exact fillet arcs via `detect_arc_runs` first (mirroring
-    `_build_prism_bore`'s M3 path) and it does NOT transfer here: M3's bore is a true constant-
-    cross-section extrude (flat, exactly planar mesh facets), but M6's intermediate cross-sections
-    come from slicing a genuinely curved (skew ruled, since corresponding wire0/wire1 edges are
-    not coplanar in general) 3D loft surface -- its STL tessellation reads as spurious sub-mm-
-    sagitta "curvature" at unpredictable points around the ring (measured: `detect_arc_runs`
-    returned 8-30 garbage runs instead of the true 12, wildly unstable between adjacent stations),
-    corrupting any 3-point arc fit through them. Plain RDP sidesteps the whole problem: a sub-
-    chord_tol sagitta reads as *within tolerance* of the straight chord and gets silently
-    absorbed, while the real fillet curvature (larger sagitta) still keeps enough points to track
-    it -- measured M6 volume_err_pct 0.66% (garbage arcs) -> 0.11% (RDP-simplified straight
-    polygon, ~94 pts down from ~425, final face count ~97, gate 200)."""
-    bore_rings = sorted(bore_rings, key=lambda p: p[0])
-    zs_r = np.array([z for z, _ in bore_rings], dtype=float)
-    areas = np.array([_ring_area(np.asarray(r.coords)) for _, r in bore_rings], dtype=float)
-    a_span = float(areas.max() - areas.min())
-    if a_span < 1e-3 * float(areas.mean()):
-        return _build_prism_bore(bore_rings, z_min, z_max, eps_cut_val, eps_cut_val, chord_tol)
 
+def _ring_r_at_theta(pts, theta_query):
+    """Radius of the closed ring `pts` (x, y) at each angle in `theta_query` -- every bore/fin
+    ring this module builds is axisymmetric about the origin by construction, so angle is a
+    valid, unambiguous parameterization to interpolate along. See `_r_at_theta_pairs`."""
+    xy = np.asarray(pts, dtype=float)
+    if len(xy) > 1 and np.allclose(xy[0], xy[-1]):
+        xy = xy[:-1]
+    th = np.arctan2(xy[:, 1], xy[:, 0])
+    r = np.hypot(xy[:, 0], xy[:, 1])
+    return _r_at_theta_pairs(th, r, theta_query)
+
+
+def _check_proportional_scaling(bore_rings, coef, ref_pts_raw, ref_area: float,
+                                 chord_tol: float, n_probe: int = 5) -> bool:
+    """Acceptance test for the proportional loft rung (tapered_bore_dome_pinch_and_surface_
+    area.md §3.1): the existing `_build_bore_prism_or_loft` machinery assumed every station was
+    a uniform scaling of one reference ring and never checked it. Probe ~`n_probe` evenly
+    spread real stations: scale the reference ring's own (theta, r) profile to that station's
+    QUADRATIC-FIT area (not its raw noisy area -- this validates the same model the loft itself
+    extrapolates from) and compare, at the reference ring's own angular samples, against the
+    real station's actual (theta, r) (`_ring_r_at_theta`). A true uniform scaling (M6) agrees
+    everywhere to well under `2*chord_tol` (the research-04 Hausdorff convention this module
+    uses elsewhere); a shape that scales non-uniformly (different lobes growing at different
+    rates, e.g. M16's two-family star) disagrees by tens of mm at the angles where the two
+    families diverge -- this is what routes M16 to the actual-rings loft (rung 3) instead of
+    silently mis-scaling it here (report §5's finding, ported as the acceptance test the report
+    itself only had informally).
+
+    Both the reference ring and every probed station's ring are RDP-simplified first
+    (`fitting.simplify_closed_ring`, `eps = 0.3*chord_tol` -- the same reduction
+    `_build_proportional_bore_loft` already applies to its own reference ring) before comparing.
+    Measured on M6 (a TRUE uniform scaling by the milestone's own construction -- fillets scale
+    by the identical factor as the tip/valley radii, MISSION §6.2 M6): comparing RAW mesh-vertex
+    angle samples pointwise at a sharp fillet/valley corner picks up real chordal interpolation
+    noise from `_ring_r_at_theta`'s linear interp between mesh vertices that are NOT at matching
+    angular positions on the reference vs. probed ring (their tessellations are independent) --
+    up to ~29 mm (6% of local radius) on a shape with NO actual non-proportional growth
+    (`_build_proportional_bore_loft`'s existing, separately-verified RDP-based reconstruction
+    achieves 0.001-0.04% volume error on this same geometry). Simplifying both sides first
+    removes that mismatch (measured: M6's worst probe drops to sub-mm) while a genuinely
+    differently-growing shape (M16's two-family star) still disagrees by tens of mm after
+    simplification, since that disagreement is real geometry, not raw-vertex noise."""
+    from pipeline.fitting import simplify_closed_ring as _simplify_ring
+
+    def _simplified_theta_r(coords):
+        xy = np.asarray(coords, dtype=float)
+        if len(xy) > 1 and np.allclose(xy[0], xy[-1]):
+            xy = xy[:-1]
+        simp = np.asarray(_simplify_ring(xy.tolist(), 0.3 * chord_tol), dtype=float)
+        if len(simp) < 8:
+            simp = xy
+        return np.arctan2(simp[:, 1], simp[:, 0]), np.hypot(simp[:, 0], simp[:, 1])
+
+    ref_th, ref_r = _simplified_theta_r(ref_pts_raw)
+    tol = 2.0 * chord_tol
+    idx = sorted(set(np.linspace(0, len(bore_rings) - 1,
+                                  min(n_probe, len(bore_rings))).round().astype(int).tolist()))
+    for i in idx:
+        z_i, ring_i = bore_rings[i]
+        a_i = max(1e-9, float(np.polyval(coef, z_i)))
+        s_i = math.sqrt(a_i / ref_area)
+        actual_th, actual_r_native = _simplified_theta_r(np.asarray(ring_i.coords))
+        actual_r = _r_at_theta_pairs(actual_th, actual_r_native, ref_th)
+        if float(np.max(np.abs(actual_r - s_i * ref_r))) > tol:
+            return False
+    return True
+
+
+def _build_proportional_bore_loft(bore_rings, zs_r, areas, z_lo: float, z_hi: float,
+                                   eps_lo: float, eps_hi: float, chord_tol: float):
+    """Rung 2 of `_build_tapered_bore_cutter` (§3.1): the ORIGINAL `_build_bore_prism_or_loft`
+    loft body (see its own prior docstring, preserved below verbatim for the "why RDP not
+    fillet-fit" reasoning), generalized to an arbitrary `[z_lo, z_hi]`/`eps_lo`/`eps_hi` instead
+    of the pure-ring path's hardcoded symmetric ends, plus the new `_check_proportional_scaling`
+    acceptance test. Returns `(solid, accepted)`.
+
+    Ring area is proportional to scale^2 for a shape that uniformly scales about the axis, and
+    MISSION §6.2 M6 says the scale itself is linear in z, so area(z) should be exactly quadratic
+    in z; a `np.polyfit` degree-2 fit across every non-circular station's own measured area both
+    detects "does this bore's size actually change" (M3: near-zero span, noise only -- caught
+    upstream by the caller's constant-rung threshold, not here) and, when it does, gives an
+    accurate extrapolation to the cutter's true ends without needing station data all the way
+    out there.
+
+    The two end profiles are built by scaling ONE well-conditioned reference ring (the
+    mid-station's raw points -- same choice `_build_prism_bore` makes, least likely to be
+    distorted by inset/end effects) by the fitted scale ratio, rather than re-deriving each
+    end's own geometry from noisy raw points near the (nonexistent, extrapolated) ends. The
+    reference ring is first reduced with `fitting.simplify_closed_ring` (RDP on the closed 2D
+    ring, `eps = chord_tol`) -- tried fitting exact fillet arcs via `detect_arc_runs` first
+    (mirroring `_build_prism_bore`'s M3 path) and it does NOT transfer here: M3's bore is a true
+    constant-cross-section extrude (flat, exactly planar mesh facets), but M6's intermediate
+    cross-sections come from slicing a genuinely curved (skew ruled, since corresponding
+    wire0/wire1 edges are not coplanar in general) 3D loft surface -- its STL tessellation reads
+    as spurious sub-mm-sagitta "curvature" at unpredictable points around the ring (measured:
+    `detect_arc_runs` returned 8-30 garbage runs instead of the true 12, wildly unstable between
+    adjacent stations), corrupting any 3-point arc fit through them. Plain RDP sidesteps the
+    whole problem: a sub-chord_tol sagitta reads as within tolerance of the straight chord and
+    gets silently absorbed, while the real fillet curvature (larger sagitta) still keeps enough
+    points to track it -- measured M6 volume_err_pct 0.66% (garbage arcs) -> 0.11% (RDP-
+    simplified straight polygon, ~94 pts down from ~425, final face count ~97, gate 200)."""
     coef = np.polyfit(zs_r, areas, 2)
     ref_idx = len(bore_rings) // 2
     _, ref_ring = bore_rings[ref_idx]
@@ -1842,19 +2074,384 @@ def _build_bore_prism_or_loft(bore_rings, z_min: float, z_max: float, eps_cut_va
     ref_simp = np.asarray(fitting.simplify_closed_ring(ref_pts_raw.tolist(), 0.3 * chord_tol))
     ref_pts = _drop_close_ring_points(ref_simp, 5.0 * chord_tol)
     ref_area = areas[ref_idx]
-    z_lo_t = z_min - eps_cut_val
-    z_hi_t = z_max + eps_cut_val
+    z_lo_t = z_lo - eps_lo
+    z_hi_t = z_hi + eps_hi
     a_lo_t = max(1e-9, float(np.polyval(coef, z_lo_t)))
     a_hi_t = max(1e-9, float(np.polyval(coef, z_hi_t)))
     s_lo = math.sqrt(a_lo_t / ref_area)
     s_hi = math.sqrt(a_hi_t / ref_area)
     fillets = _fit_ref_fillets(ref_pts_raw, ref_simp, chord_tol)
     if fillets is not None:
-        return solids.build_fillet_loft_solid(z_lo_t, s_lo, z_hi_t, s_hi, fillets)
+        solid = solids.build_fillet_loft_solid(z_lo_t, s_lo, z_hi_t, s_hi, fillets)
+    else:
+        pts_lo = ref_pts * s_lo
+        pts_hi = ref_pts * s_hi
+        solid = solids.build_ruled_loft_solid(z_lo_t, pts_lo, z_hi_t, pts_hi, r_fillet_thresh=0.0)
+    accepted = _check_proportional_scaling(bore_rings, coef, ref_pts_raw, ref_area, chord_tol)
+    return solid, accepted
 
-    pts_lo = ref_pts * s_lo
-    pts_hi = ref_pts * s_hi
-    return solids.build_ruled_loft_solid(z_lo_t, pts_lo, z_hi_t, pts_hi, r_fillet_thresh=0.0)
+
+def _ring_winding_ccw(pts):
+    """Shoelace-sign winding normalization about the origin: returns `pts` (closed ring, no
+    duplicate closing point) in CCW order, reversing if the raw ring is CW
+    (tapered_bore_dome_pinch_and_surface_area.md §4.2 step 1). Every downstream ring-loft
+    consumer (the FFT seam search, the arc-length resample) assumes one consistent traversal
+    direction across every station of a chain -- a chain with mixed winding would look like it
+    reverses direction station-to-station, which is indistinguishable from a real twist to
+    `BRepOffsetAPI_ThruSections`."""
+    xy = np.asarray(pts, dtype=float)
+    if len(xy) > 1 and np.allclose(xy[0], xy[-1]):
+        xy = xy[:-1]
+    x, y = xy[:, 0], xy[:, 1]
+    area2 = float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
+    return xy if area2 >= 0.0 else xy[::-1].copy()
+
+
+def _resample_ring_arclength(pts, M: int):
+    """Resample a closed ring (CCW, no duplicate closing point) to exactly `M` points evenly
+    spaced by ARC LENGTH -- the common parameterization every station in a loft chain must
+    share before vertex correspondence means anything (docs/research/04-pipeline-design-notes.md
+    §3; tapered_bore_dome_pinch_and_surface_area.md §4.2 step 2)."""
+    xy = np.asarray(pts, dtype=float)
+    closed = np.vstack([xy, xy[:1]])
+    seg = np.linalg.norm(np.diff(closed, axis=0), axis=1)
+    s = np.concatenate([[0.0], np.cumsum(seg)])
+    total = s[-1]
+    if total <= 0.0:
+        raise ValueError("degenerate ring: zero perimeter")
+    targets = np.linspace(0.0, total, M, endpoint=False)
+    js = np.clip(np.searchsorted(s, targets, side="right") - 1, 0, len(seg) - 1)
+    seg_j = seg[js]
+    frac = np.where(seg_j > 0.0, (targets - s[js]) / np.maximum(seg_j, 1e-12), 0.0)
+    out = closed[js] + frac[:, None] * (closed[js + 1] - closed[js])
+    return out
+
+
+def _ring_seam_theta0(pts_theta_ordered_r, theta, chord_tol: float):
+    """Dominant-harmonic seam angle of a ring (docs/research/04-pipeline-design-notes.md §3;
+    tapered_bore_dome_pinch_and_surface_area.md §4.2 step 3): `theta0 = -phase(c_n)/n` for
+    whichever harmonic `n in [2, min(M//2, 32)]` has the largest generalized Fourier amplitude
+    `|c_n| = |sum_k (r_k - mean(r)) * exp(-i*n*theta_k)| / M * 2`, when that amplitude clears
+    `3*chord_tol`; else `(0.0, 0)` (no stable seam -- an (approximately) circular band has no
+    meaningful angular anchor and needs none, same convention the acceptance test in
+    `_check_proportional_scaling` implicitly relies on for a truly circular bore).
+
+    A direct summation over actual `theta` (not `np.fft.rfft`) is used deliberately: the ring's
+    own points are sampled uniformly in ARC LENGTH, not in angle, so a plain FFT over ring-order
+    index would silently assume a uniform-theta sampling that a non-circular, non-proportionally
+    growing ring (M16's two-family star) does not have. `M` here is at most 256 and `n_max` at
+    most 32, so the O(M*n_max) direct sum costs nothing next to everything else this pipeline
+    already does per station."""
+    r = pts_theta_ordered_r
+    M = len(r)
+    n_max = min(M // 2, 32)
+    r0 = r - r.mean()
+    best_n, best_amp, best_phase = 0, 0.0, 0.0
+    for n in range(2, n_max + 1):
+        c = np.sum(r0 * np.exp(-1j * n * theta)) / M
+        amp = abs(c) * 2.0
+        if amp > best_amp:
+            best_n, best_amp, best_phase = n, amp, float(np.angle(c))
+    if best_n == 0 or best_amp <= 3.0 * chord_tol:
+        return 0.0, 0
+    return float(-best_phase / best_n), best_n
+
+
+def _prepare_loft_rings(bore_rings, z_lo: float, z_hi: float, eps_lo: float, eps_hi: float,
+                        chord_tol: float, mesh=None):
+    """Build the seam-aligned, common-`M` resampled section list `solids.build_ring_loft_solid`
+    needs (tapered_bore_dome_pinch_and_surface_area.md §4.2, following
+    `docs/research/04-pipeline-design-notes.md` §3 verbatim): normalize winding, resample every
+    station's ring to a common `M` at uniform arc length, then anchor a rotation seam via the
+    ring's own dominant FFT harmonic so corresponding array INDICES across stations track the
+    same physical feature (a lobe tip, a valley) instead of just the same arc-length fraction
+    from an arbitrary, per-station starting point that shapely happened to emit the ring at.
+    This is what makes `BRepOffsetAPI_ThruSections`'s `CheckCompatibility(False)` (trust the
+    caller's own vertex correspondence) an honest instruction instead of an accidental one.
+
+    `M = max(128, 64*n_lobes)`, capped at 256 (§4.2 step 2), `n_lobes` read from the middle
+    station's own dominant harmonic (a representative station, same reasoning `_pick_best_ring`
+    uses elsewhere for "least likely to be distorted by an inset/end effect").
+
+    Drift clamp (§4.2 step 3's anti-flip rule): a seam angle that jumps by more than half this
+    harmonic's own period between adjacent stations is not a real seam move at any physically
+    plausible station spacing -- it is the FFT locking onto one of the ring's OTHER, symmetric
+    anchor points instead. Reusing the previous station's seam keeps the loft from twisting.
+
+    Two extra END sections are needed past the last real (station-loop) sample, out to the
+    cutter's own true ends `z_lo - eps_lo` / `z_hi + eps_hi`. When `mesh` is given, each end is
+    measured DIRECTLY by slicing the mesh there first (`_measure_ring_at`) -- these targets sit
+    INSIDE the mesh's own real axial extent (an end-inset margin past the true part end, not
+    extrapolation past real data: e.g. M16's aft cap sits at the part's true z_max, and the star
+    zone's own input surface genuinely exists there), so a direct measurement is available and
+    is exact where a linear extrapolation is only an approximation. Measured on M16: end-
+    clustered real stations can leave the LAST usable station ~100 mm short of the cap (station-
+    loop placement + the near-duplicate-z dedup above), and extrapolating a slope across that
+    gap from a short baseline left `surface_deviation_max_mm` at 2.14 mm (gate 1.0) concentrated
+    exactly at the cap edge; measuring directly removes the extrapolation error entirely (a
+    direct slice IS the true cross-section, not a model of it). Falls back to linear
+    extrapolation from the last two real sections (a ruled taper's true continuation; a
+    prismatic copy would under-cut a still-growing bore across the inset band) when no mesh is
+    given or the direct measurement is unusable (a degenerate/multi-loop slice, or a self-
+    intersecting result), and finally to a prismatic copy of the nearest real section when the
+    extrapolation itself self-intersects (`shapely.Polygon.is_simple`).
+
+    Returns `[(z, pts_Mx2), ...]` sorted by z, at least 3 sections (>=1 real + 2 extensions)."""
+    from shapely.geometry import Polygon as _Polygon
+
+    bore_rings = sorted(bore_rings, key=lambda p: p[0])
+    # Collapse a cascade of near-coincident-z stations (measured on M16: 8 stations bunched into
+    # the last ~9 mm before the aft cap, with successive gaps shrinking 2.4 -> 1.3 -> 0.64 ->
+    # 0.24 -> 0.055 -> 0.0037 mm -- ordinary end-clustered station placement approaching the
+    # part's true extent, not a bug in the station loop itself). A near-zero-height section pair
+    # feeds `BRepOffsetAPI_ThruSections` a degenerate span that blows up its own surface-fit
+    # parametrization (measured: resulting solid volume ~1.4e24 mm^3, nonsense, on an otherwise
+    # geometrically sane point set). `2*chord_tol` mirrors this module's own dome-model min
+    # spacing convention (`min_dz = 5*chord_tol` at the pinch/curved-end fits) scaled down since
+    # a ring's shape barely changes over such a short cascade anyway (measured here: r_max moves
+    # only ~0.24 mm across the whole collapsed span) -- discarding the intermediate points costs
+    # no real shape information, only removes the numerically pathological spacing.
+    _min_dz = 2.0 * chord_tol
+    _dedup = [bore_rings[0]]
+    for z, ring in bore_rings[1:]:
+        if z - _dedup[-1][0] >= _min_dz:
+            _dedup.append((z, ring))
+        elif z == bore_rings[-1][0]:
+            # Always keep the true last station (even if close to the previous keeper) so the
+            # loft's own span isn't shortened -- replace, not append, to avoid re-introducing a
+            # near-zero-height pair.
+            _dedup[-1] = (z, ring)
+    bore_rings = _dedup
+    ccw_rings = [(z, _ring_winding_ccw(np.asarray(ring.coords))) for z, ring in bore_rings]
+
+    probe_pts = _resample_ring_arclength(ccw_rings[len(ccw_rings) // 2][1], 128)
+    probe_th = np.arctan2(probe_pts[:, 1], probe_pts[:, 0])
+    probe_r = np.hypot(probe_pts[:, 0], probe_pts[:, 1])
+    _, n_probe = _ring_seam_theta0(probe_r, probe_th, chord_tol)
+    M = int(min(256, max(128, 64 * max(n_probe, 1))))
+
+    sections = []
+    theta0_list = []
+    theta0_prev = None
+    for z, ccw in ccw_rings:
+        pts_m = _resample_ring_arclength(ccw, M)
+        th = np.arctan2(pts_m[:, 1], pts_m[:, 0])
+        r = np.hypot(pts_m[:, 0], pts_m[:, 1])
+        theta0, n_dom = _ring_seam_theta0(r, th, chord_tol)
+        if n_dom > 0 and theta0_prev is not None:
+            d = ((theta0 - theta0_prev + math.pi) % (2.0 * math.pi)) - math.pi
+            if abs(d) > math.pi / n_dom:
+                theta0 = theta0_prev
+        if n_dom > 0:
+            theta0_prev = theta0
+        k = int(np.argmin(np.abs(((th - theta0 + math.pi) % (2.0 * math.pi)) - math.pi)))
+        sections.append((float(z), np.roll(pts_m, -k, axis=0)))
+        theta0_list.append(theta0)
+
+    def _extend(pts_a, pts_b, z_a: float, z_b: float, z_target: float):
+        t = (z_target - z_b) / (z_b - z_a) if z_b != z_a else 0.0
+        cand = pts_b + t * (pts_b - pts_a)
+        poly = _Polygon(cand)
+        if not poly.is_valid or not poly.is_simple:
+            return pts_b.copy()
+        return cand
+
+    def _measure_ring_at(z_target: float, theta0_ref: float):
+        """Direct measurement of the loft ring at `z_target` (§4.2's own end-inset target,
+        inside the mesh's real extent) by slicing `mesh` there, instead of extrapolating from
+        real stations that end-clustering/dedup can leave far away. Seam-aligned to
+        `theta0_ref` (the nearest real section's own resolved seam) for index correspondence.
+        Returns an (M, 2) array, or None if unusable (no mesh given, a degenerate/multi-loop/
+        multi-hole slice, or too few points to resample)."""
+        if mesh is None:
+            return None
+        try:
+            polys, _zz = slice_station(mesh, z_target, chord_tol)
+        except Exception:
+            return None
+        if len(polys) != 1 or len(polys[0].interiors) != 1:
+            return None
+        hole = np.asarray(polys[0].interiors[0].coords)
+        if len(hole) < 8:
+            return None
+        ccw_hole = _ring_winding_ccw(hole)
+        pts_m = _resample_ring_arclength(ccw_hole, M)
+        th = np.arctan2(pts_m[:, 1], pts_m[:, 0])
+        k = int(np.argmin(np.abs(((th - theta0_ref + math.pi) % (2.0 * math.pi)) - math.pi)))
+        return np.roll(pts_m, -k, axis=0)
+
+    def _baseline(idx_boundary: int, step: int, z_target: float):
+        """The second point `_extend` extrapolates FROM, chosen far enough from the boundary
+        section for a numerically stable slope -- not just "whatever the adjacent list entry
+        happens to be". Measured on M16: end-clustered real stations can bunch a whole cascade
+        within a few mm of each other right at the true axial extreme (successive gaps
+        shrinking 2.4 -> ... -> 0.0037 mm), and extrapolating a slope from a ~9 mm baseline over
+        a ~105 mm gap to the target amplifies that noise ~12x -- measured result: an extension
+        ring ranging r=[310, 742] against a true r=[410, 620], a completely different (and
+        self-intersecting-with-neighbors) shape. Walk backward/forward from the boundary for the
+        first section at least `min_span` away; falls back to the farthest available section
+        (the chain's own first/last point) if the whole chain is shorter than that."""
+        z_boundary = sections[idx_boundary][0]
+        min_span = max(10.0 * chord_tol, 0.4 * abs(z_target - z_boundary))
+        j = idx_boundary
+        n = len(sections)
+        while 0 <= j + step < n and abs(sections[j + step][0] - z_boundary) < min_span:
+            j += step
+        j += step
+        j = max(0, min(n - 1, j))
+        return sections[j]
+
+    def _is_usable_ring(pts) -> bool:
+        if pts is None:
+            return False
+        poly = _Polygon(pts)
+        return poly.is_valid and poly.is_simple
+
+    # A direct measurement is only trustworthy when the target sits far enough from a real
+    # topology boundary to still be inside the smooth star/fin surface -- `eps_lo`/`eps_hi` are
+    # NOT always a true end-inset margin: at the single-event seam (§3.2's call sites) the near
+    # side uses `fin_overlap` (~0.02*seam_eps, a hairline boolean-fuse overlap, not a physical
+    # end), so `z_lo - eps_lo` there lands almost exactly ON the flat event wall -- a genuinely
+    # degenerate transition plane where a slice can catch either side inconsistently. Measured
+    # on M16: attempting it there moved the worst deviation to the EVENT boundary itself (79 mm,
+    # worse than not measuring at all). `2*chord_tol` mirrors `_measure_end_radius`'s own inset
+    # floor (§2.1) -- below that, trust only the extrapolation baseline.
+    _min_margin = 2.0 * chord_tol
+
+    z_first, pts_first = sections[0]
+    z_target_lo = z_lo - eps_lo
+    lo_ext = _measure_ring_at(z_target_lo, theta0_list[0]) if eps_lo >= _min_margin else None
+    if not _is_usable_ring(lo_ext):
+        z_second, pts_second = _baseline(0, 1, z_target_lo)
+        lo_ext = _extend(pts_second, pts_first, z_second, z_first, z_target_lo)
+
+    z_last, pts_last = sections[-1]
+    z_target_hi = z_hi + eps_hi
+    hi_ext = _measure_ring_at(z_target_hi, theta0_list[-1]) if eps_hi >= _min_margin else None
+    if not _is_usable_ring(hi_ext):
+        z_prev, pts_prev = _baseline(len(sections) - 1, -1, z_target_hi)
+        hi_ext = _extend(pts_prev, pts_last, z_prev, z_last, z_target_hi)
+
+    return [(z_target_lo, lo_ext)] + sections + [(z_target_hi, hi_ext)]
+
+
+def _build_ring_loft_bore(bore_rings, z_lo: float, z_hi: float, eps_lo: float, eps_hi: float,
+                          chord_tol: float, bore_radius: float = None, mesh=None):
+    """Rung 3 driver (tapered_bore_dome_pinch_and_surface_area.md §4): prepare seam-aligned
+    resampled rings (`_prepare_loft_rings`) and hand them to `solids.build_ring_loft_solid`,
+    trying the plan's preferred smooth (`isRuled=False`) surface first and falling back to
+    `isRuled=True` (the plan's own recorded rung, §4.4/§8 risk 5) when the smooth fit is
+    numerically implausible. `BRepCheck_Analyzer` alone does not catch this failure mode --
+    measured on M16's real station data: a topologically "valid" `isRuled=False` surface with
+    volume -1.4e24 mm^3 (vs. a true ~2.9e9 mm^3), an self-intersecting-but-closed pathology the
+    analyzer has no test for. A crude but effective floor: the cutter's volume must land within
+    an order of magnitude of `mean(area) * height` (the same area*height sanity idea
+    `_prism_from_ring` already uses elsewhere in this module) -- a self-intersecting loft is off
+    by many more orders of magnitude than that in every case measured so far.
+
+    When `bore_radius` is given (this zone sits at a seam against a circular cutter on the
+    other side, §3.3), radially snap every point of the two END sections whose radius lies
+    within `4*chord_tol` of `bore_radius` onto it -- the same snap `build_prism_solid`'s own
+    `bore_radius` parameter does for the constant-cross-section prism wire, so the loft's own
+    bore-arc region stays exactly where the circular cutter on the other side of the seam
+    expects it (the `circ_overlap` subset argument the seam-fuse invariants at ~3438 rely on:
+    "circle is always a subset of the star cross-section throughout the overlap band"). Deeper
+    sections keep their honest measured radii -- the circular cutter never reaches them."""
+    sections = _prepare_loft_rings(bore_rings, z_lo, z_hi, eps_lo, eps_hi, chord_tol, mesh=mesh)
+    if bore_radius is not None:
+        snap_band = 4.0 * chord_tol
+        for i in (0, -1):
+            z, pts = sections[i]
+            r = np.hypot(pts[:, 0], pts[:, 1])
+            near = np.abs(r - bore_radius) <= snap_band
+            if np.any(near):
+                scale = np.where(near, bore_radius / np.maximum(r, 1e-9), 1.0)
+                sections[i] = (z, pts * scale[:, None])
+
+    areas = np.array([_ring_area(pts) for _, pts in sections], dtype=float)
+    height = (z_hi + eps_hi) - (z_lo - eps_lo)
+    expected = float(areas.mean()) * height
+
+    def _plausible(shape) -> bool:
+        if not BRepCheck_Analyzer(shape).IsValid():
+            return False
+        if expected <= 0.0:
+            return True
+        actual = abs(_solid_volume(shape))
+        return 0.1 * expected <= actual <= 10.0 * expected
+
+    smooth = solids.build_ring_loft_solid(sections, is_ruled=False)
+    if _plausible(smooth):
+        return smooth
+    ruled = solids.build_ring_loft_solid(sections, is_ruled=True)
+    if _plausible(ruled):
+        return ruled
+    raise RuntimeError("ring loft: neither smooth nor ruled surface gave a plausible solid")
+
+
+def _build_tapered_bore_cutter(bore_rings, z_lo: float, z_hi: float, eps_lo: float,
+                               eps_hi: float, chord_tol: float, bore_radius: float = None,
+                               mesh=None):
+    """One shared selector for a non-circular (fin/star/slot) bore-cutter zone
+    (tapered_bore_dome_pinch_and_surface_area.md §3), wired into the two single-event seam
+    paths (M4/M13-style, `circ_before`/its else branch) and the pure-ring path (§3.2's old
+    `_build_bore_prism_or_loft`, now called directly since it had no `bore_radius` to snap to
+    and nothing else to specialize). Returns `(solid, path)` where `path` is `"prism"`,
+    `"loft_proportional"`, or `"loft_rings"` -- honest reporting of which rung actually fired,
+    extending the existing `paths_used` plumbing (the Round-2 review's recorded gap: it never
+    reported `loft`).
+
+    Deliberately NOT wired into `_fuse_sandwich_bore` (M5/M8's sandwich rung) -- tried and
+    reverted (this commit): the plan assumed that zone would measure as axially constant and
+    stay byte-identical, but MEASURED on M8's own real merged bore+slot ring (in the
+    `_build_slot_wedges`-fails fallback path), its real fillet-taper transition bands at each
+    end give a station-to-station area span of ~7% of the mean -- comfortably past rung 1's
+    `1e-3` threshold -- which routed a plain constant-prism case through rung 3 (a shape class
+    the actual-rings loft is not designed for: many merged lobes, not one smooth non-circular
+    bore) and produced a 400000+-entity pathological result taking minutes instead of seconds.
+    See `_fuse_sandwich_bore`'s own docstring for the full incident and why it keeps its
+    original hardcoded `_build_prism_bore` call.
+
+    Three rungs, tried in order, each falling back to the previous on construction/validity
+    failure so a real geometry never crashes on a rung this plan added:
+
+    1. Constant cross-section (`a_span < 1e-3*mean(areas)` -- the pre-existing threshold,
+       UNCHANGED): `_build_prism_bore` exactly as before. This keeps every milestone whose
+       non-circular zone is axially constant (M3/M4/M5/M8/M13/M14) byte-identical, because this
+       rung's code path is untouched and is the only rung most of them ever reach.
+    2. Proportional loft (area varies, shape doesn't -- M6): `_build_proportional_bore_loft`,
+       gated by `_check_proportional_scaling`'s new acceptance test. Only a validated uniform
+       scaling is trusted here; a shape that scales non-uniformly falls through to rung 3.
+    3. Actual-rings loft (§4, `_build_ring_loft_bore`): loft through every station's own
+       resampled ring. On any construction/validity failure, falls back to rung 2's own result
+       (never crash) -- matching the fallback-ladder convention `_build_slot_wedges`/
+       `_build_slot_lobes` already use elsewhere in this module.
+    """
+    bore_rings = sorted(bore_rings, key=lambda p: p[0])
+    zs_r = np.array([z for z, _ in bore_rings], dtype=float)
+    areas = np.array([_ring_area(np.asarray(r.coords)) for _, r in bore_rings], dtype=float)
+    a_span = float(areas.max() - areas.min())
+    if a_span < 1e-3 * float(areas.mean()):
+        return (_build_prism_bore(bore_rings, z_lo, z_hi, eps_lo, eps_hi, chord_tol,
+                                  bore_radius=bore_radius), "prism")
+
+    prop_solid, prop_ok = _build_proportional_bore_loft(
+        bore_rings, zs_r, areas, z_lo, z_hi, eps_lo, eps_hi, chord_tol)
+    if prop_ok:
+        return prop_solid, "loft_proportional"
+
+    try:
+        # `_build_ring_loft_bore` already tries both surface rungs (smooth then ruled) and
+        # validates plausibility internally (BRepCheck_Analyzer is not sufficient on its own --
+        # see that function's docstring for the measured self-intersecting-but-"valid" failure
+        # mode); any exception here means neither rung produced a usable cutter.
+        rings_solid = _build_ring_loft_bore(bore_rings, z_lo, z_hi, eps_lo, eps_hi, chord_tol,
+                                            bore_radius=bore_radius, mesh=mesh)
+    except Exception:
+        rings_solid = None
+    if rings_solid is not None:
+        return rings_solid, "loft_rings"
+    return prop_solid, "loft_proportional"
 
 
 def _read_step_shape(path: str):
@@ -2136,8 +2733,11 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
             mesh_out.apply_transform(np.linalg.inv(np.asarray(R_axis, dtype=float)))
 
         # --- volume (exact BRep volume vs the repaired watertight input mesh) --------------
+        # Tight epsilon (see `_solid_volume`'s docstring): the plain default-epsilon call under-
+        # integrates a high-degree B-spline lateral surface (the actual-rings loft, §4.3) by
+        # several percent -- a spurious verification FAIL on an otherwise accurate rebuild.
         props = GProp_GProps()
-        BRepGProp.VolumeProperties_s(shape, props)
+        BRepGProp.VolumeProperties_s(shape, props, 1e-6)
         solid_mm3 = float(props.Mass())
         vol_tol_pct = 0.5
         if mesh.is_volume:
@@ -2166,6 +2766,45 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
             out["volume"] = {"input_mm3": None, "solid_mm3": solid_mm3, "delta_pct": None,
                              "tol_pct": vol_tol_pct, "pass": None,
                              "note": "input mesh not watertight — volume comparison unavailable"}
+
+        # --- surface area (tapered_bore_dome_pinch_and_surface_area.md §5) -----------------
+        # Physically meaningful independent of Volume: burn surface area drives a solid
+        # motor's mass-flow rate (ṁ = ρ·r_burn·A_burn), so a rebuild can carry near-correct
+        # volume while getting the burning-surface TOPOLOGY wrong (an under-resolved fin is
+        # the canonical case — measured on this plan's probe C: volume error only 0.164 % on a
+        # rebuild whose deviation p95 was 179.8 mm against a 1.0 mm gate). Exact BRep area
+        # (`BRepGProp.SurfaceProperties_s`, same convention as Volume above) vs the repaired
+        # mesh's own triangle-sum area; `mesh_out` (not `mesh`) keeps this uniform with every
+        # other check here, which all compare in the output frame — area itself is
+        # frame-invariant, so that choice only matters for consistency, not correctness. No
+        # watertight requirement (unlike Volume): triangle-sum area is well-defined on an open
+        # mesh, but the comparison then inherits whatever the repair filled in.
+        #
+        # `area_tol_pct = 1.0` is a FIXED gate, not noise-scaled: measured across every
+        # milestone with a winning STEP, clean tessellations agree to +0.003 % .. +0.017 %, so
+        # 1.0 % is ~60x that worst clean delta — small enough to still catch a multi-percent
+        # missing/under-resolved feature. A per-input noise-scaled gate was tried and rejected
+        # (mean face-adjacency dihedral estimators measured 5-25x off in both directions, e.g.
+        # predicting 1.17 % on a clean M6-class mesh whose actual delta is 0.008 %) — this is
+        # the SAME deliberate follow-up already recorded for the bounds check above
+        # (`bounds_tol_mm`'s own noise-scaling gap); if it ever lands, both checks should share
+        # one estimator. Consequence, stated honestly rather than papered over: a noisy-but-
+        # accurate input (M9 marching-cubes, M13 dirty capstone) reports this check as an
+        # amber informational FAIL (+1.27 % / +3.13 % measured) with the benign hint below —
+        # by design, exactly like M9's bounds-Z row already does today.
+        _area_props = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(shape, _area_props)
+        solid_mm2 = float(_area_props.Mass())
+        input_mm2 = float(mesh_out.area)
+        area_delta_pct = (abs(solid_mm2 - input_mm2) / input_mm2 * 100.0
+                          if input_mm2 > 0.0 else float("inf"))
+        area_tol_pct = 1.0
+        out["surface_area"] = {"input_mm2": input_mm2, "solid_mm2": solid_mm2,
+                               "delta_pct": area_delta_pct, "tol_pct": area_tol_pct,
+                               "pass": bool(area_delta_pct <= area_tol_pct)}
+        if not mesh.is_watertight:
+            out["surface_area"]["note"] = ("input mesh not watertight — this comparison "
+                                           "inherits whatever the repair filled in")
 
         # --- bodies (post island-dropping: what the engine actually processed) -------------
         solid_map = TopTools_IndexedMapOfShape()
@@ -2287,6 +2926,28 @@ def _compute_verification(mesh, R_axis, shape, chord_tol: float, axial_extent_mm
         for ax_name, axiality in bounds_axiality.items():
             bounds[ax_name]["hint"] = _axial_bounds_hint(
                 ax_name, axiality, bounds[ax_name]["max_dev_mm"], dev)
+
+        # Surface-area hint, decided AFTER deviation for the same reason the bounds hints are
+        # (§5.3): tell apart "this is the noisy-mesh-inflates-its-own-area class the check
+        # cannot avoid" from "this is a real missing/under-resolved feature". `dev_tol` here is
+        # `deviation`'s OWN widened tolerance (already includes any roundness-floor headroom),
+        # so "passed with real margin" means genuinely accurate placement, not just a lucky
+        # squeak under a loose gate.
+        area = out.get("surface_area")
+        if area is not None and not area["pass"]:
+            dev_tol, p95 = dev.get("tol_mm"), dev.get("approx_p95_mm")
+            if (dev.get("pass") and dev_tol is not None and p95 is not None
+                    and p95 <= 0.5 * dev_tol and input_mm2 > solid_mm2):
+                area["hint"] = (
+                    "deviation passes with real margin and the input mesh's own area is "
+                    "LARGER than the solid's — very likely the input's own surface noise/"
+                    "crumpling inflating its area, not missing geometry (measured +1.3% on a "
+                    "marching-cubes input at accurate volume/deviation); informational")
+            else:
+                area["hint"] = (
+                    "missing/under-resolved surface features (thin fins/slots are the usual "
+                    "cause) — try more --sections, --adaptive, or a finer --chord-tol; check "
+                    "the Deviation row for where")
     except Exception as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     out["elapsed_s"] = round(time.perf_counter() - t0, 3)
@@ -2316,6 +2977,12 @@ def _print_verification(v) -> None:
                       f"{vol['solid_mm3']:.5g} mm3 (d {vol['delta_pct']:.3g}% <= "
                       f"{vol['tol_pct']:g}%) {_status(vol['pass'])}")
                 _hint(vol)
+        area = v.get("surface_area")
+        if area:
+            print(f"verify surface area: input {area['input_mm2']:.5g} mm2 vs solid "
+                  f"{area['solid_mm2']:.5g} mm2 (d {area['delta_pct']:.3g}% <= "
+                  f"{area['tol_pct']:g}%) {_status(area['pass'])}")
+            _hint(area)
         for ax in ("x", "y", "z"):
             b = (v.get("bounds") or {}).get(ax)
             if b:
@@ -3216,6 +3883,7 @@ def _rebuild_impl(args) -> int:
     event_fore = event_aft = None
     zone_fore = zone_aft = None
     paths_slot = None
+    bore_path_used = None
     breakthrough_events = []
     _seam_bore_dbg = {}
     if bore_rings and bore_pts:
@@ -3311,10 +3979,37 @@ def _rebuild_impl(args) -> int:
             cap = max(5.0 * station_eps, 50.0)
             z_fore_pinch = _solve_pinch_z(fz0, fcoef, bore_pts[0][1], z_min)
             z_aft_pinch = _solve_pinch_z(az0, acoef, bore_pts[-1][1], z_max)
+            # Accepting this override is asymmetric by direction (tapered_bore_dome_pinch_and_
+            # surface_area.md §2.2 -- the load-bearing decision, not a symmetric tightening).
+            # An INWARD move (z_fore_pinch > z_min, resp. z_aft_pinch < z_max -- the solid
+            # SHRINKS) is accepted exactly as before, cap only: this is M9's case, where the
+            # mesh's own extreme vertex is grid-quantization/noise sitting OUTSIDE the true tip
+            # (measured: mesh bound 31.6 vs true tip 53.5), and its near-tip slices are exactly
+            # the degenerate ones `_measure_end_radius` would refuse -- gating the inward path
+            # on a measurement would regress M9's bbox fix for nothing.
+            # An OUTWARD move (the solid EXTENDS past the mesh's own bound) is the only
+            # direction the flat-cap bug can take (probe B: a flat cap's envelope radius sits
+            # far above the bore, so the dome model's extrapolation "solves" a pinch that isn't
+            # there). Require the mesh to independently confirm the extension by actually
+            # slicing near its OWN current bound: a true pinch passes easily (M2's slope puts
+            # R(z_min+inset) within ~3 mm of the bore radius); probe B's measured 714 vs bore
+            # 300 refuses loudly. A None measurement (unmeasurable end) also refuses --
+            # extending the part on unmeasurable evidence is precisely the bug class this
+            # closes; the raw mesh bound is the honest default (§8 risk 3).
             if z_fore_pinch is not None and abs(z_fore_pinch - z_min) < cap:
-                z_min = z_fore_pinch
+                if z_fore_pinch > z_min:
+                    z_min = z_fore_pinch
+                else:
+                    _meas = _measure_end_radius(mesh, z_min, True, chord_tol, resid_gate)
+                    if _meas is not None and _meas[0] <= bore_pts[0][1] + 50.0:
+                        z_min = z_fore_pinch
             if z_aft_pinch is not None and abs(z_aft_pinch - z_max) < cap:
-                z_max = z_aft_pinch
+                if z_aft_pinch < z_max:
+                    z_max = z_aft_pinch
+                else:
+                    _meas = _measure_end_radius(mesh, z_max, False, chord_tol, resid_gate)
+                    if _meas is not None and _meas[0] <= bore_pts[-1][1] + 50.0:
+                        z_max = z_aft_pinch
         r_start = _eval_r2_quadratic(fz0, fcoef, z_min)
         r_end = _eval_r2_quadratic(az0, acoef, z_max)
         # The curved window runs all the way to the barrel shoulder when one was located, so the
@@ -3390,6 +4085,24 @@ def _rebuild_impl(args) -> int:
         _curved_end(fore_model[0], fore_model[1], z_min, resid_tol)
     aft_curved = (not is_pinch_end) and aft_model is not None and \
         _curved_end(aft_model[0], aft_model[1], z_max, resid_tol)
+    # A validated non-pinch curved endpoint's radius otherwise comes purely from the model
+    # (`_eval_r2_quadratic` above) extrapolated past its last fitted station -- exactly where a
+    # quadratic can predict a collapse toward (or away from) the true radius on a shallow/
+    # flat-ish end (tapered_bore_dome_pinch_and_surface_area.md §2.3, report §4b): nothing else
+    # on this path can catch it (`_refine_dome_model_from_vertices` only refits *inside* the
+    # fitted span; `_densify_dome_chords` resamples from the same, possibly-wrong, model). Snap
+    # to a direct measurement when one is available; pinch ends are untouched (their endpoint
+    # already snaps to the bore fit, strictly better evidence than any end slice).
+    fore_r_model, aft_r_model = r_start, r_end
+    fore_meas = aft_meas = None
+    if fore_curved:
+        fore_meas = _measure_end_radius(mesh, z_min, True, chord_tol, resid_gate)
+        if fore_meas is not None:
+            r_start = fore_meas[0]
+    if aft_curved:
+        aft_meas = _measure_end_radius(mesh, z_max, False, chord_tol, resid_gate)
+        if aft_meas is not None:
+            r_end = aft_meas[0]
     # Resample every chord inside the validated dome window — the excluded inset band AND the
     # real-station-to-real-station gaps deeper in the dome — from the same quadratic-in-R^2
     # model used for the endpoint itself, replacing (not just densifying between) the raw
@@ -3400,19 +4113,37 @@ def _rebuild_impl(args) -> int:
     # exact (`_curved_end` returns False there by construction).
     middle_pts = list(outer_pts)
     fore_gap, aft_gap = [], []
+    fore_gap_unblended = aft_gap_unblended = None
     curve_windows = []
     if is_pinch_start or fore_curved:
         fore_gap = _densify_dome_chords(outer_pts, z_min, None, True, min_dz, resid_tol,
                                         fore_window_z, model=fore_model)
+        # A large disagreement between the direct measurement and the model (fore_curved only
+        # -- a pinch end's `r_start` is already the bore-fit, not this model) means the model's
+        # extrapolation is off across the whole excluded inset band, not just at the endpoint;
+        # blend the measurement into that band too (§2.3), not just the single endpoint sample.
+        if fore_curved and fore_meas is not None:
+            _blended_fore = _blend_curved_endpoint(fore_gap, fore_meas[0], fore_r_model, z_min,
+                                                   fore_model[0], chord_tol, resid_gate)
+            if _blended_fore is not fore_gap:
+                fore_gap_unblended = list(fore_gap)
+                fore_gap_unblended[0] = (z_min, r_start)
+                fore_gap = _blended_fore
         # Keep the already-decided endpoint value: the bore-snapped radius for a pinch end, or
-        # `_extrapolate_end`'s own quadratic-in-R^2 fit for a curved non-pinch end (M14) — there
-        # is nothing to snap to there, so `r_start` IS the model's fit at z_min already.
+        # the measured/model radius for a curved non-pinch end (M14/§2.3).
         fore_gap[0] = (z_min, r_start)
         middle_pts = [p for p in middle_pts if p[0] > fore_window_z]
         curve_windows.append((z_min, fore_window_z))
     if is_pinch_end or aft_curved:
         aft_gap = _densify_dome_chords(outer_pts, None, z_max, False, min_dz, resid_tol,
                                        aft_window_z, model=aft_model)
+        if aft_curved and aft_meas is not None:
+            _blended_aft = _blend_curved_endpoint(aft_gap, aft_meas[0], aft_r_model, z_max,
+                                                  aft_model[0], chord_tol, resid_gate)
+            if _blended_aft is not aft_gap:
+                aft_gap_unblended = list(aft_gap)
+                aft_gap_unblended[-1] = (z_max, r_end)
+                aft_gap = _blended_aft
         aft_gap[-1] = (z_max, r_end)
         middle_pts = [p for p in middle_pts if p[0] < aft_window_z]
         curve_windows.append((aft_window_z, z_max))
@@ -3420,6 +4151,31 @@ def _rebuild_impl(args) -> int:
     end_pt = [] if (is_pinch_end or aft_curved) else [(z_max, r_end)]
     outer_full = sorted(start_pt + fore_gap + middle_pts + aft_gap + end_pt, key=lambda p: p[0])
     outer_solid = solids.build_revolve_solid(outer_full, chord_tol, curve_windows=curve_windows)
+    if fore_gap_unblended is not None or aft_gap_unblended is not None:
+        # `_blend_curved_endpoint`'s own pre-hoc guards (monotonic, quadratic-fit-quality) are
+        # necessary but not sufficient: `build_revolve_solid`'s curved-window edge builder
+        # (`_ellipse_arc_edge`) independently RE-FITS a fresh ellipse to whatever points a
+        # window hands it, and that re-fit can land on a self-intersecting arc that neither
+        # guard predicts -- measured on probe B, where a blend that passed both guards still
+        # produced a `BRepCheck_Analyzer`-invalid, exactly-zero-volume outer solid. This is the
+        # only place that actually knows: after the real OCCT construction has run. Fall back to
+        # the endpoint-only-snap profile (always geometrically safe -- the same construction
+        # M14's flat caps already use in production) whenever the blended attempt is invalid or
+        # degenerate.
+        try:
+            _outer_ok = BRepCheck_Analyzer(outer_solid).IsValid() and \
+                _solid_volume(outer_solid) > 0.0
+        except Exception:
+            _outer_ok = False
+        if not _outer_ok:
+            if fore_gap_unblended is not None:
+                fore_gap = fore_gap_unblended
+            if aft_gap_unblended is not None:
+                aft_gap = aft_gap_unblended
+            outer_full = sorted(start_pt + fore_gap + middle_pts + aft_gap + end_pt,
+                                key=lambda p: p[0])
+            outer_solid = solids.build_revolve_solid(outer_full, chord_tol,
+                                                      curve_windows=curve_windows)
 
     lobe_cutters = []
     if bore_rings and bore_pts:
@@ -3524,12 +4280,13 @@ def _rebuild_impl(args) -> int:
                 # what Round 1 shipped and it meshes far better (0.291 vs 0.0062 min SICN); the
                 # clearance rung exists only to make an otherwise-invalid fuse valid.
                 fused = last_fused = None
+                _sandwich_path = {}
                 for clearance in (0.0, 4.0 * seam_eps):
                     try:
                         last_fused = _fuse_sandwich_bore(
                             bore_rings, pts_before, pts_after, z_min, z_max, event_fore, event_aft,
                             circ_overlap, fin_overlap, seam_eps, eps_cut_val, seam_bore_radius,
-                            chord_tol, clearance)
+                            chord_tol, clearance, path_out=_sandwich_path, mesh=mesh)
                     except Exception:
                         # Same "fall through to the next rung" contract as `_build_slot_wedges`'s
                         # own guard above: a raw OCCT failure here is treated like an invalid fuse.
@@ -3540,6 +4297,7 @@ def _rebuild_impl(args) -> int:
                         break
                 if fused is not None:
                     bore_solid = fused
+                    bore_path_used = _sandwich_path.get("bore")
                 else:
                     # Cavity decomposition: one uninterrupted circular bore revolve over the whole
                     # length plus one independent prism per slot, so no two cutter surfaces are
@@ -3568,8 +4326,9 @@ def _rebuild_impl(args) -> int:
             # intersection edge into a meshable band with zero effect on the final cut geometry.
             circ_overlap = 80.0 * seam_eps
             fin_overlap = 0.02 * seam_eps
-            fin_solid = _build_prism_bore(bore_rings, event_z, z_max, fin_overlap, eps_cut_val,
-                                           chord_tol, bore_radius=bore_pts[-1][1])
+            fin_solid, bore_path_used = _build_tapered_bore_cutter(
+                bore_rings, event_z, z_max, fin_overlap, eps_cut_val, chord_tol,
+                bore_radius=bore_pts[-1][1], mesh=mesh)
             _seam_bore_dbg["fin_solid"] = fin_solid
             bore_solid = _fuse_seam_bore(
                 lambda clearance: [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts
@@ -3578,8 +4337,9 @@ def _rebuild_impl(args) -> int:
         else:
             circ_overlap = 80.0 * seam_eps
             fin_overlap = 0.02 * seam_eps
-            fin_solid = _build_prism_bore(bore_rings, z_min, event_z, eps_cut_val, fin_overlap,
-                                           chord_tol, bore_radius=bore_pts[0][1])
+            fin_solid, bore_path_used = _build_tapered_bore_cutter(
+                bore_rings, z_min, event_z, eps_cut_val, fin_overlap, chord_tol,
+                bore_radius=bore_pts[0][1], mesh=mesh)
             _seam_bore_dbg["fin_solid"] = fin_solid
             if __import__("os").environ.get("REBUILD_DEBUG_M13"):
                 from shapely.geometry import Polygon
@@ -3594,7 +4354,8 @@ def _rebuild_impl(args) -> int:
                 + bore_pts + [(z_max + eps_cut_val, bore_pts[-1][1])],
                 fin_solid, seam_eps, chord_tol, debug=_seam_bore_dbg)
     elif bore_rings:
-        bore_solid = _build_bore_prism_or_loft(bore_rings, z_min, z_max, eps_cut_val, chord_tol)
+        bore_solid, bore_path_used = _build_tapered_bore_cutter(
+            bore_rings, z_min, z_max, eps_cut_val, eps_cut_val, chord_tol, mesh=mesh)
     else:
         bore_full = [(z_min - eps_cut_val, bore_pts[0][1])] + bore_pts \
             + [(z_max + eps_cut_val, bore_pts[-1][1])]
@@ -3867,8 +4628,20 @@ def _rebuild_impl(args) -> int:
             stations_z_mm=[z - axial_origin_z for z in zs],
             paths_used={
                 "outer": "revolve",
-                "bore": "mixed" if (bore_rings and bore_pts) else
-                         ("prism" if bore_rings else "revolve"),
+                # `bore_path_used` (tapered_bore_dome_pinch_and_surface_area.md §3.1) is set by
+                # `_build_tapered_bore_cutter` whenever it actually ran — the single-event seam
+                # paths and the pure-ring path (NOT `_fuse_sandwich_bore`'s fin cutter, which
+                # keeps its own hardcoded prism -- see that function's docstring for why the
+                # selector was tried and reverted there; it still sets `bore_path_used` to the
+                # constant `"prism"` for reporting consistency, just without going through the
+                # selector to get there). It is honest, not just present-or-not: "prism"/"loft_proportional"/
+                # "loft_rings" says which rung fired, replacing the old blanket "mixed"/"prism"
+                # strings that never distinguished a prism from a loft (the Round-2 review's
+                # recorded gap). Falls back to the old strings only when the wedge/lobe
+                # decomposition path fired instead (it never touches the tapered selector).
+                "bore": bore_path_used if bore_path_used else
+                        ("mixed" if (bore_rings and bore_pts) else
+                         ("prism" if bore_rings else "revolve")),
                 **({"slots": paths_slot} if paths_slot else {}),
             },
             topology_events_z_mm=[z - axial_origin_z for z in topo_events_z_mm],

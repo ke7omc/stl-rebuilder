@@ -32,10 +32,14 @@ from OCP.BRepBuilderAPI import (
 from OCP.TopoDS import TopoDS
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol, BRepPrimAPI_MakePrism, BRepPrimAPI_MakeCylinder
 from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+from OCP.BRepAdaptor import BRepAdaptor_Curve
+from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
 from OCP.GC import GC_MakeArcOfCircle, GC_MakeArcOfEllipse
+from OCP.GeomAbs import GeomAbs_C2
 from OCP.GeomAPI import GeomAPI_Interpolate
+from OCP.Approx import Approx_ChordLength
 from OCP.TColgp import TColgp_HArray1OfPnt
 from OCP.TopoDS import TopoDS_Shape
 
@@ -172,6 +176,59 @@ def build_revolve_solid(z_r_pairs, chord_tol: float, curve_windows=None) -> Topo
     z0, r0 = pts_all[0]
     zn, rn = pts_all[-1]
 
+    # First pass: build every CURVE-window edge and record its own ACTUAL endpoints (queried
+    # from the built edge itself, via `BRepAdaptor_Curve`) -- not the raw seed (z, r) that fed
+    # `_ellipse_arc_edge`'s fit. The two can differ by a small but real amount even for a well-
+    # conditioned fit (measured on M16's fore dome window: an independently-refit ellipse's own
+    # `t_of_z` re-parametrization landed the edge's end at R=1000.058, vs. the seed's R=1000.000,
+    # ~0.06 mm apart) because `_ellipse_arc_edge` fits and re-parametrizes locally; it does not
+    # exactly round-trip its own input points. The SECOND pass below anchors every straight-run
+    # RDP segment (and the axis-connecting radial edges) to these ACTUAL endpoints instead of
+    # the raw seed, which is what `BRepBuilderAPI_MakeWire` needs for `wire.Closed()` to actually
+    # be true -- a same-scale-but-nonzero gap is invisible to `mkwire.IsDone()` (stays True) but
+    # leaves the wire open, producing an invalid face and a silently degenerate (measured on
+    # M16: exactly zero-volume, `BRepCheck_Analyzer`-invalid) revolve with no exception raised
+    # anywhere. This keeps `_ellipse_arc_edge` itself byte-identical (still returns exactly the
+    # edge it always has) -- only how its neighbors connect to it changes.
+    curve_edges = {}
+    for i, (idx, run_pts) in enumerate(runs):
+        if idx is None:
+            continue
+        run_pts_d = _dedupe(run_pts)
+        if len(run_pts_d) < 2:
+            continue
+        edge = _ellipse_arc_edge(run_pts_d)
+        if edge is None:
+            harray = TColgp_HArray1OfPnt(1, len(run_pts_d))
+            for j, (z, r) in enumerate(run_pts_d):
+                harray.SetValue(j + 1, gp_Pnt(r, 0.0, z))
+            interp = GeomAPI_Interpolate(harray, False, 1e-7)
+            interp.Perform()
+            edge = BRepBuilderAPI_MakeEdge(interp.Curve()).Edge()
+        ad = BRepAdaptor_Curve(edge)
+        p_start = ad.Value(ad.FirstParameter())
+        p_end = ad.Value(ad.LastParameter())
+        curve_edges[i] = (edge, (p_start.Z(), p_start.X()), (p_end.Z(), p_end.X()))
+
+    def _actual_boundary(run_idx: int, want_start: bool):
+        """The ACTUAL (z, r) of curve run `run_idx`'s start or end, oriented to match that
+        run's own raw seed ordering (a run built `at_start=False`, i.e. descending z, has its
+        seed's "first" point at the LARGER z -- `_ellipse_arc_edge`'s own `apex_at_first` logic
+        does not care about seed order, only relative radius, so the built edge's geometric
+        start/end need not line up with the seed's index order)."""
+        edge_entry = curve_edges.get(run_idx)
+        if edge_entry is None:
+            return None
+        _edge, actual_start, actual_end = edge_entry
+        seed = runs[run_idx][1]
+        seed_pt = seed[0] if want_start else seed[-1]
+        # Whichever actual endpoint is closer (in z) to the requested seed point is the one that
+        # corresponds to it -- robust regardless of the curve's own internal parametrization
+        # direction.
+        d_start = abs(actual_start[0] - seed_pt[0])
+        d_end = abs(actual_end[0] - seed_pt[0])
+        return actual_start if d_start <= d_end else actual_end
+
     profile_edges = []
     for i, (idx, run_pts) in enumerate(runs):
         if idx is None:
@@ -180,31 +237,37 @@ def build_revolve_solid(z_r_pairs, chord_tol: float, curve_windows=None) -> Topo
             # point, so without anchoring, the edge connecting the window's last point to this
             # run's first point would simply never be built (a silent gap in the wire, not a
             # wire-construction error -- MakeWire.IsDone() stays true on the remaining pieces).
-            # Anchor to the neighboring run's shared boundary point so RDP sees, and connects,
-            # the true adjacency.
+            # Anchor to the neighboring run's shared boundary point (its ACTUAL built endpoint
+            # when that neighbor is a curve run, see above) so RDP sees, and connects, the true
+            # adjacency.
             pts_for_rdp = list(run_pts)
             if i > 0:
-                pts_for_rdp = [runs[i - 1][1][-1]] + pts_for_rdp
+                prev_boundary = _actual_boundary(i - 1, want_start=False)
+                pts_for_rdp = [prev_boundary if prev_boundary is not None
+                              else runs[i - 1][1][-1]] + pts_for_rdp
             if i < len(runs) - 1:
-                pts_for_rdp = pts_for_rdp + [runs[i + 1][1][0]]
+                next_boundary = _actual_boundary(i + 1, want_start=True)
+                pts_for_rdp = pts_for_rdp + [next_boundary if next_boundary is not None
+                                             else runs[i + 1][1][0]]
             r_ref = max(r for _z, r in pts_for_rdp)
             simplified = _dedupe(rdp(pts_for_rdp, tol.rdp_profile_eps(chord_tol, r_ref)))
             for (za, ra), (zb, rb) in zip(simplified, simplified[1:]):
                 profile_edges.append(
                     BRepBuilderAPI_MakeEdge(gp_Pnt(ra, 0.0, za), gp_Pnt(rb, 0.0, zb)).Edge())
         else:
-            run_pts = _dedupe(run_pts)
-            if len(run_pts) < 2:
+            entry = curve_edges.get(i)
+            if entry is None:
                 continue
-            edge = _ellipse_arc_edge(run_pts)
-            if edge is None:
-                harray = TColgp_HArray1OfPnt(1, len(run_pts))
-                for i, (z, r) in enumerate(run_pts):
-                    harray.SetValue(i + 1, gp_Pnt(r, 0.0, z))
-                interp = GeomAPI_Interpolate(harray, False, 1e-7)
-                interp.Perform()
-                edge = BRepBuilderAPI_MakeEdge(interp.Curve()).Edge()
-            profile_edges.append(edge)
+            profile_edges.append(entry[0])
+
+    # The two axis-connecting radial edges use the profile's own true first/last (z, r) -- when
+    # that end is itself a curve run, use its ACTUAL built endpoint for the same reason as above
+    # (this is `edges[0]`/`edges[-1]` below meeting the curve edge's real start/end, not its raw
+    # seed value).
+    if 0 in curve_edges:
+        z0, r0 = _actual_boundary(0, want_start=True)
+    if (len(runs) - 1) in curve_edges:
+        zn, rn = _actual_boundary(len(runs) - 1, want_start=False)
 
     edges = [BRepBuilderAPI_MakeEdge(gp_Pnt(0.0, 0.0, z0), gp_Pnt(r0, 0.0, z0)).Edge()]
     edges.extend(profile_edges)
@@ -642,3 +705,93 @@ def build_fillet_loft_solid(z0: float, s0: float, z1: float, s1: float,
     if not loft.IsDone():
         raise RuntimeError("fillet ruled loft failed")
     return loft.Shape()
+
+
+def build_ring_loft_solid(sections, is_ruled: bool = False) -> TopoDS_Shape:
+    """Loft cutter through a chain of ACTUAL, independently-measured, seam-aligned cross-
+    section rings (tapered_bore_dome_pinch_and_surface_area.md §4.3) -- the "rung 3" fallback
+    for a non-circular bore/fin zone whose shape doesn't just uniformly scale (lobes growing at
+    different rates, e.g. M16's two-family star). Unlike `build_ruled_loft_solid`/
+    `build_fillet_loft_solid` (both point-for-point correspondences of ONE reference shape
+    scaled by a scalar), every section here carries its OWN measured ring.
+
+    `sections`: `[(z, pts_Mx2), ...]`, at least 2, every `pts` the SAME length `M`, already
+    seam-aligned (`pipeline/engine.py::_prepare_loft_rings` -- FFT-anchored winding/seam per
+    `docs/research/04-pipeline-design-notes.md` §3) so `BRepOffsetAPI_ThruSections` sees matched
+    vertex correspondence across sections without having to guess it itself
+    (`CheckCompatibility(False)` tells it to trust that correspondence, not re-derive it --
+    guessing wrong on morphing sections is exactly the twist/mismatch trap research-04 §3 flags).
+
+    One closed PERIODIC B-spline interpolation edge per section (`GeomAPI_Interpolate(...,
+    PeriodicFlag=True)`), not the `_arc_line_wire` multi-edge hybrid the other loft builders use:
+    `build_fillet_loft_solid`'s own docstring records the measured failure of dense multi-edge
+    wires under `ThruSections` (142/154 segments below gmsh's `MeshSizeMin`, min SICN 0.0077 on
+    M6), and research-04 §3 separately flags multi-edge wires across morphing sections as a
+    twist/correspondence trap of their own -- a single smooth face per side steps around both at
+    once, and costs the same ONE edge regardless of how many points (`M`) went into fitting it.
+    The tradeoff: a fillet arc is approximated by a spline at interpolation tolerance instead of
+    an exact circle -- bounded by the loft's own degree/continuity fit below, and every section
+    here is already built from mesh-derived (not exact-analytic) points, so this adds no error
+    class that wasn't already present in the input.
+
+    `SetParType(Approx_ChordLength)` + `SetMaxDegree(8)` + `SetContinuity(GeomAbs_C2)`
+    (research-04 §8 bonus 12): `ThruSections`'s own defaults give a C0-continuous lateral
+    surface (a visible kink at every section plane) that gmsh meshes badly; raising the
+    degree/continuity budget lets it fit one smooth surface through the whole chain instead.
+
+    `is_ruled` (default False, the plan's preferred smooth surface): when True, builds
+    `BRepOffsetAPI_ThruSections(True, True)` instead (straight-line generators between
+    corresponding section vertices, N-1 simpler faces, no degree/continuity fit) and skips
+    `SetParType`/`SetMaxDegree`/`SetContinuity` (meaningless on a ruled surface). This is the
+    plan's own recorded fallback rung (§4.4/§8 risk 5), and it is a REAL fallback, not just a
+    gmsh-quality tweak: measured on M16's actual (noisy, real-circle-fit) station data, the
+    smooth `isRuled=False` fit produced a topologically "valid" (`BRepCheck_Analyzer` passes)
+    but numerically wild self-intersecting surface -- volumes of -1.4e24 and -2.7e14 mm^3
+    measured across two otherwise-similar runs of the SAME geometry class, both orders of
+    magnitude away from the true ~2.9e9 mm^3 -- while `isRuled=True` on the identical section
+    stack gives a valid, correctly-scaled (2.87e9 mm^3) result immediately. The caller
+    (`pipeline/engine.py::_build_tapered_bore_cutter`) tries `isRuled=False` first and falls
+    back to `isRuled=True` only when a volume-sanity check rejects it (`BRepCheck_Analyzer`
+    alone does not catch this failure mode).
+
+    Raises (never silently returns an invalid shape) on interpolation/loft failure or a
+    `BRepCheck_Analyzer`-invalid result -- the caller treats any exception here as "this rung
+    unavailable" and falls back further, matching this module's existing fallback-ladder
+    convention (`_build_slot_wedges`/`_build_slot_lobes`)."""
+    sections = sorted(sections, key=lambda s: s[0])
+    if len(sections) < 2:
+        raise ValueError("ring loft needs at least 2 sections")
+    m0 = len(sections[0][1])
+    if m0 < 4 or any(len(pts) != m0 for _, pts in sections):
+        raise ValueError("ring loft sections must all share the same point count (seam-aligned)")
+
+    loft = BRepOffsetAPI_ThruSections(True, bool(is_ruled))
+    for z, pts in sections:
+        pts = [tuple(p) for p in pts]
+        if len(pts) > 1 and math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-9:
+            pts = pts[:-1]
+        harray = TColgp_HArray1OfPnt(1, len(pts))
+        for i, (x, y) in enumerate(pts):
+            harray.SetValue(i + 1, gp_Pnt(float(x), float(y), float(z)))
+        interp = GeomAPI_Interpolate(harray, True, 1e-6)
+        interp.Perform()
+        if not interp.IsDone():
+            raise RuntimeError(f"ring loft section interpolation failed at z={z}")
+        mkwire = BRepBuilderAPI_MakeWire()
+        mkwire.Add(BRepBuilderAPI_MakeEdge(interp.Curve()).Edge())
+        if not mkwire.IsDone():
+            raise RuntimeError(f"ring loft section wire construction failed at z={z}")
+        loft.AddWire(mkwire.Wire())
+
+    loft.CheckCompatibility(False)
+    if not is_ruled:
+        loft.SetParType(Approx_ChordLength)
+        loft.SetMaxDegree(8)
+        loft.SetContinuity(GeomAbs_C2)
+    loft.Build()
+    if not loft.IsDone():
+        raise RuntimeError("ring loft failed")
+    shape = loft.Shape()
+    if not BRepCheck_Analyzer(shape).IsValid():
+        raise RuntimeError("ring loft produced an invalid shape")
+    return shape

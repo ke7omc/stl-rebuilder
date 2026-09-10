@@ -394,6 +394,22 @@ def test_verification_all_passed():
     assert _verification_all_passed({"verification": {"error": "boom"}}) is False
 
 
+def test_verification_all_passed_counts_surface_area():
+    """tapered_bore_dome_pinch_and_surface_area.md §5.4: `_verification_all_passed` must count
+    a failed `surface_area` check -- a noisy-but-accurate input (M9 class) legitimately fails
+    this check by design, and that must land on the "not fully verified" side, same as every
+    other check here."""
+    passing = {"verification": {"watertight": {"pass": True},
+                                "volume": {"pass": True},
+                                "surface_area": {"pass": True},
+                                "deviation": {"pass": None}}}
+    failing = {"verification": {"watertight": {"pass": True},
+                                "volume": {"pass": True},
+                                "surface_area": {"pass": False}}}
+    assert _verification_all_passed(passing) is True
+    assert _verification_all_passed(failing) is False
+
+
 def test_main_window_emits_run_lifecycle_signals(window, qtbot):
     with qtbot.waitSignal(window.run_failed, timeout=1000) as blocker:
         window._on_failed("GeometryError", "no loops")

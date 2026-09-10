@@ -37,6 +37,15 @@ def test_rebuild_report_carries_passing_verification(m2_stl, tmp_path):
 
     assert v["bodies"] == {"expected": 1, "solid_bodies": 1, "pass": True}
 
+    # tapered_bore_dome_pinch_and_surface_area.md §5.3: an additive surface-area check,
+    # independent of volume, comparing the repaired input mesh's own triangle-sum area against
+    # the exact BRep area.
+    area = v["surface_area"]
+    assert area["pass"] is True
+    assert area["input_mm2"] > 0.0 and area["solid_mm2"] > 0.0
+    assert area["tol_pct"] == 1.0
+    assert area["delta_pct"] <= area["tol_pct"]
+
     # the approximate deviation check is present whenever the solid tessellation could be
     # built, with clearly approx-named keys
     if "deviation" in v and v["deviation"].get("pass") is not None:
@@ -47,6 +56,24 @@ def test_rebuild_report_carries_passing_verification(m2_stl, tmp_path):
     # the same block must be on disk, not just in the returned Result
     on_disk = json.loads((tmp_path / "m2.report.json").read_text())
     assert on_disk["verification"]["volume"]["pass"] is True
+
+
+def test_surface_area_amber_hint_on_noisy_but_accurate_input(tmp_path):
+    """tapered_bore_dome_pinch_and_surface_area.md §5.2/§5.3: a noisy marching-cubes input
+    (M9) legitimately FAILS the surface-area check (its own crumpled facets carry excess area,
+    measured +1.27% in the plan) even on an accurate rebuild -- deviation passes with real
+    margin, so the benign "informational" hint fires, not the missing-geometry one."""
+    truth = generators.make("M9")
+    opts = engine.RebuildOptions(
+        input_stl=str(truth.stl_path), output=str(tmp_path / "m9.step"), axis="z", units="mm",
+        sections=80, adaptive=True, chord_tol=5.0, report=str(tmp_path / "m9.report.json"))
+    result = engine.rebuild(opts)
+    v = result.report["verification"]
+    area = v["surface_area"]
+    assert area["input_mm2"] > area["solid_mm2"]  # noise inflates the INPUT's own area
+    if not area["pass"]:
+        assert "informational" in area["hint"]
+        assert "not missing geometry" in area["hint"] or "not the solid" in area["hint"]
 
 
 def test_verification_absent_on_failure(tmp_path):
