@@ -2178,23 +2178,24 @@ def _prepare_loft_rings(bore_rings, z_lo: float, z_hi: float, eps_lo: float, eps
     plausible station spacing -- it is the FFT locking onto one of the ring's OTHER, symmetric
     anchor points instead. Reusing the previous station's seam keeps the loft from twisting.
 
-    Two extra END sections are needed past the last real (station-loop) sample, out to the
-    cutter's own true ends `z_lo - eps_lo` / `z_hi + eps_hi`. When `mesh` is given, each end is
-    measured DIRECTLY by slicing the mesh there first (`_measure_ring_at`) -- these targets sit
-    INSIDE the mesh's own real axial extent (an end-inset margin past the true part end, not
-    extrapolation past real data: e.g. M16's aft cap sits at the part's true z_max, and the star
-    zone's own input surface genuinely exists there), so a direct measurement is available and
-    is exact where a linear extrapolation is only an approximation. Measured on M16: end-
-    clustered real stations can leave the LAST usable station ~100 mm short of the cap (station-
-    loop placement + the near-duplicate-z dedup above), and extrapolating a slope across that
-    gap from a short baseline left `surface_deviation_max_mm` at 2.14 mm (gate 1.0) concentrated
-    exactly at the cap edge; measuring directly removes the extrapolation error entirely (a
-    direct slice IS the true cross-section, not a model of it). Falls back to linear
-    extrapolation from the last two real sections (a ruled taper's true continuation; a
-    prismatic copy would under-cut a still-growing bore across the inset band) when no mesh is
-    given or the direct measurement is unusable (a degenerate/multi-loop slice, or a self-
-    intersecting result), and finally to a prismatic copy of the nearest real section when the
-    extrapolation itself self-intersects (`shapely.Polygon.is_simple`).
+    The station loop insets its own placement by `station_eps` and clusters its end stations at
+    that inset, so the last real ring can stop a long way short of the zone's own boundary
+    (measured on M16: last station z=9750.0, aft cap z=9850.0). When `mesh` is given, each such
+    boundary gets one extra DIRECTLY MEASURED anchor ring an inset inside it -- see the block
+    below for the measured numbers; this is what keeps the loft's cross-section at the boundary
+    honest instead of extrapolated, and it is where M16's 2.14 mm `surface_deviation_max_mm`
+    failure lived.
+
+    Two extra END sections are then needed past the outermost sample, out to the cutter's own
+    true ends `z_lo - eps_lo` / `z_hi + eps_hi`. These are measured directly when the target
+    happens to sit inside the mesh's real axial extent, but a cutter END generally does NOT
+    (`z_hi + eps_hi` overshoots the part by construction so the boolean gets a clean planar cap),
+    so the normal path here is linear extrapolation from the last two sections -- a ruled taper's
+    true continuation, where a prismatic copy would under-cut a still-growing bore across the
+    inset band. With the boundary anchors in place that extrapolation spans only the inset itself
+    off a long baseline, which is what makes it accurate. Falls back further to a prismatic copy
+    of the nearest real section when the extrapolation itself self-intersects
+    (`shapely.Polygon.is_simple`).
 
     Returns `[(z, pts_Mx2), ...]` sorted by z, at least 3 sections (>=1 real + 2 extensions)."""
     from shapely.geometry import Polygon as _Polygon
@@ -2307,30 +2308,124 @@ def _prepare_loft_rings(bore_rings, z_lo: float, z_hi: float, eps_lo: float, eps
         poly = _Polygon(pts)
         return poly.is_valid and poly.is_simple
 
-    # A direct measurement is only trustworthy when the target sits far enough from a real
-    # topology boundary to still be inside the smooth star/fin surface -- `eps_lo`/`eps_hi` are
-    # NOT always a true end-inset margin: at the single-event seam (§3.2's call sites) the near
-    # side uses `fin_overlap` (~0.02*seam_eps, a hairline boolean-fuse overlap, not a physical
-    # end), so `z_lo - eps_lo` there lands almost exactly ON the flat event wall -- a genuinely
-    # degenerate transition plane where a slice can catch either side inconsistently. Measured
-    # on M16: attempting it there moved the worst deviation to the EVENT boundary itself (79 mm,
-    # worse than not measuring at all). `2*chord_tol` mirrors `_measure_end_radius`'s own inset
-    # floor (§2.1) -- below that, trust only the extrapolation baseline.
+    # Does this side's `eps` represent a REAL end margin, or just a hairline boolean-fuse
+    # overlap? `eps_lo`/`eps_hi` are not always the former: at the single-event seam (§3.2's call
+    # sites) the near side uses `fin_overlap` (~0.02*seam_eps), so `z_lo - eps_lo` there lands
+    # almost exactly ON the flat event wall -- a genuinely degenerate transition plane where a
+    # slice can catch either side inconsistently. Measured on M16: probing the end target there
+    # moved the worst deviation to the EVENT boundary itself (79 mm, worse than not measuring at
+    # all). `2*chord_tol` mirrors `_measure_end_radius`'s own inset floor (§2.1). Both the end
+    # target probe and the boundary-anchor placement below turn on this same question.
     _min_margin = 2.0 * chord_tol
 
-    z_first, pts_first = sections[0]
+    # Anchor each zone boundary with a DIRECTLY MEASURED ring whenever the real stations stop
+    # short of it. The station loop insets its own placement by `station_eps` (~3443:
+    # `min(max(eps_end, (200/1.5)*resid_gate), 0.02*L)` -- 100 mm on M16) and the composed-cosine
+    # clustering then bunches its last stations right AT that inset, so a zone's true end can sit
+    # a long way past the last real ring: measured on M16, the last station lands at z=9750.0
+    # while the star bore's own aft boundary (the flat cap) is at z=9850.0, leaving a 100 mm band
+    # carrying no measured data at all. Everything past the last section is then a linear
+    # extrapolation, and the loft's cross-section AT the cap is that extrapolation evaluated a
+    # full 2x past the end of its own baseline. Measured (loft section vs. the truth STEP's own
+    # section, perpendicular distance): 2.17 mm at z=9850, worst at a family-B lobe tip -- the
+    # exact 2.136 mm / z=9850.0 / `star_zone` point `surface_deviation_max_mm` was failing on --
+    # while the SAME loft sits at 0.36-0.68 mm everywhere the stations actually cover. The error
+    # is the extrapolation, not the loft.
+    #
+    # The mesh's own surface exists right up to the boundary, so the honest fix is to stop
+    # extrapolating there and measure it: one extra slice an `inset` inside the boundary (the
+    # `max(2*chord_tol, 1e-4*L)` end-probe convention `_measure_end_radius` already uses) gives
+    # the loft a real ring at z=9849.0, measured 0.22 mm from truth -- a direct slice IS the true
+    # cross-section, not a model of it. It also fixes the extension: `_extend` then runs off a
+    # 99 mm baseline over a 6 mm span (t=0.06) instead of a 50 mm baseline over a 105 mm one.
+    # Note the extension section itself CANNOT be measured here -- `z_hi + eps_hi` is 5 mm PAST
+    # the mesh's own z_max by construction (the cutter must overshoot the cap for a clean planar
+    # boolean), so `_measure_ring_at` there always refuses and always falls back; the anchor is
+    # what puts real data at the boundary.
+    #
+    # Applied at both ends. The fore boundary is the more delicate of the two (on M16 it is the
+    # flat topology-event wall at z=6000, not a part end) and was measured before being trusted:
+    # a slice 1 mm above the wall comes back clean (single loop, single hole, 587 points) and
+    # lands 0.15 mm from truth, against 0.46 mm for the extrapolated-from-z=6091.8 ring. This is
+    # NOT the same probe as the `_min_margin`-gated one below: that one targets `z_lo - eps_lo`,
+    # BELOW the wall, where a slice really can catch either side inconsistently.
+    #
+    # These are extra slices, not stations: they are not reported, do not consume the
+    # `--sections` budget and do not move any station-count gate (the M13 end-window probe at
+    # ~3172 set that precedent). An anchor is dropped entirely when the boundary is already
+    # covered (it would land within `_min_dz` of a real section) or when the slice is unusable,
+    # in which case the pre-existing extrapolation stands unchanged.
+    #
+    # An anchor only becomes a loft SECTION of its own when this side's `eps` is a real end
+    # margin (`>= _min_margin`, the same 2*chord_tol test the end-target probe below uses to
+    # decide the same question); otherwise it is handed to the end section as its extrapolation
+    # SOURCE instead. The reason is spacing, and it is measured, not theoretical: at M16's fore
+    # seam `eps_lo` is `fin_overlap` (~0.005 mm -- a hairline boolean-fuse overlap, not a
+    # physical end), so an anchor at z=6001.0 sits 1.005 mm from the end section at z=5999.995
+    # while its other neighbour is 91 mm away. That ~90:1 spacing ratio is the same
+    # near-zero-height pathology the dedup above exists to prevent -- it wrecks
+    # `ThruSections`'s `Approx_ChordLength`/degree-8/C2 surface fit -- and inserting it took the
+    # rebuild from 4 minutes to an 18-minute run that ended in `final solid failed
+    # BRepCheck_Analyzer`. Used as the extrapolation source instead, the same measured ring
+    # keeps all of its accuracy (the end section becomes a t=0.011 extrapolation off a 91 mm
+    # baseline) and introduces no degenerate spacing at all. `_min_dz` is kept as a second,
+    # purely numeric backstop for any geometry where `eps` is large but the anchor still lands
+    # on top of the target.
     z_target_lo = z_lo - eps_lo
+    z_target_hi = z_hi + eps_hi
+
+    def _boundary_anchor(z_boundary: float, at_start: bool, theta0_ref: float):
+        """`(z, ring)` measured one `inset` INSIDE `z_boundary` (clamped into the mesh's own
+        axial extent so the probe always lands on real material), or None when unavailable."""
+        if mesh is None:
+            return None
+        zmin_mesh, zmax_mesh = float(mesh.bounds[0][2]), float(mesh.bounds[1][2])
+        inset = max(2.0 * chord_tol, 1e-4 * max(zmax_mesh - zmin_mesh, 1e-6))
+        z_probe = (max(z_boundary, zmin_mesh) + inset if at_start
+                   else min(z_boundary, zmax_mesh) - inset)
+        ring = _measure_ring_at(z_probe, theta0_ref)
+        return (float(z_probe), ring) if _is_usable_ring(ring) else None
+
+    def _place_anchor(anchor, at_start: bool, z_target: float, eps: float):
+        """Insert the anchor as its own loft section when it has room on both sides; otherwise
+        return it so the caller can use it as the end section's extrapolation source."""
+        if anchor is None:
+            return None
+        z_a = anchor[0]
+        if abs(z_a - (sections[0][0] if at_start else sections[-1][0])) < _min_dz:
+            return None
+        if eps < _min_margin or abs(z_a - z_target) < _min_dz:
+            return anchor
+        if at_start:
+            sections.insert(0, anchor)
+            theta0_list.insert(0, theta0_list[0])
+        else:
+            sections.append(anchor)
+            theta0_list.append(theta0_list[-1])
+        return None
+
+    lo_src = _place_anchor(_boundary_anchor(z_lo, True, theta0_list[0]),
+                           True, z_target_lo, eps_lo)
+    hi_src = _place_anchor(_boundary_anchor(z_hi, False, theta0_list[-1]),
+                           False, z_target_hi, eps_hi)
+
+    z_first, pts_first = sections[0]
     lo_ext = _measure_ring_at(z_target_lo, theta0_list[0]) if eps_lo >= _min_margin else None
     if not _is_usable_ring(lo_ext):
-        z_second, pts_second = _baseline(0, 1, z_target_lo)
-        lo_ext = _extend(pts_second, pts_first, z_second, z_first, z_target_lo)
+        if lo_src is not None:
+            lo_ext = _extend(pts_first, lo_src[1], z_first, lo_src[0], z_target_lo)
+        else:
+            z_second, pts_second = _baseline(0, 1, z_target_lo)
+            lo_ext = _extend(pts_second, pts_first, z_second, z_first, z_target_lo)
 
     z_last, pts_last = sections[-1]
-    z_target_hi = z_hi + eps_hi
     hi_ext = _measure_ring_at(z_target_hi, theta0_list[-1]) if eps_hi >= _min_margin else None
     if not _is_usable_ring(hi_ext):
-        z_prev, pts_prev = _baseline(len(sections) - 1, -1, z_target_hi)
-        hi_ext = _extend(pts_prev, pts_last, z_prev, z_last, z_target_hi)
+        if hi_src is not None:
+            hi_ext = _extend(pts_last, hi_src[1], z_last, hi_src[0], z_target_hi)
+        else:
+            z_prev, pts_prev = _baseline(len(sections) - 1, -1, z_target_hi)
+            hi_ext = _extend(pts_prev, pts_last, z_prev, z_last, z_target_hi)
 
     return [(z_target_lo, lo_ext)] + sections + [(z_target_hi, hi_ext)]
 
@@ -2343,11 +2438,35 @@ def _build_ring_loft_bore(bore_rings, z_lo: float, z_hi: float, eps_lo: float, e
     `isRuled=True` (the plan's own recorded rung, §4.4/§8 risk 5) when the smooth fit is
     numerically implausible. `BRepCheck_Analyzer` alone does not catch this failure mode --
     measured on M16's real station data: a topologically "valid" `isRuled=False` surface with
-    volume -1.4e24 mm^3 (vs. a true ~2.9e9 mm^3), an self-intersecting-but-closed pathology the
-    analyzer has no test for. A crude but effective floor: the cutter's volume must land within
-    an order of magnitude of `mean(area) * height` (the same area*height sanity idea
-    `_prism_from_ring` already uses elsewhere in this module) -- a self-intersecting loft is off
-    by many more orders of magnitude than that in every case measured so far.
+    volume -1.4e24 mm^3 (vs. a true ~2.9e9 mm^3), a self-intersecting-but-closed pathology the
+    analyzer has no test for.
+
+    Two independent plausibility screens, because a volume band alone was measurably not enough:
+    once `_prepare_loft_rings`'s boundary anchors changed the section stack, the smooth fit
+    stopped failing by
+    15 orders of magnitude and started failing by only 7.1x -- inside the old
+    order-of-magnitude band, so it was ACCEPTED, and shipped a self-intersecting cutter that left
+    the final solid 15% over volume and 26% under surface area. A wrong answer inside 10x is the
+    dangerous case.
+
+    1. ENVELOPE. A loft through a fixed set of sections is bounded by those sections' own
+       bounding box plus whatever a C2 blend can legitimately overshoot between two adjacent
+       ones -- so `margin` is taken from the data itself: the largest point-for-point move
+       between adjacent sections (floored at `4*chord_tol`). This is the sharp screen. Measured
+       on M16: the ruled surface overshoots the section envelope by 0.077 mm against a ~5 mm
+       margin, while the bad smooth surface reaches r=12507 mm against a section envelope of
+       r=560 mm and runs to z=11325 against sections ending at z=9855. Five orders of magnitude
+       of separation, and `BRepBndLib.Add_s` costs ~0.1 s.
+    2. VOLUME, against the section stack's own TRAPEZOIDAL integral `integral(A(z) dz)` -- not
+       `mean(area) * height`, which is biased by wherever the deliberately-uneven sections bunch
+       (measured on M16: 2.40e9 mm^3 vs a true 2.27e9). The trapezoid rule is essentially exact
+       here (2.2718e9 vs the ruled loft's own tight-epsilon volume 2.2720e9, 0.01%). The BAND
+       around it must stay loose, though, because `_solid_volume` is deliberately the fast
+       default-epsilon call: measured on this same correct ruled solid, fast reads 3.09e9 against
+       a tight 2.27e9 -- a 36% integration error, on the RIGHT answer. (Tight epsilon is not an
+       option here: 212 s on the smooth surface.) So the band is 0.25x-4x, which still rejects
+       the 7.1x smooth failure and the historical 1e24 one, and catches the orientation-flipped
+       class of pathology that can have a perfectly sane bounding box.
 
     When `bore_radius` is given (this zone sits at a seam against a circular cutter on the
     other side, §3.3), radially snap every point of the two END sections whose radius lies
@@ -2368,17 +2487,33 @@ def _build_ring_loft_bore(bore_rings, z_lo: float, z_hi: float, eps_lo: float, e
                 scale = np.where(near, bore_radius / np.maximum(r, 1e-9), 1.0)
                 sections[i] = (z, pts * scale[:, None])
 
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
+
+    zs_sec = np.array([z for z, _ in sections], dtype=float)
     areas = np.array([_ring_area(pts) for _, pts in sections], dtype=float)
-    height = (z_hi + eps_hi) - (z_lo - eps_lo)
-    expected = float(areas.mean()) * height
+    expected = float(np.trapezoid(areas, zs_sec))
+
+    pts_all = np.vstack([pts for _, pts in sections])
+    env_lo = np.array([pts_all[:, 0].min(), pts_all[:, 1].min(), zs_sec.min()])
+    env_hi = np.array([pts_all[:, 0].max(), pts_all[:, 1].max(), zs_sec.max()])
+    env_margin = max([4.0 * chord_tol] + [
+        float(np.linalg.norm(sections[i + 1][1] - sections[i][1], axis=1).max())
+        for i in range(len(sections) - 1)])
 
     def _plausible(shape) -> bool:
         if not BRepCheck_Analyzer(shape).IsValid():
             return False
+        box = Bnd_Box()
+        BRepBndLib.Add_s(shape, box)
+        xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
+        if (np.array([xmin, ymin, zmin]) < env_lo - env_margin).any() \
+                or (np.array([xmax, ymax, zmax]) > env_hi + env_margin).any():
+            return False
         if expected <= 0.0:
             return True
         actual = abs(_solid_volume(shape))
-        return 0.1 * expected <= actual <= 10.0 * expected
+        return 0.25 * expected <= actual <= 4.0 * expected
 
     smooth = solids.build_ring_loft_solid(sections, is_ruled=False)
     if _plausible(smooth):

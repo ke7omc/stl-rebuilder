@@ -86,42 +86,98 @@ max / p99 in mm. Volume error is against the analytic closed-form `V_truth`.
 | M13 | **capstone**: M12 in inches on +x, 3.9 M-tri unwelded noisy MC input | 0.2032 (0.5) | 6.087 / 2.874 (12 / 4) | 0.143 | 120 | 1 | revolve / mixed / wedge | 85 (400) | 279.6 |
 | M14 | end-of-burn **island severing at both dome tips** (N disjoint outer loops per station) | 0.0039 (0.3) | 0.434 / 0.301 (1.0 / 0.4) | n/a (no gate — thin island tips, see §6) | 300 | 1 | revolve / prism / — | 67 (100) | 56.0 |
 | M15 | **decoupled roundness**: finely tessellated (ct≈0.010) but genuinely out-of-round (0.8 mm ovality + 0.25 mm wobble) input | 0.0003 (0.05) | 0.275 / 0.254 (0.45 / 0.4, absolute mm) | 0.401 | 60 (14+14 dome) | 1 | revolve / revolve / — | 4 (10) | 48.9 |
-| M16 | **NOT YET GREEN — see note below.** Non-proportional tapered-bore (dome-pinch-override fix + curved-endpoint snap + actual-rings loft) | 0.0166 (0.3) | 2.136 / n/a (1.0 / 0.4) — **FAILS**, see note | not reached | 160 (dome_stations_min 34) | 1 | revolve / loft_rings / — | not reached (gate 120) | ~2 min |
+| M16 | **NOT YET GREEN — see note below.** Non-proportional tapered-bore (dome-pinch-override fix + curved-endpoint snap + actual-rings loft) | 0.0167 (0.3) | 1.391 / n/a (1.0 / 0.4) — **FAILS**, see note | not reached | 160 (dome_stations_min 34) | 1 | revolve / loft_rings / — | not reached (gate 120) | 53.4 |
 | MR | real burnback STL | — | — | — | — | — | — | — | **skipped — no real input** |
 
-**M16 status (2026-09-10): very close, not fully green.** Every gate passes except
-`surface_deviation_max_mm` (2.136 mm measured against a 1.0 mm gate), localized entirely at
-one point on the aft cap edge (z=9850.0, region `star_zone`) — `surface_deviation_p99_mm`,
-`face_count_max`, `step_roundtrip`, and `gmsh_tet` were never reached because the scorer fails
-fast on the first bad gate. Everything else that this plan's Phases A-D set out to fix is
-verified working and measured: the dome-pinch-override bug is fixed (`bbox_err_pct` 0.0029%
-against a 0.1% gate — this is the exact tripwire report §4a describes, and it now passes
-cleanly), the non-pinch curved-endpoint snap is fixed (`dome_stations_min` 34, comfortably
-above the gate of 8), the topology event lands almost exactly on the analytic 6000.0
-(`topo_events` worst-match error 0.00003 mm), and `paths_used.bore == "loft_rings"` confirms
-the actual-rings loft (not a silently-wrong proportional fallback) is what's actually cutting
-the non-proportional star. Volume is excellent (0.0166%, ~18x inside its own 0.3% gate) —
-which independently confirms the geometry is fundamentally correct in aggregate, not just
-"passing by chance."
+**M16 status (2026-09-10, second pass): still not green, but the cap-edge failure is fixed and
+what remains is fully root-caused.** `surface_deviation_max_mm` is now **1.391 mm** against the
+1.0 mm gate (was 2.136 mm), and the failure has MOVED: no longer the aft cap edge but one point
+at z=7600.3 mid-star-zone. Every other reached gate passes: volume 0.0167% (gate 0.3%), bbox
+0.0029% (gate 0.1% — the dome-pinch-override tripwire, clean), `dome_stations_min` 34 (gate 8),
+`topo_events` worst-match 0.00003 mm, `paths_used.bore == "loft_rings"` (the actual-rings loft
+is genuinely doing the work, not a proportional fallback). `surface_deviation_p99_mm`,
+`face_count_max`, `step_roundtrip` and `gmsh_tet` are still never reached — the scorer fails
+fast — but p99 was measured OUT OF BAND by replicating `metrics.surface_deviation` on the kept
+artifacts: **0.4477 mm against a 0.4 mm gate**, so p99 would fail too. Full M1–M15 regression
+re-run after these changes: all pass. Runtime 53.4 s (was 241.8 s).
 
-The remaining 2.1x deviation miss is real and precisely localized: getting the actual-rings
-loft's OWN cross-section to agree with the true two-family star to sub-mm accuracy exactly at
-the last section before the flat cap took several rounds of real fixes this session (a near-
-duplicate-station dedup, an `isRuled=True` fallback for a self-intersecting-but-"valid" smooth
-B-spline surface, a `BRepGProp` integration-epsilon fix, a `build_revolve_solid` wire-closure
-fix, a robust extrapolation-baseline search, and finally replacing extrapolation with a DIRECT
-mesh measurement at the true end) and got the internal approximate deviation check down from
-p95 8.2/max hundreds-of-mm (completely broken) to p95 0.58 mm (passing) -- but the scorer's own
-finer, more rigorous deviation metric still catches a real, small residual error concentrated
-right at the cap edge that the approximate check doesn't weight the same way. This is
-plausibly the loft's own end-of-chain interpolation not perfectly reproducing the true
-filleted-star cross-section's sharp features at that one boundary; a further, more targeted fix
-(e.g. snapping the measured end-ring's own fillet regions more tightly, the same idea the
-`bore_radius` snap already does at the fore seam) is the recorded next step if this is worth
-chasing further, but is intentionally NOT force-fit here — see the plan's own explicit note
-that a seam/loft-boundary interaction this new is a legitimate place to stop and report
-precisely rather than tune blindly until a gate happens to pass. `harness-frozen`/`infra-frozen`
-should NOT be re-pointed until this is resolved or a decision is made to accept it.
+**Fix 1 — the aft cap edge (the failure the previous note recorded).** Root cause was NOT the
+end ring's fillets: the station loop insets its own placement by `station_eps` (100 mm on M16)
+and the composed-cosine clustering bunches its last stations right AT that inset, so the last
+real ring sat at z=9750.0 while the star bore's aft boundary (the flat cap) is at z=9850.0 —
+a 100 mm band with no measured data at all. The loft's cross-section at the cap was therefore a
+linear extrapolation evaluated a full 2x past the end of its own baseline. Measured (loft
+section vs. the truth STEP's own section, perpendicular distance): **2.17 mm at z=9850**, worst
+at a family-B lobe tip, exactly the point the scorer was failing on, while the same loft sat at
+0.36–0.68 mm everywhere the stations actually cover. The previous pass's "direct measurement at
+the end" never applied here: it targets `z_hi + eps_hi`, which is 5 mm PAST the mesh's own z_max
+by construction (the cutter must overshoot the cap for a clean planar boolean), so the slice
+always failed and always fell back to extrapolation. `_prepare_loft_rings` now adds one extra
+DIRECTLY MEASURED **boundary anchor** ring an inset inside each zone boundary — z=9849.0 here,
+measured **0.22 mm** from truth. The fore boundary (M16's flat topology-event wall at z=6000,
+the more delicate of the two) was measured before being trusted: a slice 1 mm above the wall is
+clean and lands 0.15 mm from truth vs 0.46 mm extrapolated.
+
+**Fix 2 — a real latent bug the first fix exposed, and the more important of the two.** Rung 3's
+plausibility screen accepted anything within an order of magnitude of `mean(area) * height`.
+Once the anchors changed the section stack, the smooth (`isRuled=False`) fit stopped failing by
+15 orders of magnitude and started failing by only **7.1x** — inside that band, so it was
+ACCEPTED, and shipped a self-intersecting cutter that left the final solid **15% over volume and
+26% under surface area**. The screen is now two independent checks: (1) an ENVELOPE check —
+the loft's bounding box against the section point cloud's own, with the margin taken from the
+data (largest point-for-point move between adjacent sections); measured, the good ruled surface
+overshoots by 0.077 mm while the bad smooth one reaches r=12507 mm against a section envelope of
+r=560 mm and runs to z=11325 against sections ending at z=9855; and (2) a VOLUME check against
+the section stack's own TRAPEZOIDAL integral (2.2718e9 vs the ruled loft's tight-epsilon volume
+2.2720e9, 0.01% — where `mean(area)*height` reads 2.40e9, biased by the deliberately-uneven
+section spacing), with a deliberately loose 0.25x–4x band because `_solid_volume` is the FAST
+default-epsilon call and reads 3.09e9 on that same correct solid — a 36% integration error on
+the right answer. Without this, fix 1 would have shipped a broken solid.
+
+**What is left, measured, and why it was not force-fit.**
+
+1. **The input STL's own fidelity is the floor, and the gates sit on top of it.** M16's input is
+   a ct=0.5 tessellation of the truth STEP; measured with the scorer's own metric, that input
+   deviates from the truth by **max 0.9084 mm, p99 0.3361 mm pooled (0.3965 mm on the star
+   surface alone)**. The gates are 1.0 and 0.4 — i.e. 10% and 1% of headroom over a floor no
+   station-based rebuild can beat by reproducing the mesh. These gates were the plan's initial
+   estimates (`2*ct` / `0.8*ct`, copied from the other star milestones) and were never measured
+   against this geometry's own input; §6.6's measure-then-lock discipline covered only
+   `face_count_max`/`gmsh_min_sicn`/`station_bands`.
+2. **The remaining excess over that floor is OCCT's tessellation of our B-spline loft, not our
+   geometry.** At the failing point both STEPs were sliced at exactly z=7600.32: the surfaces
+   agree to **0.34 mm** overall and 0.22 mm at the failing angle (θ=54°, a valley) — yet the two
+   0.25 mm-deflection tessellations are 1.378 mm apart there. The offending triangle in our own
+   mesh spans ~3° (~20 mm of arc) across a 36 mm-radius valley fillet; the sag is exactly the
+   1.38 mm. Exactly ONE point out of ~400 k exceeds 1.0 mm. This is the first milestone whose
+   cutter is a general B-spline loft rather than a prism/revolve of analytic faces, which is why
+   nothing before M16 exposed it.
+3. **`M` (the section resample count, capped at 256) moves this a lot but erratically, so
+   picking a value would be tuning, not fixing.** Measured against truth on the star surface
+   (truth points → cutter tessellation at 0.25 mm): M=256 max 0.92/p99 0.529, M=320 0.82/0.468,
+   M=512 **0.75/0.400** — all clean; but M=288 → 3.91, M=384 → 3.87, M=448 → 1.98, M=576 → 9.86
+   (204 points over 1 mm), M=640 → 4.98. Thinning the sliver sections (minimum section spacing
+   1 mm → 10 mm, which removes ruled faces of ~3000:1 aspect ratio) improves the max slightly
+   and consistently (0.92 → 0.75 at M=256) but reproduces every one of those M failures to four
+   decimals, so section spacing is not the cause. The plan's §4.3 self-intersection screen on
+   each fitted section curve is genuinely missing from `build_ring_loft_solid`, but implementing
+   it as written does not separate the good M values from the bad (shapely `is_simple` on a
+   densely sampled fitted curve fires on M=320 and M=512 too, at overshoots of 0.000–0.089 mm).
+4. **Beating the input floor is nonetheless possible, and that is the recorded next step.** At
+   M=512 the reconstruction is measurably CLOSER to truth than the input mesh is (max 0.7472 vs
+   0.8847, p99 0.3995 vs 0.4144) — the smooth fit recovers curvature the mesh's flat facets
+   lose. So the honest route to green is a principled M-selection rule (a measured chordal
+   criterion against the source ring, not the arbitrary 256 cap — note the plan's own formula
+   `64*n_lobes` wants 320 here and the cap truncates it) PLUS a validity screen that actually
+   discriminates, so a pathological M is rejected rather than shipped. Both are real work, not a
+   constant to nudge. The alternative, and probably the better long-term answer, is arc/line
+   fitting per station ring instead of a B-spline through raw slice points — the same trick the
+   circular paths already use to beat their input mesh, and it would tessellate exactly.
+
+Nothing here was force-fit: no gate was loosened, no deviation check weakened, no M chosen
+because it happened to pass. `harness-frozen`/`infra-frozen` should still NOT be re-pointed
+until this is resolved or a decision is made to accept it — and the first decision to make is
+whether M16's deviation gates should stand at 1.0/0.4 given a 0.908/0.336 input floor.
 
 Also worth knowing: implementing this exposed and fixed a REAL, unrelated regression risk in
 `_fuse_sandwich_bore` (M5/M8's cavity-decomposition fallback) — an earlier version of this work
