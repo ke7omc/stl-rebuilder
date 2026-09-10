@@ -307,7 +307,21 @@ def read_step(path) -> Tuple[TopoDS_Shape, float]:
     shape = reader.OneShape()
 
     vprops = GProp_GProps()
-    BRepGProp.VolumeProperties_s(shape, vprops)
+    # Tight adaptive-integration epsilon (tapered_bore_dome_pinch_and_surface_area.md, M16 fix,
+    # 2026-09-09): the plain 3-arg `BRepGProp.VolumeProperties_s(shape, vprops)` call every
+    # earlier milestone's simpler surfaces (revolves, prisms, ruled/fillet lofts of exact analytic
+    # circles) integrate accurately by default, but M16's actual-rings loft introduces this
+    # project's first HIGH-DEGREE (8) B-spline lateral surface -- and the default epsilon under-
+    # integrates it, measured directly: default call gave 25,364,879,899 mm^3 on a shape whose
+    # OWN re-tessellated mesh volume (an independent cross-check) is 26,194,033,660 mm^3 -- a
+    # spurious 3.1% "volume error" that is purely a numerical-integration artifact, not a real
+    # geometric defect (verified separately: per-station cross-section area agrees with the
+    # truth mesh to <0.04% everywhere along the part). The epsilon-taking overload's adaptive
+    # integration at `1e-6` recovers 26,195,600,691 mm^3 (matching within 0.006%) on the exact
+    # same shape. This can only ever IMPROVE accuracy for every earlier milestone's simpler
+    # surfaces (which were already accurate at the default epsilon, so tightening it changes
+    # nothing there) while fixing the one shape class that needs it.
+    BRepGProp.VolumeProperties_s(shape, vprops, 1e-6)
     volume = vprops.Mass()
     return shape, volume
 

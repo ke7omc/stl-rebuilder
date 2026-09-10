@@ -68,7 +68,13 @@ class Truth:
 
 def _volume_area(shape: TopoDS_Shape) -> Tuple[float, float]:
     vprops = GProp_GProps()
-    BRepGProp.VolumeProperties_s(shape, vprops)
+    # Tight adaptive-integration epsilon -- same fix, same reasoning, as `metrics.read_step`
+    # (tapered_bore_dome_pinch_and_surface_area.md, M16): a defense-in-depth match so the truth
+    # side of every volume comparison uses the identical, more-accurate integration convention
+    # as the pipeline-result side. Every existing milestone's truth geometry (exact analytic
+    # revolves/prisms/ruled lofts, no high-degree B-splines) already integrates accurately at
+    # the old default epsilon, so this is a no-op for M1-M15's own recorded truth volumes.
+    BRepGProp.VolumeProperties_s(shape, vprops, 1e-6)
     volume = vprops.Mass()
     aprops = GProp_GProps()
     BRepGProp.SurfaceProperties_s(shape, aprops)
@@ -303,6 +309,54 @@ def _star_wire(n_star: int, R_valley: float, R_tip: float, fillet_tip: float,
     fillet.Build()
     if not fillet.IsDone():
         raise RuntimeError("M6 star profile fillet construction failed")
+    filleted_face = TopoDS.Face_s(fillet.Shape())
+    return BRepTools.OuterWire_s(filleted_face)
+
+
+def _two_family_star_wire(n_pairs: int, R_tipA: float, R_tipB: float, R_valley: float,
+                          f_tipA: float, f_tipB: float, f_valley: float,
+                          z: float) -> "TopoDS_Wire":
+    """A `2*n_pairs`-lobe filleted star profile wire, built directly in the z=`z` plane for
+    `BRepOffsetAPI_ThruSections` (M16, tapered_bore_dome_pinch_and_surface_area.md §6.2), with
+    the tip radius/fillet ALTERNATING between two independent families (A/B) instead of
+    `_star_wire`'s single tip radius -- this is what lets a fore/aft pair of these wires encode
+    NON-proportional growth (families A and B scaling by different ratios end to end), the
+    property `_check_proportional_scaling`'s new acceptance test (engine.py) is built to reject
+    in favor of the actual-rings loft.
+
+    Vertex order (ring order, matching `_star_wire`'s own convention so the two calls stay
+    seam-compatible for `ThruSections`): valley, tipA, valley, tipB, valley, tipA, ... -- i.e.
+    `4*n_pairs` vertices total, family A at even tip-indices (`(i//2) % 2 == 0`), family B at
+    odd tip-indices, exactly like the milestone spec's "alternating tip families at angles
+    2*pi*k/n_tips" (`n_tips = 2*n_pairs`)."""
+    n_tips = 2 * n_pairs
+    n_vertices = 2 * n_tips
+    points, fillet_radii = [], []
+    for i in range(n_vertices):
+        angle = i * math.pi / n_tips
+        if i % 2 == 0:
+            is_family_a = (i // 2) % 2 == 0
+            r, fr = (R_tipA, f_tipA) if is_family_a else (R_tipB, f_tipB)
+        else:
+            r, fr = R_valley, f_valley
+        points.append(gp_Pnt(r * math.cos(angle), r * math.sin(angle), z))
+        fillet_radii.append(fr)
+
+    vertices = [BRepBuilderAPI_MakeVertex(p).Vertex() for p in points]
+    mkwire = BRepBuilderAPI_MakeWire()
+    for i in range(len(vertices)):
+        v1, v2 = vertices[i], vertices[(i + 1) % len(vertices)]
+        mkwire.Add(BRepBuilderAPI_MakeEdge(v1, v2).Edge())
+    if not mkwire.IsDone():
+        raise RuntimeError("M16 two-family star profile wire construction failed")
+    face = BRepBuilderAPI_MakeFace(mkwire.Wire(), True).Face()
+
+    fillet = BRepFilletAPI_MakeFillet2d(face)
+    for v, fr in zip(vertices, fillet_radii):
+        fillet.AddFillet(v, fr)
+    fillet.Build()
+    if not fillet.IsDone():
+        raise RuntimeError("M16 two-family star profile fillet construction failed")
     filleted_face = TopoDS.Face_s(fillet.Shape())
     return BRepTools.OuterWire_s(filleted_face)
 
@@ -985,6 +1039,66 @@ def _make_m15() -> Truth:
     )
 
 
+def _make_m16() -> Truth:
+    """Tapered-bore/dome-pinch/surface-area milestone (`docs/plans/tapered_bore_dome_pinch_and_
+    surface_area.md` §6): a Minuteman-shaped motor encoding every gap that plan fixes in one
+    part -- BOTH ends flat-capped well inside real dome curvature (report §4a/§4b's shape), a
+    single M4-style topology event (plain circular bore fore, non-circular aft, no sandwich),
+    and a two-family alternating star whose families grow at genuinely different RATES toward
+    the aft end (non-proportional -- `_check_proportional_scaling`'s new acceptance test
+    measurably rejects a uniform-scale loft here, forcing the actual-rings loft, engine.py §4).
+
+    Construction, in order: (1) the M2/M5/M8/M12/M14-family capsule outer shape; (2) a
+    full-length straight circular bore, R=300, fused with (3) a `2*n_pairs`-lobe two-family
+    star LOFT (`_two_family_star_wire` at z=6000 and z=10010 -- past the aft cap, so that face
+    is a clean planar cut, `_make_m4`'s `fin_z_end = L + 10` precedent) into one cutter; (4) cut
+    from the outer shape; (5) intersected with a large-radius cylinder spanning
+    `[z_capF, z_capA]` (the SAME single-box-intersection idiom `_make_m14` uses for ITS flat
+    end caps) to flat-cap BOTH ends `island_clip_margin`-style, but here well inside real dome
+    curvature rather than at an island pinch -- exactly the geometry the dome-pinch-override bug
+    (engine.py §2.2) and the non-pinch curved-endpoint bug (§2.3) both need to be armed."""
+    spec = ms.get("M16")
+    p = spec.params
+    L, R_o, dome_h = p["L"], p["R_o"], p["dome_semi_axial"]
+
+    outer = _capsule_outer_shape(L, R_o, dome_h)
+    cutter = _straight_bore(p["R_bore"], L)
+
+    wire0 = _two_family_star_wire(p["n_pairs"], p["R_tipA0"], p["R_tipB0"], p["R_valley0"],
+                                  p["f_tipA0"], p["f_tipB0"], p["f_valley0"], p["z_loft0"])
+    wire1 = _two_family_star_wire(p["n_pairs"], p["R_tipA1"], p["R_tipB1"], p["R_valley1"],
+                                  p["f_tipA1"], p["f_tipB1"], p["f_valley1"], p["z_loft1"])
+    loft = BRepOffsetAPI_ThruSections(True, True)  # isSolid=True, ruled=True (M6 precedent)
+    loft.CheckCompatibility(False)  # both wires built identically (same order/orientation/seam)
+    loft.AddWire(wire0)
+    loft.AddWire(wire1)
+    loft.Build()
+    if not loft.IsDone():
+        raise RuntimeError("M16 star loft cutter failed")
+
+    fuse = BRepAlgoAPI_Fuse(cutter, loft.Shape())
+    fuse.Build()
+    if not fuse.IsDone():
+        raise RuntimeError("M16 cutter fuse failed")
+    cutter = fuse.Shape()
+
+    cut = BRepAlgoAPI_Cut(outer, cutter)
+    cut.Build()
+    if not cut.IsDone():
+        raise RuntimeError("M16 boolean cut failed")
+
+    z_capF, z_capA = p["z_capF"], p["z_capA"]
+    clip = BRepPrimAPI_MakeCylinder(2.0 * R_o, z_capA - z_capF).Shape()
+    trsf = gp_Trsf()
+    trsf.SetTranslation(gp_Pnt(0.0, 0.0, 0.0), gp_Pnt(0.0, 0.0, z_capF))
+    clip = BRepBuilderAPI_Transform(clip, trsf, True).Shape()
+    common = BRepAlgoAPI_Common(cut.Shape(), clip)
+    common.Build()
+    if not common.IsDone():
+        raise RuntimeError("M16 end-cap boolean intersection failed")
+    return _finish("M16", common.Shape())
+
+
 _MAKERS = {
     "M1": _make_m1,
     "M2": _make_m2,
@@ -1001,6 +1115,7 @@ _MAKERS = {
     "M13": _make_m13,
     "M14": _make_m14,
     "M15": _make_m15,
+    "M16": _make_m16,
 }
 
 

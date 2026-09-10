@@ -86,7 +86,52 @@ max / p99 in mm. Volume error is against the analytic closed-form `V_truth`.
 | M13 | **capstone**: M12 in inches on +x, 3.9 M-tri unwelded noisy MC input | 0.2032 (0.5) | 6.087 / 2.874 (12 / 4) | 0.143 | 120 | 1 | revolve / mixed / wedge | 85 (400) | 279.6 |
 | M14 | end-of-burn **island severing at both dome tips** (N disjoint outer loops per station) | 0.0039 (0.3) | 0.434 / 0.301 (1.0 / 0.4) | n/a (no gate — thin island tips, see §6) | 300 | 1 | revolve / prism / — | 67 (100) | 56.0 |
 | M15 | **decoupled roundness**: finely tessellated (ct≈0.010) but genuinely out-of-round (0.8 mm ovality + 0.25 mm wobble) input | 0.0003 (0.05) | 0.275 / 0.254 (0.45 / 0.4, absolute mm) | 0.401 | 60 (14+14 dome) | 1 | revolve / revolve / — | 4 (10) | 48.9 |
+| M16 | **NOT YET GREEN — see note below.** Non-proportional tapered-bore (dome-pinch-override fix + curved-endpoint snap + actual-rings loft) | 0.0166 (0.3) | 2.136 / n/a (1.0 / 0.4) — **FAILS**, see note | not reached | 160 (dome_stations_min 34) | 1 | revolve / loft_rings / — | not reached (gate 120) | ~2 min |
 | MR | real burnback STL | — | — | — | — | — | — | — | **skipped — no real input** |
+
+**M16 status (2026-09-10): very close, not fully green.** Every gate passes except
+`surface_deviation_max_mm` (2.136 mm measured against a 1.0 mm gate), localized entirely at
+one point on the aft cap edge (z=9850.0, region `star_zone`) — `surface_deviation_p99_mm`,
+`face_count_max`, `step_roundtrip`, and `gmsh_tet` were never reached because the scorer fails
+fast on the first bad gate. Everything else that this plan's Phases A-D set out to fix is
+verified working and measured: the dome-pinch-override bug is fixed (`bbox_err_pct` 0.0029%
+against a 0.1% gate — this is the exact tripwire report §4a describes, and it now passes
+cleanly), the non-pinch curved-endpoint snap is fixed (`dome_stations_min` 34, comfortably
+above the gate of 8), the topology event lands almost exactly on the analytic 6000.0
+(`topo_events` worst-match error 0.00003 mm), and `paths_used.bore == "loft_rings"` confirms
+the actual-rings loft (not a silently-wrong proportional fallback) is what's actually cutting
+the non-proportional star. Volume is excellent (0.0166%, ~18x inside its own 0.3% gate) —
+which independently confirms the geometry is fundamentally correct in aggregate, not just
+"passing by chance."
+
+The remaining 2.1x deviation miss is real and precisely localized: getting the actual-rings
+loft's OWN cross-section to agree with the true two-family star to sub-mm accuracy exactly at
+the last section before the flat cap took several rounds of real fixes this session (a near-
+duplicate-station dedup, an `isRuled=True` fallback for a self-intersecting-but-"valid" smooth
+B-spline surface, a `BRepGProp` integration-epsilon fix, a `build_revolve_solid` wire-closure
+fix, a robust extrapolation-baseline search, and finally replacing extrapolation with a DIRECT
+mesh measurement at the true end) and got the internal approximate deviation check down from
+p95 8.2/max hundreds-of-mm (completely broken) to p95 0.58 mm (passing) -- but the scorer's own
+finer, more rigorous deviation metric still catches a real, small residual error concentrated
+right at the cap edge that the approximate check doesn't weight the same way. This is
+plausibly the loft's own end-of-chain interpolation not perfectly reproducing the true
+filleted-star cross-section's sharp features at that one boundary; a further, more targeted fix
+(e.g. snapping the measured end-ring's own fillet regions more tightly, the same idea the
+`bore_radius` snap already does at the fore seam) is the recorded next step if this is worth
+chasing further, but is intentionally NOT force-fit here — see the plan's own explicit note
+that a seam/loft-boundary interaction this new is a legitimate place to stop and report
+precisely rather than tune blindly until a gate happens to pass. `harness-frozen`/`infra-frozen`
+should NOT be re-pointed until this is resolved or a decision is made to accept it.
+
+Also worth knowing: implementing this exposed and fixed a REAL, unrelated regression risk in
+`_fuse_sandwich_bore` (M5/M8's cavity-decomposition fallback) — an earlier version of this work
+wired that function's fin-cutter through the new tapered-bore selector too, and on M8's real
+merged bore+slot ring (in the `_build_slot_wedges`-fails fallback path only), the selector's
+constant-cross-section threshold was fooled by ~7% real fillet-transition-band noise into
+routing a plain constant prism through the actual-rings loft — a shape class it isn't designed
+for, producing a 400,000+-entity pathological STEP export and multi-minute hangs where the
+correct behavior takes ~3 seconds. That wiring was reverted; `_fuse_sandwich_bore` keeps its
+original hardcoded prism. M5/M8 re-verified passing at their normal milestone args afterward.
 
 \* **M6's `paths_used.bore` label is wrong-ish and you should know it.** `pipeline/cli.py:2152`
 emits `"prism"` whenever any bore ring exists; the string `"loft"` is never emitted by the
@@ -385,8 +430,11 @@ useful for eyeballing the result against the input in a mesh viewer).
    breakthrough band 3.923 / 4, gmsh min SICN 0.143 / 0.1. The extent one has a known clean fix
    if it bites: measure axial extent from the coarse section-area sweep (MISSION §5.5.2) instead
    of `mesh.bounds`, which the input's σ = 0.8 mm noise inflates.
-4. **The report's `paths_used` cannot distinguish a prism from a loft** (§2 footnote), and has no
-   `bodies` or `status` field (§5.3).
+4. ~~The report's `paths_used` cannot distinguish a prism from a loft~~ **Fixed 2026-09-09**
+   (`docs/plans/tapered_bore_dome_pinch_and_surface_area.md` §3.1): `paths_used.bore` now
+   reports `"prism"` / `"loft_proportional"` / `"loft_rings"` honestly, from the new shared
+   `_build_tapered_bore_cutter` selector. Still no `bodies` or `status` field on a failed run
+   (§5.3).
 5. **`--refine-bands` is a no-op** in every passing configuration. (`--adaptive` is *not* a no-op
    — contrary to the Round 1 handoff — it places 14 stations in a 295 mm feature band and 22 per
    dome inside M13's 120-station budget.)
@@ -412,6 +460,27 @@ useful for eyeballing the result against the input in a mesh viewer).
    degenerate-severed placeholder exists for exactly this, untested against a real file) or a
    real pinch the flat-cap radius logic doesn't model. Brady's own incident motor is the first
    real test of this — see MR (item 1).
+10. **The actual-rings loft (M16, rung 3 of `_build_tapered_bore_cutter`) is a full fix only for
+    clean, smoothly-varying non-proportional geometry — not yet for real-scan noise, AND M16
+    itself is not fully green yet even on clean input (see §2's M16 row: one deviation gate
+    misses by 2.1x, localized at the aft cap edge).** On a real input, per-station ring noise
+    passes straight into the loft undamped (there is no cross-station averaging the way the dome
+    model gets via `_refine_dome_model_from_vertices`); expect "good, not chord-tol-exact"
+    fidelity at best, not the numbers M16 gets on a clean tessellation. A per-station outlier-
+    rejection / cross-station ring-smoothing pass is the
+    recorded follow-up if this bites on a real motor with a genuinely non-proportional bore/fin
+    (deliberately deferred, `tapered_bore_dome_pinch_and_surface_area.md` §4.1). Separately: this
+    milestone is also what forced `harness/metrics.py::read_step` and `pipeline/engine.py`'s own
+    verification volume check onto `BRepGProp.VolumeProperties_s`'s tight-epsilon (`1e-6`)
+    overload instead of the library default — the default under-integrates a high-degree (8)
+    B-spline lateral surface by several percent (a pure numerical-integration artifact, not a
+    geometric error; see §2's M16 row and its footnote). That tight call costs real time (~6 s
+    measured on M16's own solid, vs ~0.03 s at the default) — deliberately paid only once per
+    rebuild (the final verification) and in the frozen scorer's own volume checks, NOT inside
+    `_solid_volume` (used repeatedly during construction for cheap plausibility checks, where the
+    default epsilon's few-percent error is irrelevant against a >=10x sanity threshold). If a
+    future milestone's geometry needs the accurate volume somewhere hotter in the construction
+    loop, don't reach for the tight epsilon by default — profile first.
 
 ### What to try next (engine)
 

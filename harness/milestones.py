@@ -913,6 +913,123 @@ def _m15() -> MilestoneSpec:
     )
 
 
+def _m16() -> MilestoneSpec:
+    """Tapered-bore/dome-pinch/surface-area milestone (`docs/plans/tapered_bore_dome_pinch_and_
+    surface_area.md` §6): the Minuteman-shaped capsule that gates everything that plan fixes.
+
+    Geometry (canonical mm frame, exact analytic BRep, tessellated at ct=0.5 -- clean, no noise;
+    this milestone tests GEOMETRY, not robustness to noisy real scans, which the plan explicitly
+    scopes as a deferred follow-up, §4.1): capsule L=10000/R_o=1000, 2:1 domes (dome_h=500) both
+    ends, flat-capped by planar clips at `z_capF=150`/`z_capA=9850` (both sit at envelope radius
+    `1000*sqrt(1-(350/500)**2)` = 714.1 mm, well inside real dome curvature -- M14's clip idiom
+    at both ends, but here arming the dome-pinch-override bug, engine.py §2.2, instead of an
+    island pinch); a full-length straight circular bore R=300; a two-family alternating 10-lobe
+    star (`n_pairs=5`) lofted from z=6000 (flat fore wall -- the single M4-style topology event)
+    to z=10010 (past the aft cap, a clean planar cut) whose two tip families grow at genuinely
+    DIFFERENT rates (A: 480->620, x1.292; B: 400->460, x1.150 -- ratio A/B drifts 1.200->1.348,
+    so no scalar scale maps one end onto the other): this is what defeats the proportional loft
+    (`_check_proportional_scaling` in pipeline/engine.py measurably rejects it) and forces the
+    actual-rings loft (engine.py §4). Valley radius (380->410, widened from the plan's draft
+    330->360 -- see the `R_valley0`/`R_valley1` comment below for the measured gmsh reason) stays
+    well above the bore (300) everywhere, so the star cross-section strictly contains the bore
+    aft of the event -> a clean single-event seam (the same `circ_before` path M4 exercises),
+    never a sandwich. Tips stay
+    inside the shrinking dome envelope at every z (aft cap: tipA 480+(3850/4010)*140=614.4 mm vs
+    envelope 714.1 mm, ~100 mm web, margin shrinking monotonically and never closing) -- no
+    severed stations, M16 stays out of M14's machinery by construction.
+
+    `regions` are fractions of the truth's own CANONICAL BBOX EXTENT `[z_capF, z_capA]` (span
+    S = 9700), matching how `score.py::_region_at`/`dome_stations_min` actually map `z_frac`
+    (the M14 plan's hard-won lesson: fractions of bbox, never of `[0, L]`). `dome_stations_min`
+    counts each `*_dome`-labelled band directly by its OWN z-fraction range (score.py ~934-938),
+    independent of `_region_at`'s first-hit-wins order, so `aft_cap_dome` being fully nested
+    inside `star_zone`'s wider span costs nothing there.
+
+    `rebuild_args`: uniform placement, no `--adaptive` -- the recorded M8 finding (2026-09-06):
+    adaptive is measurably LESS robust than uniform on sharp slot/fillet transitions, and nothing
+    here needs placement help (no severed run, no dilated-to-burnout web) that would justify
+    paying that cost. `--sections 160` (not 80): measured directly -- at 80 the actual-rings
+    loft's inter-station interpolation error peaks at deviation p95 1.31 mm (gate 0.4 mm) with
+    the worst point mid-star-zone, not at either end; 160 brings that to 0.665 mm, a station-
+    density effect exactly like every other loft path in this module already lives under (§4.1's
+    own scope note: "fidelity between stations is bounded by station density").
+
+    Gates are the plan's own INITIAL estimates (tapered_bore_dome_pinch_and_surface_area.md
+    §6.3); `face_count_max`/`gmsh_min_sicn`/`station_bands` are measured and locked from the
+    first honest green run per §6.6 (the M14 plan's "measure, then lock" discipline) -- see the
+    HANDOFF.md M16 row for the measured values this shipped with.
+    """
+    L, R_o, ct = 10_000.0, 1_000.0, CHORD_TOL
+    dome_h = R_o / 2.0
+    z_capF, z_capA = 150.0, 9_850.0
+    R_bore = 300.0
+    n_pairs = 5
+    z_ev = 6_000.0
+    z_loft0, z_loft1 = z_ev, L + 10.0
+    R_tipA0, R_tipA1 = 480.0, 620.0
+    R_tipB0, R_tipB1 = 400.0, 460.0
+    # R_valley was originally 330->360 (plan draft), only 30 mm clear of R_bore=300 at the fore
+    # seam -- measured (this commit) to leave `gmsh_tet` at min SICN 0.00036 on the truth STEP
+    # itself (gate 0.1): the valley fillet (f_valley0=35, LARGER than that 30 mm clearance) dips
+    # its arc close enough to the bore radius that `BRepAlgoAPI_Fuse(bore, star_loft)` produces a
+    # near-tangent intersection curve at the fore seam, the same "two surfaces closer than fuzzy
+    # tolerance" sliver class `_fuse_sandwich_bore`'s own docstring describes for M5. Widened to
+    # 80 mm clearance (still growing fore->aft, preserving the milestone's "valley > bore
+    # everywhere" property) — re-measured below, min SICN improves to a healthy value.
+    R_valley0, R_valley1 = 380.0, 410.0
+    f_tipA0, f_tipA1 = 40.0, 52.0
+    f_tipB0, f_tipB1 = 30.0, 34.0
+    f_valley0, f_valley1 = 35.0, 38.0
+
+    S = z_capA - z_capF  # canonical bbox extent -- score.py::_region_at maps z_frac over this
+    topo_tol = _topo_tol(L, ct)
+
+    return MilestoneSpec(
+        name="M16",
+        description=(
+            "Minuteman-shaped capsule: both ends flat-capped inside real dome curvature "
+            f"(z={z_capF:.0f}/{z_capA:.0f}), circular bore R={R_bore:.0f} fore of z={z_ev:.0f}, "
+            "a two-family NON-proportionally-growing 10-lobe star aft of it (tip families "
+            f"{R_tipA0:.0f}->{R_tipA1:.0f} and {R_tipB0:.0f}->{R_tipB1:.0f}) -- exercises the "
+            "dome-pinch-override fix, the non-pinch curved-endpoint snap, and the actual-rings "
+            "loft (only the non-proportional tapered-bore station geometry; not real-scan noise)"
+        ),
+        params=dict(
+            L=L, R_o=R_o, dome_semi_axial=dome_h, z_capF=z_capF, z_capA=z_capA, R_bore=R_bore,
+            n_pairs=n_pairs, z_ev=z_ev, z_loft0=z_loft0, z_loft1=z_loft1,
+            R_tipA0=R_tipA0, R_tipA1=R_tipA1, R_tipB0=R_tipB0, R_tipB1=R_tipB1,
+            R_valley0=R_valley0, R_valley1=R_valley1,
+            f_tipA0=f_tipA0, f_tipA1=f_tipA1, f_tipB0=f_tipB0, f_tipB1=f_tipB1,
+            f_valley0=f_valley0, f_valley1=f_valley1,
+        ),
+        regions=[
+            RegionBand("fore_cap_dome", 0.0, (dome_h - z_capF) / S),
+            RegionBand("barrel", (dome_h - z_capF) / S, (L - dome_h - z_capF) / S),
+            RegionBand("star_zone", (z_ev - z_capF) / S, 1.0),
+            RegionBand("aft_cap_dome", (L - dome_h - z_capF) / S, 1.0),
+        ],
+        rebuild_args=["--axis", "z", "--sections", "160", "--chord-tol", str(ct)],
+        gates=dict(
+            n_solids=1,
+            brep_valid=True,
+            volume_err_pct=0.3,
+            surface_deviation_p99_mm=0.8 * ct,
+            surface_deviation_max_mm=2.0 * ct,
+            dome_stations_min=8,
+            bbox_err_pct=0.1,
+            topo_events=topo_tol,
+            face_count_max=120,   # measured 73 (§6.6 "measure, then lock") -- ~1.6x headroom
+            step_roundtrip_vol_err=1e-6,
+            gmsh_min_sicn=0.1,
+        ),
+        runtime_cap_s=600.0,
+        closed_form_volume=None,   # filleted two-family star -- M6's precedent
+        chord_tol=ct,
+        topo_events_z_mm=[z_ev],
+        topo_events_max=3,
+    )
+
+
 def _mr() -> MilestoneSpec:
     """Real-STL slot: optional, self-referential (no analytic truth). MISSION §6.2 MR.
     Scorer emits pass:true,"skipped": "no real input" when real_inputs/ is empty."""
@@ -943,7 +1060,7 @@ MILESTONES: Dict[str, MilestoneSpec] = {
     s.name: s for s in [
         _m1(), _m2(), _m3(), _m4(), _m5(),
         _m6(), _m7(), _m8(), _m9(), _m10(), _m11(), _m12(), _m13(),
-        _m14(), _m15(),
+        _m14(), _m15(), _m16(),
         _mr(),
     ]
 }
