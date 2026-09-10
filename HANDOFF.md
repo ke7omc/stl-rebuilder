@@ -1,4 +1,11 @@
-# HANDOFF v3 — STL → STEP rebuilder + desktop GUI (M1–M15 PASS, MR skipped, G1–G3 PASS)
+# HANDOFF v3 — STL → STEP rebuilder + desktop GUI (M1–M16 PASS, MR skipped, G1–G3 PASS)
+
+**2026-09-10 addendum**: M16 is now FULLY GREEN — the analytic tangent-fillet loft
+(`paths_used.bore == "loft_arcs"`) replaced the B-spline ring loft as rung 3's preferred
+construction and closed the last failing deviation gate with margin (star_zone p99
+0.4125 → 0.2787 against a 0.4 gate and a 0.372 input-STL floor). §2's M16 row and the status
+note after the table carry the full account; the B-spline path remains as the fallback.
+Full M1–M15 regression re-run: all pass.
 
 **2026-09-09 addendum**: M15 (decoupled roundness tolerance — a real trap Brady hit on his own
 motor: finely tessellated but genuinely out-of-round, so no single `--chord-tol` satisfied both
@@ -86,166 +93,95 @@ max / p99 in mm. Volume error is against the analytic closed-form `V_truth`.
 | M13 | **capstone**: M12 in inches on +x, 3.9 M-tri unwelded noisy MC input | 0.2032 (0.5) | 6.087 / 2.874 (12 / 4) | 0.143 | 120 | 1 | revolve / mixed / wedge | 85 (400) | 279.6 |
 | M14 | end-of-burn **island severing at both dome tips** (N disjoint outer loops per station) | 0.0039 (0.3) | 0.434 / 0.301 (1.0 / 0.4) | n/a (no gate — thin island tips, see §6) | 300 | 1 | revolve / prism / — | 67 (100) | 56.0 |
 | M15 | **decoupled roundness**: finely tessellated (ct≈0.010) but genuinely out-of-round (0.8 mm ovality + 0.25 mm wobble) input | 0.0003 (0.05) | 0.275 / 0.254 (0.45 / 0.4, absolute mm) | 0.401 | 60 (14+14 dome) | 1 | revolve / revolve / — | 4 (10) | 48.9 |
-| M16 | **NOT YET GREEN — see note below.** Non-proportional tapered-bore (dome-pinch-override fix + curved-endpoint snap + actual-rings loft) | 0.0166 (0.3) | 0.894 / 0.376 (1.0 / 0.4) — both PASS; **fails `p99_by_region` 0.412 in `star_zone`**, see note | not reached | 160 (dome_stations_min 34) | 1 | revolve / loft_rings / — | not reached (gate 120) | 59.8 |
+| M16 | Non-proportional tapered-bore (dome-pinch-override fix + curved-endpoint snap + **analytic tangent-fillet loft**, see note below) | 0.0167 (0.3) | 0.521 / 0.251 (1.0 / 0.4) | 0.252 | 160 (dome_stations_min 34) | 1 | revolve / **loft_arcs** / — | 48 (120) | 52.4 |
 | MR | real burnback STL | — | — | — | — | — | — | — | **skipped — no real input** |
 
-**M16 status (2026-09-10, second pass): still not green, but both deviation gates that were
-failing now pass and the single remaining miss is 11% over a floor of 0.372.** Current numbers,
-all from full scoring runs:
+**M16 status (2026-09-10, third pass): FULLY GREEN.** Every gate passes, from a full scoring
+run, with real headroom on the one that had been failing:
 
-| gate | before this pass | now | threshold | |
+| gate | second pass | now | threshold | |
 |---|---|---|---|---|
-| `surface_deviation_max_mm` | 2.136 | **0.894** | 1.0 | pass |
-| `surface_deviation_p99_mm` | 0.4477 (out of band) | **0.376** | 0.4 | pass |
-| `surface_deviation_p99_by_region` (`star_zone`) | 0.4878 (out of band) | **0.412** | 0.4 | **FAIL** |
-| `volume_err_pct` | 0.0166 | 0.0166 | 0.3 | pass |
+| `surface_deviation_max_mm` | 0.894 | **0.521** | 1.0 | pass |
+| `surface_deviation_p99_mm` | 0.376 | **0.251** | 0.4 | pass |
+| `surface_deviation_p99_by_region` (worst: `star_zone`) | 0.412 (FAIL) | **0.2787** | 0.4 | pass — now UNDER the input STL's own 0.372 floor |
+| `volume_err_pct` | 0.0166 | 0.0167 | 0.3 | pass |
 | `bbox_err_pct` | 0.0029 | 0.0029 | 0.1 | pass |
 | `dome_stations_min` | 34 | 34 | 8 | pass |
-| `topo_events` | 0.00003 mm | 0.00003 mm | 2.0 | pass |
+| `topo_events` | 0.00003 mm | 0.0 | 2.0 | pass |
+| `face_count_max` | not reached | **48** | 120 | pass |
+| `step_roundtrip_vol_err` | not reached | 1.4e-14 | 1e-6 | pass |
+| `gmsh_min_sicn` | not reached | **0.252** | 0.1 | pass |
 
-`paths_used.bore == "loft_rings"` throughout (the actual-rings loft is genuinely doing the work,
-not a proportional fallback). `face_count_max`, `step_roundtrip` and `gmsh_tet` are still never
-reached — the scorer fails fast on the first bad gate. Runtime 59.8 s (was 241.8 s). Full M1–M15
-regression re-run after every change in this note: all pass.
+Runtime 52.4 s (cap 600). `paths_used.bore == "loft_arcs"` — the new analytic tangent-fillet
+loft, not the B-spline ring loft. Full M1–M15 regression re-run after the change: all pass.
 
-**The remaining gate is achievable — this is not a below-the-floor gate.** Per-region p99, ours
-against the floor the input STL itself sets (both measured with the scorer's own metric against
-the truth STEP):
+**What closed it: the structural fix the second pass diagnosed, implemented.** The B-spline
+ring loft's residual failure was OCCT's tessellation of degree-8 periodic faces (the lottery
+in `M`, documented in `build_ring_loft_solid`); the fix is to emit analytic arc/line faces the
+way the truth solids themselves are built, which required actually recovering the star's
+tangent-fillet description from noisy station data. That is now
+`pipeline/fitting.py::fit_tapered_fillet_model` + `solids.build_tapered_fillet_loft_solid`,
+wired as rung 3's preferred construction in `_build_tapered_bore_cutter`
+(`engine._build_arc_fillet_loft_bore`, path `"loft_arcs"`), with the B-spline `"loft_rings"`
+path kept unchanged as the fallback for any zone the fit refuses. The estimation, and the
+measured findings that shaped it (each falsified predecessor is recorded in the relevant
+docstring):
 
-| region | z band | ours | input STL floor | gate |
-|---|---|---|---|---|
-| `fore_cap_dome` | 150–500 | 0.2162 | 0.3795 | 0.4 |
-| `barrel` | 500–9500 | 0.3804 | 0.3189 | 0.4 |
-| `star_zone` | 6000–9850 | **0.4125** | **0.3718** | 0.4 |
-| `aft_cap_dome` | 9500–9850 | 0.3864 | 0.3877 | 0.4 |
+- **One joint model for the whole zone, not a pipeline of local fits.** A ring is m corner
+  circles whose flanks are the common internal tangent of each consecutive pair — tangency
+  exact by construction, no flank intersection anywhere, so the second pass's shallow-valley
+  degeneracy (radii 400–860 mm where truth is 30–52) cannot occur. All stations are solved
+  TOGETHER with every corner's (cx, cy, r) linear in z. Linear-in-(c, r) is not a smoothing
+  convenience but the true shape class: the truth cutter is a ruled loft, whose intermediate
+  section is the per-edge blend of the end wires, and a blend of matched arcs is an arc with
+  center/radius linear in z. (A wire re-filleted from linearly-INTERPOLATED sharp-polygon
+  parameters is a DIFFERENT family — measured 2.1 mm off the actual loft surface mid-span,
+  which cost an afternoon of chasing phantom "radius bias" against the wrong reference.)
+- **Fit to mesh VERTICES, not slice points.** Slice points lie on facet chords, displaced
+  one-sidedly toward the local curvature center by up to the tessellation sagitta — measured
+  0.35–0.44 mm inward bias at every fillet from slice-point fits, while vertices lie on the
+  tessellated surface itself. The model explains M16's 15131 bore vertices at rms 0.020 /
+  p99 0.084 / max 0.195 mm.
+- **Distances to BOUNDED features, with the arc/flank boundary a solved unknown.** Min
+  distance over (arc clamped to its tangent span, flank clamped to its segment) — past a
+  tangent point an extended circle hugs the flank quadratically, so an unbounded fit trades
+  ~sqrt(2·r·noise) ≈ 5 mm of arc for flank at sub-noise cost (measured radius walks in both
+  directions before bounding).
+- **Segmentation by r(θ) extrema with persistence pruning** (weak adjacent max/min pairs
+  removed pairwise, never whole-ring rejection), **corner-region point assignment bounded at
+  flank MIDPOINTS** (an asymmetric corner's extremum sits on the flank — the shallower
+  flank's perpendicular foot, 4–6° off the arc — so extremum-bounded sectors mis-assign real
+  curve pieces; measured: points ON the true curve scored 13.1 mm phantom residuals, enough
+  to make the true parameters lose to a degenerate solution), and **per-corner seeding by
+  deterministic consensus circumcircles** (spread point triples + radius/convexity priors;
+  both cheaper seeding schemes and their measured failures are in `seed_circles`'s
+  docstring).
+- **Feasibility, not accuracy, is constrained.** A shallow valley's radius is weakly
+  identified by nature (miter offset ~0.016·f at these interior angles — tens of mm of
+  radius move the curve ~0.1 mm), so the solver is free within the noise-equivalence class
+  but hard-bounded r > 0 (a negative radius mimics the mirror-signed corner — a parasitic
+  basin the residual barely penalizes) and barrier-penalized to keep every radius positive
+  and every internal tangent existing across the whole fitted span. The SURFACE is the
+  contract; the engine's acceptance gates measure exactly that.
+- **Acceptance is measured, never hoped**: pooled vertex residual p99 ≤ chord_tol and
+  max ≤ 4·chord_tol (M16 sits at 0.17×/0.41× those), ≥ 60% of stations agreeing on the
+  corner count, both end wires constructing as valid tangent rings, plus the same
+  envelope+volume plausibility screens as the B-spline path and a refusal whenever a
+  `bore_radius` seam snap would be needed (the B-spline path implements the snap and stays
+  the honest choice there). Any refusal falls back to `"loft_rings"` unchanged.
 
-So the gate leaves 7% of headroom over the floor and we sit 11% above it — a uniform ~0.04–0.06
-mm excess wherever the star surface is, which is the bulk tail of the tessellation problem below
-rather than any one bad spot. (Whole-part figures for the same comparison: input max 0.9084,
-p99 0.3361.) An earlier version of this note treated the deviation gates as sitting essentially
-on the floor; the max and global-p99 gates were indeed close, but both now pass, and the region
-gate has real room.
+The emitted cutter is a 2-wire ruled `ThruSections` between the model's end sections — the
+truth's own construction class — 42 faces at the cutter, 48 on the final solid (gate 120),
+volume matching the station stack's trapezoid integral to 0.01%. Unit coverage:
+`tests/test_arc_fillet_fit.py` (segmentation, blend-fixture fit, structureless-ring refusal,
+loft builder) and the updated `tests/test_taper_loft.py` (selector routes M16 to
+`"loft_arcs"`).
 
-**Fix 1 — the aft cap edge (the failure the previous note recorded).** Root cause was NOT the
-end ring's fillets: the station loop insets its own placement by `station_eps` (100 mm on M16)
-and the composed-cosine clustering bunches its last stations right AT that inset, so the last
-real ring sat at z=9750.0 while the star bore's aft boundary (the flat cap) is at z=9850.0 —
-a 100 mm band with no measured data at all. The loft's cross-section at the cap was therefore a
-linear extrapolation evaluated a full 2x past the end of its own baseline. Measured (loft
-section vs. the truth STEP's own section, perpendicular distance): **2.17 mm at z=9850**, worst
-at a family-B lobe tip, exactly the point the scorer was failing on, while the same loft sat at
-0.36–0.68 mm everywhere the stations actually cover. The previous pass's "direct measurement at
-the end" never applied here: it targets `z_hi + eps_hi`, which is 5 mm PAST the mesh's own z_max
-by construction (the cutter must overshoot the cap for a clean planar boolean), so the slice
-always failed and always fell back to extrapolation. `_prepare_loft_rings` now adds one extra
-DIRECTLY MEASURED **boundary anchor** ring an inset inside each zone boundary — z=9849.0 here,
-measured **0.22 mm** from truth. The fore boundary (M16's flat topology-event wall at z=6000,
-the more delicate of the two) was measured before being trusted: a slice 1 mm above the wall is
-clean and lands 0.15 mm from truth vs 0.46 mm extrapolated.
-
-**Fix 2 — a real latent bug the first fix exposed, and the more important of the two.** Rung 3's
-plausibility screen accepted anything within an order of magnitude of `mean(area) * height`.
-Once the anchors changed the section stack, the smooth (`isRuled=False`) fit stopped failing by
-15 orders of magnitude and started failing by only **7.1x** — inside that band, so it was
-ACCEPTED, and shipped a self-intersecting cutter that left the final solid **15% over volume and
-26% under surface area**. The screen is now two independent checks: (1) an ENVELOPE check —
-the loft's bounding box against the section point cloud's own, with the margin taken from the
-data (largest point-for-point move between adjacent sections); measured, the good ruled surface
-overshoots by 0.077 mm while the bad smooth one reaches r=12507 mm against a section envelope of
-r=560 mm and runs to z=11325 against sections ending at z=9855; and (2) a VOLUME check against
-the section stack's own TRAPEZOIDAL integral (2.2718e9 vs the ruled loft's tight-epsilon volume
-2.2720e9, 0.01% — where `mean(area)*height` reads 2.40e9, biased by the deliberately-uneven
-section spacing), with a deliberately loose 0.25x–4x band because `_solid_volume` is the FAST
-default-epsilon call and reads 3.09e9 on that same correct solid — a 36% integration error on
-the right answer. Without this, fix 1 would have shipped a broken solid.
-
-**Fix 3 — honour the plan's own resample formula.** `_prepare_loft_rings` computed
-`M = min(256, max(128, 64*n_lobes))`. The `64*n_lobes` term is the plan's own density rule
-(§4.2 step 2); the 256 cap it was also given is arbitrary, and on any ring with 4+ lobes it
-SILENTLY OVERRIDES the formula — on M16 (5 lobes) the formula asks for 320 and the cap delivered
-256. Raising the cap so the formula is honoured is what moved `surface_deviation_max_mm` from
-1.391 to 0.894 and the global p99 from 0.4477 to 0.376. This is a correction of an arbitrary
-constant, not a tuned one — and see below for why M is emphatically NOT a dial to keep turning.
-
-**What is left, and why no more of it was force-fit.**
-
-The surface we emit is accurate. What is inaccurate is OCCT's TESSELLATION of it, and that is
-now characterised precisely enough to stop guessing about it. `BRepMesh_IncrementalMesh` at the
-scorer's 0.25 mm linear deflection emits isolated triangles 1.4–14 mm away from our ruled
-B-spline faces, always at the cross-section's tightest-curvature corners (on M16 always a
-multiple of 18°, a star tip or valley) and never at the periodic seam. Proof that it is the mesh
-and not the geometry: at the worst point of the worst case, slicing the built solid at that
-point's own z put its cross-section within **0.12 mm** of the section stack it was lofted from
-and ~0.5 mm of truth, while the tessellation there was **9.86 mm** out.
-
-1. **It is a lottery in `M`, and the boolean re-rolls it.** Cutter-level max against truth:
-   clean at M=256 (0.92), 320 (0.82), 512 (0.75); catastrophic at 288 (3.91), 384 (3.87), 448
-   (1.98), 576 (9.86), 640 (4.98). No pattern — not parity, not multiples of the lobe count.
-   And the decisive measurement: **M=512 gives the cleanest cutter measured (max 0.747 mm, zero
-   points over 1 mm) and, after the boolean, the worst final solid (max 8.33 mm)**. So no screen
-   applied to the cutter can predict the solid it becomes; `M` cannot be selected by any measured
-   pre-boolean criterion, and a screen on the final solid would cost a full rebuild per attempt
-   with no convergence guarantee. That is what rules out an `M`-selection rule, including a
-   curvature/sagitta rule — which, worked through on M16's own measured curvature at the house
-   `0.3*chord_tol` ring tolerance, lands on M≈584, i.e. straight into the 576 failure.
-2. **Five other candidate causes were falsified by direct measurement**, so nobody re-derives
-   them (all recorded in `build_ring_loft_solid`'s docstring): per-section chord-length knot
-   vectors needing unification (rebuilt with identical uniform parameters — same lottery); the
-   periodic seam (failures sit 50–165° away; closed-but-not-periodic sections, with and without
-   a supplied closing tangent, are equal or worse); sliver sections (raising the minimum section
-   spacing 1 mm → 10 mm reproduces every failure to four decimals); section count (RDP
-   compression in z cannot compress at all — per-station slice noise exceeds any sane tolerance,
-   and removing even two sections turned a clean M=320 into a 14.4 mm failure); and the plan's
-   §4.3 `is_simple` screen (fires on the good M values too, at overshoots of 0.000–0.089 mm).
-3. **The structural fix is to stop emitting B-spline faces for this shape class** and emit
-   analytic arcs and lines instead — the way the truth solids themselves are built
-   (`build_fillet_loft_solid`) — since analytic faces tessellate exactly. This was prototyped
-   this session (scratchpad only, nothing committed); it is the right route and it is further
-   along than "an idea", but it is not yet robust. Status, all measured on M16's own 73 stations:
-
-   - **Segmentation: SOLVED.** `fitting.detect_arc_runs` cannot segment these rings at all (its
-     curvature elbow needs a 3× gap between consecutive sorted local radii; M16's are a
-     continuum, max ratio 1.3–1.7). Taking the corners as the 2·n_tips extrema of r(θ) instead
-     gives 20 of 20 corners on 73 of 73 stations.
-   - **The near-parallel-flank degeneracy: SOLVED, and it was the right diagnosis.**
-     `fitting.fit_fillet_ring` recovers each corner by intersecting its two adjacent flank
-     lines, which on M16's shallow valleys returned radii of 400–860 mm where truth is 30–52 mm
-     (ring deviation up to 216 mm). Fitting each corner's circle directly from its own points and
-     joining consecutive circles by their **common tangent line** — closed form from the two
-     centres, radii and turn directions, never constructing or intersecting a flank line — removes
-     the degeneracy completely: radii come back at 23–52 mm and the wire closes G1 by
-     construction. Two ways of bounding each arc were tried: region-growing by circle residual
-     (73/73 stations reconstruct, radii 22.7–122.8) and classifying the straight flanks first and
-     taking the complement (60–70/73 depending on the line tolerance, radii 9.7–141.5).
-   - **The next blocker is the conditioning of the per-corner arc fits themselves**, which is a
-     different problem from the one above. M16's corner arcs carry only ~10–20 points and the
-     input mesh's per-point noise (0.2–0.9 mm) is a large fraction of their sagitta, so individual
-     radii scatter badly (single corners at 9.7 mm and 141 mm). Cross-station smoothing helps a
-     lot and is clearly part of the answer — fitting each corner's radius and centre as a robust
-     linear function of z over all 73 stations recovers the aft end well (model vs truth max
-     0.41–0.51 mm where the raw slice polygon is 0.65–0.90, i.e. genuinely beating the input
-     mesh, and the modelled radii at z=9850 land at 51.3/34.2/36.9 against a truth of
-     51.5/33.8/37.9) — but the fore end retains a systematic ~1–3 mm radius underestimate
-     (modelled 38.8/27.0/33.0 at z=6000 against a truth of 40/30/35), which the linear fit then
-     propagates, leaving 1.65 mm at z=6091. That bias comes from the arc/flank boundary being
-     placed inconsistently along z, not from the smoothing.
-   - **What it needs to finish**: a joint estimation per ring — all m arcs and m flanks solved
-     simultaneously under the tangency constraints (Levenberg–Marquardt over the full parameter
-     vector, seeded from the per-corner estimates above), rather than a pipeline of independent
-     local fits each with its own boundary decision. That removes the boundary-placement bias by
-     construction, because the tangent points become solved unknowns rather than a classification.
-   - **Face count is not expected to block it**, and cross-station smoothing is what makes that
-     true: an arc/line wire costs 2·m faces per section pair (40 here, against a
-     `face_count_max` of 120), so one wire per station is impossible, but a robust linear-in-z
-     parameter model is a TWO-section loft — 40 lateral faces, ~47 on the final solid. A curved
-     taper would keep more breakpoints via RDP on the fitted parameters, which is well conditioned
-     precisely because fitted parameters are far less noisy than raw slice points (RDP on the raw
-     points cannot compress at all — see item 2).
-
-Nothing here was force-fit: no gate was loosened, no deviation check weakened, and no `M` was
-chosen because it happened to pass — the cap was raised to honour the design's own formula, and
-the reason not to raise it further is documented and measured. `harness-frozen`/`infra-frozen`
-should still NOT be re-pointed until M16 is green or a decision is made to accept it.
+Known honest limits, so nobody rediscovers them: fillet radii of very shallow valleys are
+reported only to within their curve-equivalence class (see above — the surface is right, the
+individual radius may not be); a genuinely nonlinear-in-z taper falls back to the B-spline
+path by failing the acceptance residuals; and the fit costs ~15–35 s on M16-sized data
+(inside the 600 s cap with the whole run at 52.4 s).
 
 Also worth knowing: implementing this exposed and fixed a REAL, unrelated regression risk in
 `_fuse_sandwich_bore` (M5/M8's cavity-decomposition fallback) — an earlier version of this work
@@ -584,16 +520,16 @@ useful for eyeballing the result against the input in a mesh viewer).
    degenerate-severed placeholder exists for exactly this, untested against a real file) or a
    real pinch the flat-cap radius logic doesn't model. Brady's own incident motor is the first
    real test of this — see MR (item 1).
-10. **The actual-rings loft (M16, rung 3 of `_build_tapered_bore_cutter`) is a full fix only for
-    clean, smoothly-varying non-proportional geometry — not yet for real-scan noise, AND M16
-    itself is not fully green yet even on clean input (see §2's M16 row: one deviation gate
-    misses by 2.1x, localized at the aft cap edge).** On a real input, per-station ring noise
-    passes straight into the loft undamped (there is no cross-station averaging the way the dome
-    model gets via `_refine_dome_model_from_vertices`); expect "good, not chord-tol-exact"
-    fidelity at best, not the numbers M16 gets on a clean tessellation. A per-station outlier-
-    rejection / cross-station ring-smoothing pass is the
-    recorded follow-up if this bites on a real motor with a genuinely non-proportional bore/fin
-    (deliberately deferred, `tapered_bore_dome_pinch_and_surface_area.md` §4.1). Separately: this
+10. **Rung 3 of `_build_tapered_bore_cutter` (M16) is now the analytic tangent-fillet loft
+    (`"loft_arcs"`), with the B-spline actual-rings loft as its fallback — M16 is fully green
+    (see §2's M16 row and status note).** The joint fit IS a cross-station estimator (every
+    station solved together, linear in z), so unlike the old per-station loft it does damp
+    per-ring noise — but it has only ever been proven on M16's clean tessellation plus a
+    deliberately-noisier synthetic fixture (`tests/test_arc_fillet_fit.py`, 0.2 mm Gaussian);
+    on a real scan expect its acceptance gates to be the deciding factor, and a refusal drops
+    to the B-spline path, where per-station ring noise passes straight into the loft undamped
+    and "good, not chord-tol-exact" fidelity is the realistic ceiling
+    (`tapered_bore_dome_pinch_and_surface_area.md` §4.1). Separately: this
     milestone is also what forced `harness/metrics.py::read_step` and `pipeline/engine.py`'s own
     verification volume check onto `BRepGProp.VolumeProperties_s`'s tight-epsilon (`1e-6`)
     overload instead of the library default — the default under-integrates a high-degree (8)

@@ -1,6 +1,26 @@
 # stl-rebuilder — project context
 
 ## Current status & next steps
+- **2026-09-10 — M16 FULLY GREEN: analytic tangent-fillet loft (`loft_arcs`) lands.** The
+  joint per-zone arc+flank estimation diagnosed in the previous session is implemented and
+  closed M16's last failing gate with real margin: star_zone p99 0.4125 → **0.2787** (gate
+  0.4, input-STL floor 0.372 — the rebuild now beats its own input), deviation max
+  0.894 → 0.521, all previously-unreached gates now pass (faces 48/120, gmsh SICN 0.252,
+  STEP roundtrip 1.4e-14), runtime 52.4 s. The construction: fit ALL of a zone's stations
+  jointly (every corner's center/radius linear in z — the ruled loft's own shape family) to
+  the mesh's VERTICES (slice points are chord-displaced ~0.35-0.44 mm inward at fillets),
+  with bounded-feature distances so the arc/flank boundary is a solved unknown, then emit a
+  2-wire ruled arc/line `ThruSections` — the truth generator's own construction class, which
+  tessellates exactly and so ends the B-spline tessellation lottery for this shape class.
+  New: `fitting.fit_tapered_fillet_model` (+ segmentation/seeding/sign-resolution machinery,
+  each falsified alternative documented in its docstring), `solids.build_tapered_fillet_
+  loft_solid`, `engine._build_arc_fillet_loft_bore` + `_select_bore_surface_vertices`; the
+  B-spline `loft_rings` path is unchanged as the honest fallback (nonlinear taper, non-star
+  section, bore_radius seam snap, or any acceptance miss). Full M1–M15 regression + full
+  test suite re-run green; `tests/test_arc_fillet_fit.py` added (HANDOFF.md's M16 section
+  has the complete measured account). Next: unchanged — the real burnback STL through MR is
+  still the big open item, and `harness-frozen`/`infra-frozen` re-pointing is the
+  orchestrator's call now that M16 is green.
 - **2026-09-09 — M15 added: decoupled roundness tolerance from chord_tol, the first real-world
   (non-synthetic) failure this project has hit (`b07af42`→`2c062ec`→`4203043`).** Brady ran the
   tool against his first real STL and hit a genuine structural limitation: every derived

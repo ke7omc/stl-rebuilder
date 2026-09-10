@@ -785,18 +785,17 @@ def build_ring_loft_solid(sections, is_ruled: bool = False) -> TopoDS_Shape:
     decimals); and section count (RDP compression in z cannot compress at all, because the
     per-station slice noise exceeds any sane tolerance).
 
-    The structural fix is to stop emitting B-spline faces for this shape class and emit analytic
+    The structural fix -- stop emitting B-spline faces for this shape class and emit analytic
     arcs and lines instead, the way the truth solids themselves are built (`build_fillet_loft_
-    solid`), since analytic faces tessellate exactly. Two things block that today and both are
-    measured: `fitting.detect_arc_runs` cannot segment these rings at all (its curvature elbow
-    needs a 3x gap between consecutive sorted local radii; M16's are a continuum, max ratio
-    1.3-1.7), and `fitting.fit_fillet_ring` -- which recovers each corner by intersecting its two
-    adjacent flank lines -- is ill-conditioned on M16's shallow valleys, returning radii of
-    400-860 mm where the truth is 30-52 mm (ring deviation up to 216 mm). Segmenting by the
-    lobes' own r(theta) extrema instead DOES work (20 of 20 corners on 73 of 73 stations), so the
-    remaining piece is a corner reconstruction that does not depend on near-parallel flank
-    intersection -- plus, because an arc/line wire costs 2*m faces per section pair (40 here,
-    against a `face_count_max` of 120), compression of the fitted parameters along z."""
+    solid`), since analytic faces tessellate exactly -- is now IMPLEMENTED as rung 3's preferred
+    construction: `fitting.fit_tapered_fillet_model` (the joint per-zone arc+flank estimation)
+    feeding `build_tapered_fillet_loft_solid` below, wired ahead of this builder in
+    `pipeline/engine.py::_build_tapered_bore_cutter` (path `"loft_arcs"`). Measured on M16, it
+    took the failing star_zone p99 from 0.4125 to 0.2787 (gate 0.4, input-STL floor 0.372) and
+    max deviation from 0.894 to 0.521. This B-spline builder REMAINS the honest fallback for
+    any tapered zone the tangent-fillet family cannot represent (a nonlinear-in-z taper, a
+    non-star cross-section, a seam needing the `bore_radius` snap) -- for those the lottery
+    above is still the operative limit, which is why this note stays."""
     sections = sorted(sections, key=lambda s: s[0])
     if len(sections) < 2:
         raise ValueError("ring loft needs at least 2 sections")
@@ -833,4 +832,46 @@ def build_ring_loft_solid(sections, is_ruled: bool = False) -> TopoDS_Shape:
     shape = loft.Shape()
     if not BRepCheck_Analyzer(shape).IsValid():
         raise RuntimeError("ring loft produced an invalid shape")
+    return shape
+
+
+def build_tapered_fillet_loft_solid(z0: float, fillets0, z1: float, fillets1) -> TopoDS_Shape:
+    """Ruled loft between two DIFFERENT tangent-fillet cross-sections with matched topology
+    (same corner count, same ring order) -- the analytic-face rung for a non-proportionally
+    tapering star bore (M16), replacing `build_ring_loft_solid`'s periodic B-spline sections
+    for this shape class.
+
+    Why this exists: the B-spline ring loft is geometrically accurate but OCCT's tessellation
+    of its degree-8 periodic faces is a lottery in the resample count `M` that the boolean
+    re-rolls (see `build_ring_loft_solid`'s KNOWN LIMIT note -- isolated triangles 1.4-14 mm
+    off the true surface, unpredictable, unscreenable). Analytic arc/line wires under a ruled
+    `ThruSections` produce low-degree faces that tessellate exactly -- and this is precisely
+    the construction class the truth solids themselves use (`build_fillet_loft_solid`), whose
+    tessellation sets the milestone's own noise floor.
+
+    Unlike `build_fillet_loft_solid` (ONE cross-section scaled by two scalars), the two
+    sections here are independent tangent-fillet rings (each fillet's own center/radius,
+    solved by `fitting.fit_tapered_fillet_model` at each end's z), so the lateral faces are
+    general ruled surfaces rather than exact cones/planes -- still degree (2 x 1), still
+    tessellated exactly. The caller guarantees matched topology: both fillet lists come from
+    the same model in the same ring order, every flank has real length on both wires
+    (`fillets_at`'s `min_flank` refusal), so `_fillet_ring_wire` emits identical edge
+    count/order on both and `CheckCompatibility(False)` is an honest instruction.
+
+    Raises on loft failure or a `BRepCheck_Analyzer`-invalid result -- the caller treats any
+    exception as "this rung unavailable" and falls back to the B-spline ring loft."""
+    if len(fillets0) != len(fillets1):
+        raise ValueError("tapered fillet loft needs matched corner counts")
+    wire0 = _fillet_ring_wire(fillets0, z0, 1.0)
+    wire1 = _fillet_ring_wire(fillets1, z1, 1.0)
+    loft = BRepOffsetAPI_ThruSections(True, True)
+    loft.AddWire(wire0)
+    loft.AddWire(wire1)
+    loft.CheckCompatibility(False)
+    loft.Build()
+    if not loft.IsDone():
+        raise RuntimeError("tapered fillet loft failed")
+    shape = loft.Shape()
+    if not BRepCheck_Analyzer(shape).IsValid():
+        raise RuntimeError("tapered fillet loft produced an invalid shape")
     return shape

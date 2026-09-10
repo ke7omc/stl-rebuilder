@@ -65,10 +65,12 @@ def test_uniform_taper_selects_proportional_loft_rung(tmp_path):
 def test_non_proportional_star_rejects_proportional_and_uses_ring_loft(tmp_path):
     """M16's two-family star grows at genuinely different rates end to end -- no scalar maps
     one end onto the other, so `_check_proportional_scaling` must REJECT rung 2 and route to
-    rung 3 (`_build_ring_loft_bore`), which must still produce a valid, plausible-volume solid
-    (the safety net §4.4: BRepCheck_Analyzer alone would not catch a self-intersecting-but-
-    "valid" loft, so a crude area*height volume floor backs it up -- see that function's own
-    docstring for the measured failure mode this guards against)."""
+    rung 3. With the mesh available, rung 3's preferred construction is the analytic
+    tangent-fillet loft (`_build_arc_fillet_loft_bore`, path `"loft_arcs"`) -- the joint
+    arc+flank fit whose acceptance gates (segmentation vote, pooled vertex residual) M16's
+    clean star must clear; the B-spline `"loft_rings"` path remains the fallback for zones
+    the fit refuses. Either way the solid must be valid and plausible-volume (the safety net
+    §4.4: BRepCheck_Analyzer alone would not catch a self-intersecting-but-"valid" loft)."""
     truth = generators.make("M16")
     mesh = trimesh.load(str(truth.stl_path))
     chord_tol = 0.5
@@ -79,7 +81,7 @@ def test_non_proportional_star_rejects_proportional_and_uses_ring_loft(tmp_path)
 
     solid, path = engine._build_tapered_bore_cutter(
         bore_rings, z_lo, z_hi, 5.0, 5.0, chord_tol, mesh=mesh)
-    assert path == "loft_rings"
+    assert path == "loft_arcs"
     assert BRepCheck_Analyzer(solid).IsValid()
     # Volume sanity: must be in the right ballpark (not the self-intersecting-garbage class of
     # failure this plan measured and fixed -- orders of magnitude off).

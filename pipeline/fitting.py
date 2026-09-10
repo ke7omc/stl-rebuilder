@@ -481,3 +481,745 @@ def rdp(points, epsilon: float):
         right = rdp(points[index:], epsilon)
         return left[:-1] + right
     return [start, end]
+
+
+# ---------------------------------------------------------------------------
+# Joint tangent-fillet family fit for a smoothly-tapering star bore (M16 class).
+#
+# The problem this solves, and why every simpler decomposition failed (all measured on M16's
+# own stations, HANDOFF.md "M16 status"): a two-family star ring's corner arcs carry only
+# ~10-20 slice points each against 0.2-0.9 mm of tessellation noise, and radius is exquisitely
+# sensitive to that noise on a shallow arc (a +-0.4 mm sagitta perturbation on a ~24 mm chord
+# swings a 35 mm radius by -6/+8 mm), so (a) independent per-corner circle fits scatter
+# station-to-station by tens of mm, (b) `fit_fillet_ring`'s flank-intersection corners are
+# ill-conditioned on shallow valleys (radii 400-860 mm where truth is 30-52 mm), and (c) any
+# scheme that CLASSIFIES points as arc-vs-flank before fitting bakes its boundary placement in
+# as a systematic radius bias (~1-3 mm at the fore end, 1.65 mm surface error at z=6091).
+#
+# The joint fit removes all three at once:
+#   * One ring is m alternating corner circles (center, radius) whose connecting flanks are
+#     the common INTERNAL tangent of each consecutive circle pair (tips convex, valleys
+#     concave, so centers sit on opposite sides of every flank) -- tangency is exact by
+#     construction and no flank line is ever intersected, so the shallow-valley degeneracy
+#     cannot occur.
+#   * The residual is the distance to the BOUNDED piecewise curve (arc clamped to its tangent
+#     span, flank clamped to its segment), with the nearest-feature choice made inside the
+#     fit -- the arc/flank boundary is a solved unknown, not a prior classification. Bounding
+#     matters: past a tangent point an extended circle hugs the flank only quadratically
+#     (d ~ s^2/2r), so at 0.5 mm noise an UNbounded fit can trade ~sqrt(2*r*noise) ~ 5 mm of
+#     arc for flank at sub-noise cost, which measurably walked radii off by several mm in
+#     both directions; bounded endpoints make that trade cost linear in s.
+#   * All stations are solved TOGETHER with every parameter linear in z. This is not a
+#     smoothing convenience but the true model class: the truth-style construction is a ruled
+#     loft between two end wires, whose intermediate section is the per-edge linear blend of
+#     the ends -- and the blend of two circular arcs under matched parameters is (to second
+#     order in their span mismatch) an arc with center and radius linear in z. Measured: this
+#     family explains M16's mesh to rms 0.020 mm / p99 0.084 / max 0.195 over 15131 vertices.
+#     (A wire rebuilt from linearly-INTERPOLATED sharp-polygon parameters is the wrong family:
+#     its fillet centers travel v(z) + f(z)/sin_h(z) * bis(z), nonlinear in z -- measured 2.1 mm
+#     off the actual loft surface mid-span while the linear-center family tracks it at 0.014.)
+#
+# The fit runs on mesh VERTICES, not slice points: slice points lie on facet chords,
+# displaced one-sidedly toward the local curvature center by up to the tessellation sagitta
+# (~chord_tol), which biased slice-fit arcs ~0.35-0.44 mm inward at every tip; vertices lie on
+# the tessellated surface itself. Slice rings are still used for segmentation and seeding.
+# ---------------------------------------------------------------------------
+
+
+def detect_ring_extrema(pts, chord_tol: float):
+    """Segment a closed CCW star-like ring by the alternating extrema of r(theta): returns
+    [(theta, is_max), ...] sorted by theta, or [] when no clean alternating structure exists.
+
+    This is the segmentation `detect_arc_runs` cannot do here (measured on M16: its curvature
+    elbow needs a 3x gap between consecutive sorted local radii, but a tapered star's local
+    radii are a continuum, max ratio 1.3-1.7). Extrema of r(theta) need no curvature scale
+    separation at all -- a lobe tip is a maximum and a valley a minimum regardless of how
+    gently the fillets blend -- and recovered 20/20 corners on 73/73 M16 stations.
+
+    A light circular moving average (5 samples) suppresses vertex-level noise before the
+    extremum scan; plateau runs of the same extremum type collapse to their most extreme
+    member, which also enforces strict max/min alternation. `chord_tol` guards prominence via
+    persistence-style PRUNING (see the loop below): an adjacent max/min pair whose radial gap
+    is under 2*chord_tol is tessellation ripple, not a lobe, and is removed as a pair --
+    never by rejecting the whole ring, which threw away 68% of otherwise-clean synthetic
+    rings over one noise ripple on a flank."""
+    xy = np.asarray(pts, dtype=float)
+    th = np.arctan2(xy[:, 1], xy[:, 0])
+    order = np.argsort(th)
+    th_s = th[order]
+    r_s = np.hypot(xy[order, 0], xy[order, 1])
+    n = len(r_s)
+    if n < 24:
+        return []
+    w = 5
+    kern = np.ones(w) / w
+    r_sm = np.convolve(np.concatenate([r_s[-w:], r_s, r_s[:w]]), kern, mode="same")[w:-w]
+
+    ext = []
+    for i in range(n):
+        window = r_sm[[(i + k) % n for k in range(-3, 4)]]
+        if r_sm[i] == window.max():
+            ext.append((th_s[i], True, r_sm[i]))
+        elif r_sm[i] == window.min():
+            ext.append((th_s[i], False, r_sm[i]))
+    if not ext:
+        return []
+    ext.sort(key=lambda e: e[0])
+    out = []
+    for e in ext:
+        if out and e[1] == out[-1][1]:
+            if (e[1] and e[2] > out[-1][2]) or (not e[1] and e[2] < out[-1][2]):
+                out[-1] = e
+        else:
+            out.append(e)
+    if len(out) >= 2 and out[0][1] == out[-1][1]:
+        if (out[0][1] and out[-1][2] > out[0][2]) or \
+                (not out[0][1] and out[-1][2] < out[0][2]):
+            out[0] = out[-1]
+        out.pop()
+    # prominence pruning, persistence-style: repeatedly remove the ADJACENT max/min pair with
+    # the smallest radial gap while that gap is under 2*chord_tol -- removing the pair (not
+    # one member) preserves alternation, and the survivors' own gaps only grow. Rejecting the
+    # whole ring on the first weak extremum instead (the first implementation) threw away
+    # 68% of otherwise-clean synthetic rings over one noise ripple on a flank; pruning keeps
+    # the ring and drops only the ripple.
+    while len(out) >= 4:
+        m = len(out)
+        gaps = [abs(out[i][2] - out[(i + 1) % m][2]) for i in range(m)]
+        i_min = int(np.argmin(gaps))
+        if gaps[i_min] >= 2.0 * chord_tol:
+            break
+        j = (i_min + 1) % m
+        for idx in sorted((i_min, j), reverse=True):
+            out.pop(idx)
+        # removing two neighbours can leave a same-type adjacency; re-collapse it
+        i = 0
+        while len(out) >= 2 and i < len(out):
+            k = (i + 1) % len(out)
+            if k != i and out[i][1] == out[k][1]:
+                if (out[i][1] and out[k][2] > out[i][2]) or \
+                        (not out[i][1] and out[k][2] < out[i][2]):
+                    out[i] = out[k]
+                out.pop(k)
+            else:
+                i += 1
+    if len(out) < 6 or len(out) % 2 != 0:
+        return []
+    return [(float(e[0]), bool(e[1])) for e in out]
+
+
+def _corner_regions(x, pts_xy, order, sigs, perp_signs, m):
+    """Assign each point to a CORNER REGION: region j holds corner `order[j]`'s arc and is
+    bounded by the midpoints of its two adjacent flanks, computed from `x`'s intercept
+    parameters. Returns the per-point region index array, or None when any flank tangent
+    fails to construct (|q| >= 1 -- overlapping seed circles, not this shape class).
+
+    Boundaries at FLANK MIDPOINTS, never at the r(theta) extrema: on an asymmetric corner
+    the curve's extremum is displaced onto the flank (the shallower flank's perpendicular
+    foot, measured 4-6 deg off the arc on the synthetic two-family fixture), so
+    extremum-bounded sectors put real arc/flank pieces into a neighbouring sector whose
+    candidate feature list does not contain them -- points ON the true curve then score
+    phantom residuals (measured: up to 13.1 mm, enough to make the true parameter set lose
+    to a degenerate one). A flank midpoint is the point of the whole curve FARTHEST from
+    both arcs, so region boundaries there tolerate extremum displacement up to half a flank
+    length, and each region needs exactly three candidate features (its arc, its two
+    half-flanks) instead of a widening neighbourhood."""
+    th_pt = np.arctan2(pts_xy[:, 1], pts_xy[:, 0])
+    bounds = np.empty(m)
+    for j in range(m):
+        ka, kb = order[j], order[(j + 1) % m]
+        ca = np.array([x[6 * ka], x[6 * ka + 2]])
+        cb = np.array([x[6 * kb], x[6 * kb + 2]])
+        ra, rb = x[6 * ka + 4], x[6 * kb + 4]
+        d = cb - ca
+        D = float(np.linalg.norm(d))
+        if D < 1e-9:
+            return None
+        dh = d / D
+        q = (sigs[kb] * rb - sigs[ka] * ra) / D
+        if abs(q) >= 1.0:
+            return None
+        sq = math.sqrt(1.0 - q * q)
+        pv = np.array([-dh[1], dh[0]])
+        n = q * dh + perp_signs[j] * sq * pv
+        t_a = ca - sigs[ka] * ra * n
+        t_b = cb - sigs[kb] * rb * n
+        mid = 0.5 * (t_a + t_b)
+        bounds[j] = math.atan2(mid[1], mid[0])
+    bidx = np.argsort(bounds)
+    bsorted = bounds[bidx]
+    pos = (np.searchsorted(bsorted, th_pt, side="right") - 1) % m
+    return (bidx[pos] + 1) % m
+
+
+def _tangent_ring_residuals(x, P, Zc, reg, order, sigs, perp_signs, m):
+    """Distance from each 2D point `P[i]` (at centered height `Zc[i]`) to the bounded
+    piecewise tangent-fillet curve of its corner region: the region's arc (bounded by both
+    of its tangent points) and its two adjacent flank segments, whichever is nearest --
+    evaluated with every corner's (cx, cy, r) linear in z.
+
+    `x`: 6*m parameters, corner k (reference order) at x[6k:6k+6] =
+    (cx0, cx_slope, cy0, cy_slope, r0, r_slope). `reg[i]`: the point's corner region
+    (`_corner_regions` -- boundaries at flank midpoints, see there for why). `order` maps
+    region position to reference corner index. `sigs`: +-1 signed side of each corner's
+    center relative to its flank tangent lines (alternating for a star -- every flank is an
+    internal common tangent). `perp_signs`: which of the two internal tangents is the real
+    flank, per flank (`resolve_signs`' closed-form test).
+
+    Distances are to BOUNDED features (arc clamped to its tangent span, flank clamped to
+    its segment). Bounding is what makes the arc/flank boundary an honest solved unknown:
+    past a tangent point an extended circle hugs the flank only quadratically (d ~ s^2/2r),
+    so at 0.5 mm noise an UNbounded fit could trade ~sqrt(2*r*noise) ~ 5 mm of arc for
+    flank at sub-noise cost -- measured radius walks of several mm in both directions --
+    while bounded endpoints price that trade linearly in s."""
+    def corner(kk):
+        base = 6 * kk
+        cx = x[base] + x[base + 1] * Zc
+        cy = x[base + 2] + x[base + 3] * Zc
+        r = x[base + 4] + x[base + 5] * Zc
+        return np.column_stack([cx, cy]), r
+
+    def flank(flank_idx):
+        """Per-point flank segment for flank index array `flank_idx` (flank j connects
+        region-position j and j+1): clamped-segment distance and both tangent points."""
+        ka = order[flank_idx % m]
+        kb = order[(flank_idx + 1) % m]
+        ca, ra = corner(ka)
+        cb, rb = corner(kb)
+        sa = sigs[ka]
+        sb = sigs[kb]
+        d = cb - ca
+        D = np.maximum(np.linalg.norm(d, axis=1), 1e-12)
+        dh = d / D[:, None]
+        q = np.clip((sb * rb - sa * ra) / D, -1.0, 1.0)
+        sq = np.sqrt(np.maximum(0.0, 1.0 - q * q))
+        perp = np.column_stack([-dh[:, 1], dh[:, 0]])
+        psn = perp_signs[flank_idx % m]
+        nvec = q[:, None] * dh + (psn * sq)[:, None] * perp
+        t_a = ca - (sa * ra)[:, None] * nvec
+        t_b = cb - (sb * rb)[:, None] * nvec
+        seg = t_b - t_a
+        L2 = np.einsum("ij,ij->i", seg, seg)
+        tpar = np.clip(np.einsum("ij,ij->i", P - t_a, seg) / np.maximum(L2, 1e-12),
+                       0.0, 1.0)
+        foot = t_a + tpar[:, None] * seg
+        return np.linalg.norm(P - foot, axis=1), t_a, t_b
+
+    d_fl_prev, _t_pa, t_in = flank(reg - 1)   # incoming flank: its t_b is ON this arc
+    d_fl_next, t_out, _t_nb = flank(reg)      # outgoing flank: its t_a is ON this arc
+
+    k1 = order[reg]
+    c1, r1 = corner(k1)
+
+    def arc_dist(c, r, t_first, t_second):
+        """Radial distance where the point projects inside the arc's span (the wedge
+        between its two tangent radii), else distance to the nearer tangent point. The
+        interior reference direction is the arc's OWN tangent-radius bisector
+        (u1_hat + u2_hat), never the corner's extremum ray: when a corner's r(theta)
+        extremum sits at a flank's perpendicular foot, the extremum ray is COLLINEAR with
+        one tangent radius (measured on the synthetic fixture: side-test cross product
+        0.012 against a point term of -154, a coin flip) and the test misclassified points
+        well inside the arc, costing them a 4.2 mm phantom residual. The bisector is
+        degenerate only for a span of ~pi, which no fillet-sized corner has."""
+        v = P - c
+        nv = np.linalg.norm(v, axis=1)
+        rad = np.abs(nv - r)
+        u1 = t_first - c
+        u2 = t_second - c
+        e = u1 / np.maximum(np.linalg.norm(u1, axis=1), 1e-12)[:, None] \
+            + u2 / np.maximum(np.linalg.norm(u2, axis=1), 1e-12)[:, None]
+        inside = np.ones(len(P), dtype=bool)
+        d_end = np.full(len(P), np.inf)
+        for u_t in (u1, u2):
+            s_ref = u_t[:, 0] * e[:, 1] - u_t[:, 1] * e[:, 0]
+            cr = u_t[:, 0] * v[:, 1] - u_t[:, 1] * v[:, 0]
+            inside &= (cr * s_ref >= 0.0)
+        for t_on in (t_first, t_second):
+            d_end = np.minimum(d_end, np.linalg.norm(P - t_on, axis=1))
+        return np.where(inside, rad, d_end)
+
+    d_arc = arc_dist(c1, r1, t_in, t_out)
+    return np.minimum(d_arc, np.minimum(d_fl_prev, d_fl_next))
+
+
+def _theil_sen_line(z, v):
+    """Median-of-pairwise-slopes linear fit -> (intercept, slope). Robust to the one-sided
+    per-station radius outliers a shallow noisy arc produces (median-based, tolerates ~29%
+    contamination) where sigma-clipped least squares measurably was not."""
+    z = np.asarray(z, dtype=float)
+    v = np.asarray(v, dtype=float)
+    slopes = []
+    for i in range(len(z)):
+        dz = z[i + 1:] - z[i]
+        ok = np.abs(dz) > 1e-9
+        if ok.any():
+            slopes.extend(((v[i + 1:] - v[i])[ok] / dz[ok]).tolist())
+    if not slopes:
+        return float(np.median(v)), 0.0
+    b = float(np.median(slopes))
+    a = float(np.median(v - b * z))
+    return a, b
+
+
+class TaperedFilletModel:
+    """The solved linear-in-z tangent-fillet family: evaluate `fillets_at(z)` to get the
+    ring-ordered fillet list (`center`/`radius`/`t1`/`t2`/`mid`, the same shape
+    `fit_fillet_ring` returns) for `solids._fillet_ring_wire`, or `residuals_at` to measure
+    how well the model explains an independent point set."""
+
+    def __init__(self, x, zmid, ref_th, ref_ismax, sigs, perp_signs, stats):
+        self.x = np.asarray(x, dtype=float)
+        self.zmid = float(zmid)
+        self.ref_th = np.asarray(ref_th, dtype=float)
+        self.ref_ismax = np.asarray(ref_ismax, dtype=bool)
+        self.sigs = np.asarray(sigs, dtype=float)
+        self.perp_signs = np.asarray(perp_signs, dtype=float)
+        self.stats = dict(stats)
+        self.m = len(self.ref_th)
+
+    def _params_at(self, z: float):
+        zc = z - self.zmid
+        m = self.m
+        cs = np.empty((m, 2))
+        rs = np.empty(m)
+        for k in range(m):
+            base = 6 * k
+            cs[k, 0] = self.x[base] + self.x[base + 1] * zc
+            cs[k, 1] = self.x[base + 2] + self.x[base + 3] * zc
+            rs[k] = self.x[base + 4] + self.x[base + 5] * zc
+        return cs, rs
+
+    def fillets_at(self, z: float, min_flank: float = 1e-6):
+        """Ring-ordered (by theta) fillet dicts at height `z`, or None when the evaluated
+        parameters do not form a geometrically valid tangent ring there (a non-positive
+        radius, a tangent construction with no real solution, a vanishing flank, or a
+        degenerate arc) -- the caller treats None as "this rung unavailable"."""
+        m = self.m
+        cs, rs = self._params_at(z)
+        if np.any(rs <= 1e-3):
+            return None
+        order = np.argsort(self.ref_th)
+        tangents = []
+        for j in range(m):
+            k = order[j]
+            kn = order[(j + 1) % m]
+            c1, r1, s1 = cs[k], rs[k], self.sigs[k]
+            c2, r2, s2 = cs[kn], rs[kn], self.sigs[kn]
+            d = c2 - c1
+            D = float(np.linalg.norm(d))
+            if D < 1e-9:
+                return None
+            dh = d / D
+            q = (s2 * r2 - s1 * r1) / D
+            if abs(q) >= 1.0:
+                return None
+            sq = math.sqrt(1.0 - q * q)
+            pv = np.array([-dh[1], dh[0]])
+            n = q * dh + self.perp_signs[j] * sq * pv
+            tangents.append((c1 - s1 * r1 * n, c2 - s2 * r2 * n))
+        fillets = []
+        for j in range(m):
+            k = order[j]
+            t1 = tangents[(j - 1) % m][1]   # previous flank's tangent point ON this circle
+            t2 = tangents[j][0]             # next flank's tangent point ON this circle
+            c, r = cs[k], rs[k]
+            u1 = (t1 - c) / max(np.linalg.norm(t1 - c), 1e-12)
+            u2 = (t2 - c) / max(np.linalg.norm(t2 - c), 1e-12)
+            bis = u1 + u2
+            nb = float(np.linalg.norm(bis))
+            if nb < 1e-9:
+                return None                 # arc spans ~pi: not a fillet-sized corner
+            mid = c + r * (bis / nb)
+            # the flank OUT of this corner must have real length on this wire (a zero-length
+            # flank would drop an edge and break the matched two-wire topology downstream)
+            nt1 = tangents[j][1]
+            if float(np.linalg.norm(nt1 - t2)) < min_flank:
+                return None
+            fillets.append({
+                "center": (float(c[0]), float(c[1])),
+                "radius": float(r),
+                "t1": (float(t1[0]), float(t1[1])),
+                "t2": (float(t2[0]), float(t2[1])),
+                "mid": (float(mid[0]), float(mid[1])),
+            })
+        return fillets
+
+    def residuals_at(self, pts_xy, zs):
+        """Bounded-curve distances of arbitrary points (each at its own z) to the model."""
+        P = np.asarray(pts_xy, dtype=float)
+        Zc = np.asarray(zs, dtype=float) - self.zmid
+        order = np.argsort(self.ref_th)
+        reg = _corner_regions(self.x, P, order, self.sigs, self.perp_signs, self.m)
+        if reg is None:
+            raise ValueError("model flank construction degenerate; no residuals")
+        return _tangent_ring_residuals(self.x, P, Zc, reg, order, self.sigs,
+                                       self.perp_signs, self.m)
+
+
+def fit_tapered_fillet_model(rings, vertices, chord_tol: float,
+                             max_nfev: int = 300):
+    """Fit the linear-in-z tangent-fillet family to a tapered star bore zone.
+
+    `rings`: [(z, pts_Nx2), ...] closed CCW station rings (segmentation + seeding only).
+    `vertices`: (K, 3) mesh vertices already restricted to the bore surface of this zone (the
+    fit data -- see the module comment above for why vertices, not slice points).
+    Returns a `TaperedFilletModel` or None (structure absent / seed failed / solver failed).
+    `model.stats` carries the honest acceptance inputs: conforming-station fraction and the
+    pooled vertex residual rms/p99/max -- the CALLER decides whether they clear its own
+    thresholds; this function only refuses on structural failure, never on accuracy."""
+    from scipy.optimize import least_squares
+    from scipy.sparse import lil_matrix
+
+    if len(rings) < 5 or len(vertices) < 100:
+        return None
+
+    # 1) segmentation vote: the corner count must be a stable property of the zone, not of
+    # one lucky slice. Conforming stations (modal even count) are the seed set.
+    seg = []
+    for z, pts in rings:
+        corners = detect_ring_extrema(pts, chord_tol)
+        seg.append((z, pts, corners))
+    counts = [len(c) for _z, _p, c in seg if c]
+    if not counts:
+        return None
+    m = int(np.bincount(counts).argmax())
+    conforming = [(z, pts, c) for z, pts, c in seg if len(c) == m]
+    frac = len(conforming) / len(rings)
+    if m < 6 or len(conforming) < 5:
+        return None
+
+    # reference corner set: the median conforming station (an interior ring, least likely to
+    # be distorted by an end effect -- the `_pick_best_ring` convention)
+    ref_z, _ref_pts, ref_corners = conforming[len(conforming) // 2]
+    ref_th = np.array([c[0] for c in ref_corners])
+    ref_ismax = np.array([c[1] for c in ref_corners])
+    ext = np.column_stack([np.cos(ref_th), np.sin(ref_th)])
+    order = np.argsort(ref_th)
+    sigs0 = np.where(ref_ismax, 1.0, -1.0)
+
+    zs_conf = np.array([z for z, _p, _c in conforming])
+    zmid = 0.5 * (float(zs_conf.min()) + float(zs_conf.max()))
+
+    def kasa(P):
+        A = np.column_stack([P[:, 0], P[:, 1], np.ones(len(P))])
+        b = P[:, 0] ** 2 + P[:, 1] ** 2
+        sol, *_ = np.linalg.lstsq(A, b, rcond=None)
+        cx, cy = sol[0] / 2.0, sol[1] / 2.0
+        return cx, cy, math.sqrt(max(sol[2] + cx ** 2 + cy ** 2, 1e-12))
+
+    def seed_circles(pts, corners):
+        """One seed circle per corner: consensus circumcircle over a deterministic grid of
+        point TRIPLES from the corner's window, with radius and convexity priors, refit by
+        Kasa on the winner's inliers.
+
+        Two cheaper schemes were tried and measurably fail on an ASYMMETRIC corner (very
+        different neighbouring lobes; synthetic two-family star, 0.2 mm noise): (a) a plain
+        window-Kasa fit -- valley seeds of 135-1000 mm against a truth of 36.5, because the
+        window catches mostly flank points; (b) candidate circles along the extremum ray
+        (center at p_ext +- r*ray, exploiting that a CIRCLE's r(theta) minimum lies on its
+        origin-center line) -- 28.8 mm wrong on the same valleys, because with asymmetric
+        flanks the CURVE's r(theta) extremum is not on the arc at all: it is the
+        perpendicular foot of the shallower flank, ~4 deg away. A bad seed then parks the
+        per-ring LM in the 'chamfer' local minimum (a ~170 mm arc grazing the tangent
+        region) that a local optimizer cannot leave.
+
+        The triple vote has neither failure: a triple drawn fully from the arc reproduces
+        it, while flank-contaminated or flank-only triples give oversized or near-collinear
+        circumcircles that the radius prior (0.6x the corner's own chord scale) and the
+        convexity prior (a tip's center lies radially inside its arc, a valley's outside)
+        reject -- contamination costs candidates rather than biasing a fit. The triple grid
+        is deterministic (spread thirds of the theta-ordered window), never randomized."""
+        th = np.arctan2(pts[:, 1], pts[:, 0])
+        r_all = np.hypot(pts[:, 0], pts[:, 1])
+        band = 2.0 * chord_tol
+        out = []
+        for k in range(m):
+            t0, is_max_k = corners[k]
+            gap_p = (t0 - corners[(k - 1) % m][0]) % (2.0 * math.pi)
+            gap_n = (corners[(k + 1) % m][0] - t0) % (2.0 * math.pi)
+            d = np.abs(((th - t0 + math.pi) % (2.0 * math.pi)) - math.pi)
+            sel = d <= 0.45 * min(gap_p, gap_n)
+            if sel.sum() < 6:
+                return None
+            dw = ((th[sel] - t0 + math.pi) % (2.0 * math.pi)) - math.pi
+            W = pts[sel][np.argsort(dw)]     # theta-ordered: spread indices spread in space
+            near = d <= 0.05 * min(gap_p, gap_n)
+            r_ext = float(np.median(r_all[near])) if near.any() \
+                else float(np.median(r_all[sel]))
+            # corner scale: distance between the adjacent extremum points
+            t_prev = corners[(k - 1) % m][0]
+            t_next = corners[(k + 1) % m][0]
+            near_p = np.abs(((th - t_prev + math.pi) % (2.0 * math.pi)) - math.pi) \
+                <= 0.05 * gap_p
+            near_n = np.abs(((th - t_next + math.pi) % (2.0 * math.pi)) - math.pi) \
+                <= 0.05 * gap_n
+            r_prev = float(np.median(r_all[near_p])) if near_p.any() else r_ext
+            r_next = float(np.median(r_all[near_n])) if near_n.any() else r_ext
+            p0 = np.array([r_ext * math.cos(t0), r_ext * math.sin(t0)])
+            p_prev = np.array([r_prev * math.cos(t_prev), r_prev * math.sin(t_prev)])
+            p_next = np.array([r_next * math.cos(t_next), r_next * math.sin(t_next)])
+            scale = 0.5 * (np.linalg.norm(p_prev - p0) + np.linalg.norm(p_next - p0))
+            r_cap = max(4.0 * chord_tol, 0.6 * scale)
+            n_w = len(W)
+            grid = np.unique(np.linspace(0, n_w - 1, 12).astype(int))
+            third = max(1, len(grid) // 3)
+            best = None
+            for i in grid[:third]:
+                for j in grid[third:2 * third]:
+                    for kk in grid[2 * third:]:
+                        a, b, c = W[i], W[j], W[kk]
+                        den = 2.0 * ((a[0] - c[0]) * (b[1] - c[1])
+                                     - (b[0] - c[0]) * (a[1] - c[1]))
+                        if abs(den) < 1e-9:
+                            continue
+                        ux = ((a[0] ** 2 - c[0] ** 2 + a[1] ** 2 - c[1] ** 2)
+                              * (b[1] - c[1])
+                              - (b[0] ** 2 - c[0] ** 2 + b[1] ** 2 - c[1] ** 2)
+                              * (a[1] - c[1])) / den
+                        uy = ((b[0] ** 2 - c[0] ** 2 + b[1] ** 2 - c[1] ** 2)
+                              * (a[0] - c[0])
+                              - (a[0] ** 2 - c[0] ** 2 + a[1] ** 2 - c[1] ** 2)
+                              * (b[0] - c[0])) / den
+                        cen = np.array([ux, uy])
+                        rc = float(np.linalg.norm(a - cen))
+                        if rc < 2.0 * chord_tol or rc > r_cap:
+                            continue
+                        if is_max_k != (float(np.linalg.norm(cen)) < r_ext):
+                            continue
+                        resid = np.abs(np.linalg.norm(W - cen, axis=1) - rc)
+                        score = int((resid < band).sum())
+                        if best is None or score > best[0]:
+                            best = (score, cen, rc, resid < band)
+            if best is None:
+                return None
+            score, cen, rc, inl = best
+            if score >= 5:
+                cx, cy, R = kasa(W[inl])
+                # a refit that runs away from its own candidate is contaminated after all
+                # -- keep the voted candidate circle instead
+                if not (0.3 * rc <= R <= 3.0 * rc):
+                    cx, cy, R = float(cen[0]), float(cen[1]), float(rc)
+            else:
+                cx, cy, R = float(cen[0]), float(cen[1]), float(rc)
+            out.append((cx, cy, R))
+        return out
+
+    def ring_residual(x, pts, reg, sigs, ps_vec):
+        return _tangent_ring_residuals(x, pts, np.zeros(len(pts)), reg, order, sigs,
+                                       ps_vec, m)
+
+    def resolve_signs(x0, pts):
+        """The remaining discrete convention: one perp sign PER FLANK -- which of the two
+        internal common tangents of its circle pair is the real flank. (The other apparent
+        freedom, a global flip of every `sig`, is redundant: (-sig, -perp) produces the
+        identical line, so `sf` is fixed at +1 and only the perp branch is chosen.)
+
+        A single GLOBAL perp sign is measurably wrong on an asymmetric star: on the
+        synthetic two-family fixture some flanks need the opposite branch, and forcing one
+        branch everywhere corrupted those flank segments and the arc bounds derived from
+        them badly enough that the TRUE parameter set scored a 2.1 mm p99 against its own
+        noise-free curve -- the fit then preferred a wrong small-radius 'chamfer' solution.
+        And choosing per flank by nearest-to-mid-sector-data was fragile against seed error
+        (one mischosen flank cost 1.19 mm rms on the same fixture). The closed-form test
+        needs neither data nor good radii: the true flank's tangent point lies on the ARC's
+        side of its circle -- the outer half of a tip circle, the inner half of a valley
+        (worked example: tip branch tangent points at |t| = 516 vs 437.6 on a circle
+        spanning 437-529; dot(t - c, mid_dir) separates them with margin) -- while the
+        mirrored branch lands on the opposite half. Both endpoints vote; they agree on any
+        remotely sane seed."""
+        ps_vec = np.ones(m)
+        for j in range(m):
+            ka, kb = order[j], order[(j + 1) % m]
+            ca = np.array([x0[6 * ka], x0[6 * ka + 2]])
+            cb = np.array([x0[6 * kb], x0[6 * kb + 2]])
+            ra, rb = x0[6 * ka + 4], x0[6 * kb + 4]
+            d = cb - ca
+            D = max(float(np.linalg.norm(d)), 1e-12)
+            dh = d / D
+            q = float(np.clip((sigs0[kb] * rb - sigs0[ka] * ra) / D, -1.0, 1.0))
+            sq = math.sqrt(max(0.0, 1.0 - q * q))
+            pv = np.array([-dh[1], dh[0]])
+            e_a = ext[ka] * (1.0 if ref_ismax[ka] else -1.0)
+            e_b = ext[kb] * (1.0 if ref_ismax[kb] else -1.0)
+            score = []
+            for cand in (1.0, -1.0):
+                n = q * dh + cand * sq * pv
+                t_a = ca - sigs0[ka] * ra * n
+                t_b = cb - sigs0[kb] * rb * n
+                score.append(float((t_a - ca) @ e_a) + float((t_b - cb) @ e_b))
+            ps_vec[j] = 1.0 if score[0] >= score[1] else -1.0
+        return 1.0, ps_vec
+
+    # 2) per-ring joint fits (intercepts only) on a spread of conforming stations -- these
+    # exist to seed the global stage, so ~20 stations are plenty and keep this stage ~2 s.
+    step = max(1, len(conforming) // 20)
+    seeds_z, seeds_c, seeds_r = [], [], []
+    signs = None
+    intercept_free = np.zeros(6 * m, dtype=bool)
+    intercept_free[0::6] = intercept_free[2::6] = intercept_free[4::6] = True
+    for z, pts, corners in conforming[::step]:
+        th_c = np.array([c[0] for c in corners])
+        circ = seed_circles(pts, corners)
+        if circ is None:
+            continue
+        # correspondence: this station's corner nearest (mod 2*pi) each reference corner --
+        # valid because this bore class does not twist (the ruled loft has no rotation term;
+        # a collision, i.e. two reference corners claiming one local corner, drops the ring)
+        idx = []
+        for k in range(m):
+            d = np.abs(((th_c - ref_th[k] + math.pi) % (2.0 * math.pi)) - math.pi)
+            idx.append(int(np.argmin(d)))
+        if len(set(idx)) != m:
+            continue
+        x0 = np.zeros(6 * m)
+        for k in range(m):
+            cx, cy, R = circ[idx[k]]
+            x0[6 * k], x0[6 * k + 2], x0[6 * k + 4] = cx, cy, R
+        if signs is None:
+            signs = resolve_signs(x0, pts)
+            if signs is None:
+                return None
+        sf, ps_vec = signs
+        # region assignment from this ring's own seeds, fixed for the whole LM solve --
+        # boundaries at flank midpoints move negligibly over an LM's parameter walk
+        reg_ring = _corner_regions(x0, pts, order, sigs0 * sf, ps_vec, m)
+        if reg_ring is None:
+            continue
+
+        def res_free(xf, _x0=x0, _pts=pts, _reg=reg_ring):
+            xx = _x0.copy()
+            xx[intercept_free] = xf
+            return ring_residual(xx, _pts, _reg, sigs0 * sf, ps_vec)
+
+        # radius intercepts bounded positive: the tangent formula only ever uses sig*r, so
+        # a NEGATIVE radius mimics the mirror-signed corner -- a parasitic solution the
+        # residual barely penalizes (the vanished arc's points get absorbed by the two
+        # flanks' extended segments at a shallow corner; measured on the synthetic blend
+        # fixture, one valley converged to r = -33.06 with the pooled rms unchanged).
+        # Bounding r >= 2*chord_tol removes that basin; a fillet under 2*chord_tol is below
+        # the tessellation's own resolution and unrecoverable regardless.
+        lb = np.full(intercept_free.sum(), -np.inf)
+        lb[2::3] = 2.0 * chord_tol       # free vector is [cx0, cy0, r0] per corner
+        try:
+            sol = least_squares(res_free, np.maximum(x0[intercept_free],
+                                np.where(np.isfinite(lb), lb + 1e-9, -np.inf)),
+                                bounds=(lb, np.inf), method="trf",
+                                x_scale="jac", ftol=1e-9, xtol=1e-9, max_nfev=120)
+        except Exception:
+            continue
+        xr = x0.copy()
+        xr[intercept_free] = sol.x
+        seeds_z.append(z)
+        seeds_c.append(np.column_stack([xr[0::6], xr[2::6]]))
+        seeds_r.append(xr[4::6])
+    if len(seeds_z) < 5 or signs is None:
+        return None
+    sf, ps_vec = signs
+    sigs = sigs0 * sf
+    perp_signs = np.asarray(ps_vec, dtype=float)
+    seeds_z = np.array(seeds_z)
+    seeds_c = np.array(seeds_c)
+    seeds_r = np.array(seeds_r)
+
+    # 3) Theil-Sen the per-ring intercepts into a linear-in-z warm start
+    x0 = np.empty(6 * m)
+    for k in range(m):
+        for j, series in enumerate((seeds_c[:, k, 0], seeds_c[:, k, 1], seeds_r[:, k])):
+            a, b = _theil_sen_line(seeds_z - zmid, series)
+            x0[6 * k + 2 * j] = a
+            x0[6 * k + 2 * j + 1] = b
+
+    # 4) the global solve, on vertices. Region assignment comes from the warm start and is
+    # fixed for the solve (boundaries sit at flank midpoints -- half a flank of margin).
+    V = np.asarray(vertices, dtype=float)
+    P = V[:, :2].copy()
+    Zc = V[:, 2] - zmid
+    reg = _corner_regions(x0, P, order, sigs, perp_signs, m)
+    if reg is None:
+        return None
+
+    # sparsity: a residual sees its region's corner and both neighbours (the two flanks)
+    k_prev = order[(reg - 1) % m]
+    k_own = order[reg]
+    k_next = order[(reg + 1) % m]
+    S = lil_matrix((len(P), 6 * m), dtype=np.uint8)
+    for kk in range(m):
+        rows = np.where((k_prev == kk) | (k_own == kk) | (k_next == kk))[0]
+        for col in range(6):
+            S[rows, 6 * kk + col] = 1
+
+    # Feasibility barriers, appended as extra residual rows. A shallow valley's radius is
+    # weakly identified (its miter offset is f*(1/sin_h - 1) ~ 0.016*f at ~160 deg interior
+    # angles, so tens of mm of radius move the curve by ~0.1 mm), and unconstrained the
+    # solver parks such radii anywhere in the noise-equivalence class -- measured on the
+    # synthetic blend fixture: a valley slope that ran r(z) NEGATIVE 400 mm inside the
+    # fitted span, and 'chamfer' solutions whose r_a + r_b exceeded the center distance so
+    # the internal tangent stopped existing; either way `fillets_at` later refuses a wire
+    # the data never disqualified. The barriers keep the whole fitted span constructible --
+    # r(z) >= 2*chord_tol and (r_a + r_b) <= 0.95 * D at both span ends -- while costing
+    # exactly nothing wherever the data already decides (they are zero off the boundary).
+    # The 10x weight makes a 1 mm violation cost 10 mm of residual, dominating noise.
+    z_ends = (float(zs_conf.min()) - zmid, float(zs_conf.max()) - zmid)
+    pen_w = 10.0
+
+    def feasibility_pen(x):
+        pens = np.empty(2 * (m + m))
+        i = 0
+        for z_e in z_ends:
+            r_e = x[4::6] + x[5::6] * z_e
+            for k in range(m):
+                pens[i] = pen_w * max(0.0, 2.0 * chord_tol - r_e[k])
+                i += 1
+            cx_e = x[0::6] + x[1::6] * z_e
+            cy_e = x[2::6] + x[3::6] * z_e
+            for j in range(m):
+                ka, kb = order[j], order[(j + 1) % m]
+                D = math.hypot(cx_e[kb] - cx_e[ka], cy_e[kb] - cy_e[ka])
+                pens[i] = pen_w * max(0.0, (r_e[ka] + r_e[kb]) - 0.95 * D)
+                i += 1
+        return pens
+
+    def global_residual(x):
+        return np.concatenate([
+            _tangent_ring_residuals(x, P, Zc, reg, order, sigs, perp_signs, m),
+            feasibility_pen(x)])
+
+    # sparsity rows for the barriers: each depends on its corner pair's parameters
+    n_pen = 4 * m
+    S_full = lil_matrix((len(P) + n_pen, 6 * m), dtype=np.uint8)
+    S_full[: len(P)] = S
+    row = len(P)
+    for z_e in z_ends:
+        for k in range(m):
+            S_full[row, 6 * k + 4] = 1
+            S_full[row, 6 * k + 5] = 1
+            row += 1
+        for j in range(m):
+            for kk in (order[j], order[(j + 1) % m]):
+                for col in range(6):
+                    S_full[row, 6 * kk + col] = 1
+            row += 1
+
+    # positive-radius hard bound as in the per-ring stage (the sign-flip parasitic basin --
+    # see there); the intercept is r at zmid, so this pins every radius positive mid-span
+    # and the barriers extend that to the span ends.
+    lb = np.full(6 * m, -np.inf)
+    lb[4::6] = 2.0 * chord_tol
+    x0 = np.maximum(x0, np.where(np.isfinite(lb), lb + 1e-9, -np.inf))
+    try:
+        sol = least_squares(global_residual, x0, jac_sparsity=S_full.tocsr(),
+                            method="trf", bounds=(lb, np.inf), x_scale="jac",
+                            ftol=1e-10, xtol=1e-10, max_nfev=max_nfev)
+    except Exception:
+        return None
+    res = np.abs(sol.fun[: len(P)])   # data rows only -- the barriers are not residuals
+    stats = dict(
+        n_corners=m,
+        conforming_frac=float(frac),
+        n_seed_rings=int(len(seeds_z)),
+        n_vertices=int(len(P)),
+        rms=float(np.sqrt(np.mean(res ** 2))),
+        p99=float(np.percentile(res, 99)),
+        max=float(res.max()),
+    )
+    return TaperedFilletModel(sol.x, zmid, ref_th, ref_ismax, sigs, perp_signs, stats)

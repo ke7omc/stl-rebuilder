@@ -2235,9 +2235,11 @@ def _prepare_loft_rings(bore_rings, z_lo: float, z_hi: float, eps_lo: float, eps
     # formula is measurably better on every deviation statistic the scorer reports, all three
     # from full M16 scoring runs: max 1.391 -> 0.894 mm (gate 1.0, i.e. fail -> pass), global p99
     # 0.4477 -> 0.376 (gate 0.4, fail -> pass), star_zone p99 0.4878 -> 0.412 (gate 0.4, still
-    # failing). The cap is raised rather than removed because M is not a free dial upward -- see
-    # the tessellation-lottery note in `build_ring_loft_solid` for why, and why the remaining
-    # star_zone miss is NOT closable by turning M up further.
+    # failing at the time). The cap is raised rather than removed because M is not a free dial
+    # upward -- see the tessellation-lottery note in `build_ring_loft_solid` for why. (The
+    # star_zone miss that survived this fix was never closable through M at all; it was closed
+    # by the analytic `loft_arcs` rung, which bypasses this resample entirely -- this path now
+    # runs only as that rung's fallback.)
     M = int(min(1024, max(128, 64 * max(n_probe, 1))))
 
     sections = []
@@ -2533,6 +2535,186 @@ def _build_ring_loft_bore(bore_rings, z_lo: float, z_hi: float, eps_lo: float, e
     raise RuntimeError("ring loft: neither smooth nor ruled surface gave a plausible solid")
 
 
+def _select_bore_surface_vertices(mesh, bore_rings, z_lo: float, z_hi: float,
+                                  chord_tol: float):
+    """Mesh vertices lying ON the bore surface of the zone `[z_lo, z_hi]` -- the fit data for
+    `fitting.fit_tapered_fillet_model`. Vertices, not slice points, because slice points lie
+    on facet CHORDS, displaced one-sidedly toward the local curvature center by up to the
+    tessellation sagitta (~chord_tol) exactly where the fillet arcs are; measured on M16 this
+    biased every slice-fit tip arc 0.35-0.44 mm inward, while the mesh's own vertices lie on
+    the tessellated surface itself and fit to rms 0.020 mm.
+
+    Selection is against the measured station rings' own r(theta) profile, interpolated in
+    both theta and z (star-shaped cross-sections are single-valued in r(theta); see the
+    profile-construction comment below for how, and for why a non-star ring is caught
+    downstream rather than here): a vertex is kept when its own radius is within `band` of
+    the profile interpolated at its (z, theta). The z window is inset 2*chord_tol from the zone
+    boundaries so boundary-plane vertices (an event wall, a flat cap -- populated at exactly
+    z_lo/z_hi) never enter; outside the stations' own z span the band widens by the profile's
+    measured per-z drift so the taper's continuation is kept without admitting the outer
+    envelope (>= tens of mm away for any part that is not burned through)."""
+    # The profile grid is filled by interpolating r(theta) over each ring's own theta-sorted
+    # points (with wraparound padding), NOT by binning: ring points are uniform in ARC
+    # LENGTH, and on a star that concentrates them at the fillets (curvature-dense
+    # tessellation) leaving multi-degree theta gaps along the flanks -- measured on M16,
+    # ~500-point rings left 43-55% of even a matched-count bin grid empty. r(theta) along a
+    # straight flank is rho/cos(theta-psi), smooth enough that linear interpolation across
+    # those gaps errs well under a millimetre against the 10*chord_tol acceptance band. A
+    # multivalued r(theta) (a non-star-shaped ring) makes the interpolated profile
+    # meaningless, but such a ring cannot pass the downstream fit's own segmentation and
+    # residual gates, so this shape-class assumption is checked where it matters.
+    n_bins = 512
+    grid = -math.pi + (np.arange(n_bins) + 0.5) * (2.0 * math.pi / n_bins)
+    zs = np.array([z for z, _r in bore_rings], dtype=float)
+    prof = np.empty((len(bore_rings), n_bins))
+    for i, (_z, ring) in enumerate(bore_rings):
+        pts = np.asarray(ring.coords)[:-1]
+        th = np.arctan2(pts[:, 1], pts[:, 0])
+        r = np.hypot(pts[:, 0], pts[:, 1])
+        order = np.argsort(th)
+        th_s = th[order]
+        r_s = r[order]
+        th_pad = np.concatenate([[th_s[-1] - 2.0 * math.pi], th_s,
+                                 [th_s[0] + 2.0 * math.pi]])
+        r_pad = np.concatenate([[r_s[-1]], r_s, [r_s[0]]])
+        prof[i] = np.interp(grid, th_pad, r_pad)
+    drift = (np.abs(np.diff(prof, axis=0)).max(axis=1)
+             / np.maximum(np.abs(np.diff(zs)), 1e-9)) if len(zs) > 1 else np.array([0.0])
+    slope = float(np.percentile(drift, 95)) if len(drift) else 0.0
+
+    V = np.asarray(mesh.vertices, dtype=float)
+    z_in_lo, z_in_hi = z_lo + 2.0 * chord_tol, z_hi - 2.0 * chord_tol
+    sel = (V[:, 2] > z_in_lo) & (V[:, 2] < z_in_hi)
+    if not sel.any():
+        return None
+    W = V[sel]
+    th_v = np.arctan2(W[:, 1], W[:, 0])
+    r_v = np.hypot(W[:, 0], W[:, 1])
+    # bilinear (theta within the grid, then z between stations): nearest-bin alone errs by
+    # ~dr/dtheta * half a bin -- up to ~5 mm on a steep star flank at this grid pitch, i.e.
+    # the whole acceptance band
+    jf = (th_v - grid[0]) / (2.0 * math.pi / n_bins)
+    j0 = np.floor(jf).astype(int) % n_bins
+    j1 = (j0 + 1) % n_bins
+    fr = jf - np.floor(jf)
+    zi = np.clip(np.searchsorted(zs, W[:, 2]) - 1, 0, max(len(zs) - 2, 0))
+    if len(zs) > 1:
+        t = np.clip((W[:, 2] - zs[zi]) / np.maximum(zs[zi + 1] - zs[zi], 1e-9), 0.0, 1.0)
+        r_lo = prof[zi, j0] * (1.0 - fr) + prof[zi, j1] * fr
+        r_hi = prof[zi + 1, j0] * (1.0 - fr) + prof[zi + 1, j1] * fr
+        r_ref = r_lo * (1.0 - t) + r_hi * t
+    else:
+        r_ref = prof[0, j0] * (1.0 - fr) + prof[0, j1] * fr
+    out_gap = np.maximum(zs.min() - W[:, 2], 0.0) + np.maximum(W[:, 2] - zs.max(), 0.0)
+    band = 10.0 * chord_tol + slope * out_gap
+    keep = np.abs(r_v - r_ref) <= band
+    if not keep.any():
+        return None
+    return W[keep]
+
+
+def _build_arc_fillet_loft_bore(bore_rings, z_lo: float, z_hi: float, eps_lo: float,
+                                eps_hi: float, chord_tol: float,
+                                bore_radius: float = None, mesh=None):
+    """Rung 3's PREFERRED construction (attempted before `_build_ring_loft_bore`): recover the
+    zone's tangent-fillet family (`fitting.fit_tapered_fillet_model` -- all m arcs and m
+    flanks of every station solved jointly, linear in z) and emit a two-wire ruled arc/line
+    loft (`solids.build_tapered_fillet_loft_solid`). Returns the solid, or None whenever this
+    zone is not cleanly of that shape class -- the caller then falls back to the B-spline
+    ring loft exactly as before, so nothing this rung cannot represent regresses.
+
+    Why: the B-spline ring loft's ONE remaining failure mode is OCCT's tessellation lottery
+    on its degree-8 periodic faces (`build_ring_loft_solid`'s KNOWN LIMIT note) -- the
+    structural fix recorded there is to emit analytic arcs and lines, the way the truth
+    solids are built, since those tessellate exactly. Measured on M16: the fitted model
+    explains the mesh's own bore vertices to rms 0.020 mm / p99 0.084 / max 0.195 (15131
+    vertices), against an input-STL-vs-truth floor of p99 0.372 -- and two model wires loft
+    into a 42-face valid solid whose volume (2.2719e9) matches the section stack's trapezoid
+    integral (2.2718e9) to 0.01%.
+
+    Acceptance is measured, not hoped: the pooled vertex residual must clear p99 <= chord_tol
+    and max <= 4*chord_tol (measured at 0.17x and 0.10x of those thresholds on M16 --
+    comfortable,
+    but a zone whose taper is genuinely nonlinear in z, or whose corners the segmentation
+    cannot vote on, lands far outside and falls back), at least 60% of stations must agree on
+    the corner count, and both end wires must construct as valid tangent rings. When
+    `bore_radius` is given (a circular cutter seams against this zone) and the model's own
+    sections come within the 4*chord_tol snap band of that circle, this rung refuses -- the
+    B-spline path implements the seam snap and stays the honest choice there."""
+    if mesh is None or len(bore_rings) < 5:
+        return None
+    bore_rings = sorted(bore_rings, key=lambda p: p[0])
+    verts = _select_bore_surface_vertices(mesh, bore_rings, z_lo, z_hi, chord_tol)
+    if verts is None or len(verts) < 200:
+        return None
+    if len(verts) > 60_000:
+        # A dense (M13-class multi-million-triangle) mesh can put hundreds of thousands of
+        # vertices in the zone; 60k already over-determines 6*m parameters by ~500x, and the
+        # solver's per-iteration cost is linear in the residual count. Deterministic
+        # (seeded) uniform subsample -- never a z- or theta-window, which would bias the fit.
+        rng = np.random.default_rng(0)
+        verts = verts[rng.choice(len(verts), 60_000, replace=False)]
+    rings_ccw = [(z, _ring_winding_ccw(np.asarray(r.coords))) for z, r in bore_rings]
+    model = fitting.fit_tapered_fillet_model(rings_ccw, verts, chord_tol)
+    if model is None:
+        return None
+    st = model.stats
+    if st["conforming_frac"] < 0.6 or st["p99"] > chord_tol or st["max"] > 4.0 * chord_tol:
+        return None
+
+    z_target_lo = z_lo - eps_lo
+    z_target_hi = z_hi + eps_hi
+    fillets_lo = model.fillets_at(z_target_lo)
+    fillets_hi = model.fillets_at(z_target_hi)
+    if fillets_lo is None or fillets_hi is None:
+        return None
+
+    if bore_radius is not None:
+        r_min = min(min(math.hypot(*f["mid"]) for f in fl)
+                    for fl in (fillets_lo, fillets_hi))
+        if r_min < bore_radius + 4.0 * chord_tol:
+            return None
+
+    try:
+        shape = solids.build_tapered_fillet_loft_solid(z_target_lo, fillets_lo,
+                                                       z_target_hi, fillets_hi)
+    except Exception:
+        return None
+
+    # The same two independent plausibility screens `_build_ring_loft_bore` runs, against the
+    # RAW measured rings (this rung never resamples): a bounding-box envelope with a
+    # data-derived margin, and a volume band around the station stack's trapezoid integral
+    # (loose 0.25x-4x because `_solid_volume` is the fast default-epsilon call -- 36%
+    # integration error measured on a correct solid -- and because the cutter legitimately
+    # extends past the station span to its boolean overshoot targets).
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
+
+    zs_r = np.array([z for z, _p in rings_ccw], dtype=float)
+    areas = np.array([_ring_area(p) for _z, p in rings_ccw], dtype=float)
+    expected = float(np.trapezoid(areas, zs_r))
+    pts_all = np.vstack([p for _z, p in rings_ccw]
+                        + [np.array([f["mid"] for f in fillets_lo]),
+                           np.array([f["mid"] for f in fillets_hi])])
+    env_margin = 4.0 * chord_tol + max(
+        [0.0] + [float(np.abs(np.array([p.min(axis=0), p.max(axis=0)])
+                              - np.array([q.min(axis=0), q.max(axis=0)])).max())
+                 for (_za, p), (_zb, q) in zip(rings_ccw, rings_ccw[1:])])
+    box = Bnd_Box()
+    BRepBndLib.Add_s(shape, box)
+    xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
+    if xmin < pts_all[:, 0].min() - env_margin or xmax > pts_all[:, 0].max() + env_margin \
+            or ymin < pts_all[:, 1].min() - env_margin \
+            or ymax > pts_all[:, 1].max() + env_margin \
+            or zmin < z_target_lo - env_margin or zmax > z_target_hi + env_margin:
+        return None
+    if expected > 0.0:
+        actual = abs(_solid_volume(shape))
+        if not (0.25 * expected <= actual <= 4.0 * expected):
+            return None
+    return shape
+
+
 def _build_tapered_bore_cutter(bore_rings, z_lo: float, z_hi: float, eps_lo: float,
                                eps_hi: float, chord_tol: float, bore_radius: float = None,
                                mesh=None):
@@ -2541,9 +2723,10 @@ def _build_tapered_bore_cutter(bore_rings, z_lo: float, z_hi: float, eps_lo: flo
     paths (M4/M13-style, `circ_before`/its else branch) and the pure-ring path (§3.2's old
     `_build_bore_prism_or_loft`, now called directly since it had no `bore_radius` to snap to
     and nothing else to specialize). Returns `(solid, path)` where `path` is `"prism"`,
-    `"loft_proportional"`, or `"loft_rings"` -- honest reporting of which rung actually fired,
-    extending the existing `paths_used` plumbing (the Round-2 review's recorded gap: it never
-    reported `loft`).
+    `"loft_proportional"`, `"loft_arcs"` (rung 3's analytic tangent-fillet loft,
+    `_build_arc_fillet_loft_bore`) or `"loft_rings"` (rung 3's B-spline fallback) -- honest
+    reporting of which rung actually fired, extending the existing `paths_used` plumbing
+    (the Round-2 review's recorded gap: it never reported `loft`).
 
     Deliberately NOT wired into `_fuse_sandwich_bore` (M5/M8's sandwich rung) -- tried and
     reverted (this commit): the plan assumed that zone would measure as axially constant and
@@ -2566,9 +2749,15 @@ def _build_tapered_bore_cutter(bore_rings, z_lo: float, z_hi: float, eps_lo: flo
     2. Proportional loft (area varies, shape doesn't -- M6): `_build_proportional_bore_loft`,
        gated by `_check_proportional_scaling`'s new acceptance test. Only a validated uniform
        scaling is trusted here; a shape that scales non-uniformly falls through to rung 3.
-    3. Actual-rings loft (§4, `_build_ring_loft_bore`): loft through every station's own
-       resampled ring. On any construction/validity failure, falls back to rung 2's own result
-       (never crash) -- matching the fallback-ladder convention `_build_slot_wedges`/
+    3. Actual-rings loft (§4), in two constructions tried in order: (a) the analytic
+       tangent-fillet loft (`_build_arc_fillet_loft_bore`, path `"loft_arcs"`) -- the joint
+       per-zone arc+flank fit emitting exact-tessellating arc/line faces, which is the
+       structural fix for the B-spline surface's tessellation lottery (see
+       `build_ring_loft_solid`'s KNOWN LIMIT note); it refuses any zone that is not cleanly
+       a tapering tangent-fillet star, then (b) the B-spline ring loft
+       (`_build_ring_loft_bore`, path `"loft_rings"`) through every station's own resampled
+       ring. On any construction/validity failure, falls back to rung 2's own result (never
+       crash) -- matching the fallback-ladder convention `_build_slot_wedges`/
        `_build_slot_lobes` already use elsewhere in this module.
     """
     bore_rings = sorted(bore_rings, key=lambda p: p[0])
@@ -2584,6 +2773,19 @@ def _build_tapered_bore_cutter(bore_rings, z_lo: float, z_hi: float, eps_lo: flo
     if prop_ok:
         return prop_solid, "loft_proportional"
 
+    try:
+        # Rung 3 prefers the analytic arc/line construction (`_build_arc_fillet_loft_bore`):
+        # exact-tessellating faces, the structural fix for the B-spline ring loft's
+        # tessellation lottery (see `build_ring_loft_solid`'s KNOWN LIMIT note). It refuses
+        # (returns None) on any zone that is not cleanly a tapering tangent-fillet star --
+        # measured acceptance gates on the fit itself, never a forced answer.
+        arcs_solid = _build_arc_fillet_loft_bore(bore_rings, z_lo, z_hi, eps_lo, eps_hi,
+                                                 chord_tol, bore_radius=bore_radius,
+                                                 mesh=mesh)
+    except Exception:
+        arcs_solid = None
+    if arcs_solid is not None:
+        return arcs_solid, "loft_arcs"
     try:
         # `_build_ring_loft_bore` already tries both surface rungs (smooth then ruled) and
         # validates plausibility internally (BRepCheck_Analyzer is not sufficient on its own --
@@ -4779,7 +4981,7 @@ def _rebuild_impl(args) -> int:
                 # selector was tried and reverted there; it still sets `bore_path_used` to the
                 # constant `"prism"` for reporting consistency, just without going through the
                 # selector to get there). It is honest, not just present-or-not: "prism"/"loft_proportional"/
-                # "loft_rings" says which rung fired, replacing the old blanket "mixed"/"prism"
+                # "loft_arcs"/"loft_rings" says which rung fired, replacing the old blanket "mixed"/"prism"
                 # strings that never distinguished a prism from a loft (the Round-2 review's
                 # recorded gap). Falls back to the old strings only when the wedge/lobe
                 # decomposition path fired instead (it never touches the tapered selector).
